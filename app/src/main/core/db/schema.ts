@@ -577,6 +577,72 @@ export const jorvisPaneEvents = sqliteTable(
 export type JorvisPaneEventRow = typeof jorvisPaneEvents.$inferSelect;
 export type JorvisPaneEventInsert = typeof jorvisPaneEvents.$inferInsert;
 
+// Phase 20 P1a — Jorvis mission board. Migration 0039_missions owns the DDL;
+// these Drizzle tables mirror it. LOCAL-ONLY — not in the sync allowlist.
+export const missions = sqliteTable(
+  'missions',
+  {
+    id: text('id').primaryKey(),
+    title: text('title').notNull(),
+    goal: text('goal').notNull(),
+    origin: text('origin', { enum: ['local', 'telegram', 'external', 'autonomous'] }).notNull(),
+    clientLabel: text('client_label'),
+    workspaceId: text('workspace_id'),
+    status: text('status', { enum: ['draft', 'active', 'paused', 'done', 'failed', 'cancelled'] })
+      .notNull()
+      .default('draft'),
+    report: text('report'),
+    createdAt: integer('created_at').notNull().default(sql`(unixepoch() * 1000)`),
+    updatedAt: integer('updated_at').notNull().default(sql`(unixepoch() * 1000)`),
+  },
+  (t) => ({ missionsStatusIdx: index('missions_status_idx').on(t.status) }),
+);
+
+export const missionTasks = sqliteTable(
+  'mission_tasks',
+  {
+    id: text('id').primaryKey(),
+    missionId: text('mission_id').notNull(),
+    title: text('title').notNull(),
+    spec: text('spec').notNull().default(''),
+    status: text('status', {
+      enum: ['backlog', 'dispatched', 'working', 'reviewing', 'needs_input', 'done', 'blocked'],
+    })
+      .notNull()
+      .default('backlog'),
+    assigneeSessionId: text('assignee_session_id'),
+    worktreePath: text('worktree_path'),
+    attempt: integer('attempt').notNull().default(0),
+    orderIdx: integer('order_idx').notNull().default(0),
+    createdAt: integer('created_at').notNull().default(sql`(unixepoch() * 1000)`),
+    updatedAt: integer('updated_at').notNull().default(sql`(unixepoch() * 1000)`),
+  },
+  (t) => ({
+    missionTasksMissionStatusIdx: index('mission_tasks_mission_status_idx').on(t.missionId, t.status),
+    missionTasksAssigneeIdx: index('mission_tasks_assignee_idx').on(t.assigneeSessionId),
+  }),
+);
+
+export const missionEvents = sqliteTable(
+  'mission_events',
+  {
+    id: text('id').primaryKey(),
+    missionId: text('mission_id').notNull(),
+    taskId: text('task_id'),
+    kind: text('kind').notNull(),
+    body: text('body'),
+    ts: integer('ts').notNull().default(sql`(unixepoch() * 1000)`),
+  },
+  (t) => ({ missionEventsMissionTsIdx: index('mission_events_mission_ts_idx').on(t.missionId, t.ts) }),
+);
+
+export type MissionRow = typeof missions.$inferSelect;
+export type MissionInsert = typeof missions.$inferInsert;
+export type MissionTaskRow = typeof missionTasks.$inferSelect;
+export type MissionTaskInsert = typeof missionTasks.$inferInsert;
+export type MissionEventRow = typeof missionEvents.$inferSelect;
+export type MissionEventInsert = typeof missionEvents.$inferInsert;
+
 // Phase — V3-W14-006 — Sigma Canvas persistence.
 // Migration 0007_canvases owns the DDL; these Drizzle tables mirror it so the
 // design controller stays end-to-end typed.

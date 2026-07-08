@@ -44,6 +44,7 @@ import * as mig0035 from './migrations/0035_agent_sessions_runtime_profile';
 import * as mig0036 from './migrations/0036_agent_sessions_name';
 import * as mig0037 from './migrations/0037_agent_sessions_closed_at';
 import * as mig0038 from './migrations/0038_os_notify_default_on';
+import * as mig0039 from './migrations/0039_missions';
 
 export interface Migration {
   name: string;
@@ -98,6 +99,7 @@ export const ALL_MIGRATIONS: Migration[] = [
   mig0036,
   mig0037,
   mig0038,
+  mig0039,
 ];
 
 const SCHEMA_MIGRATIONS_DDL = `
