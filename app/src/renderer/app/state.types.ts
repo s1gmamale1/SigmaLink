@@ -47,7 +47,12 @@ export type RoomId =
   | 'git'
   // BSP-O3 — Automations dashboard (Telegram remote + nightly digest).
   // Global room: reachable without an active workspace.
-  | 'automations';
+  | 'automations'
+  // P1a Task 6 — Jorvis Persistent Operator mission board. NOT a global room:
+  // missions are viewable per the normal room switch like tasks/review/git,
+  // even though a mission itself may be workspace-scoped or global
+  // (workspace_id null) at the data layer.
+  | 'missions';
 
 /**
  * Rooms that are NOT workspace-scoped. These must never be persisted into
