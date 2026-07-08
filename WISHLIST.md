@@ -30,6 +30,10 @@ _(real upgrades to build once the current system is production-grade)_
 
 _(raw ideas land here; promote to ROADMAP.md once scoped into a phase)_
 
+### Jorvis P1b mission autonomy — parked review notes (2026-07-08)
+
+- 🐞 **[low][missions] a bad-provider `dispatch_task` still moves the task to `dispatched` with a dead session id** — `executeLaunchPlan` returns a synthetic `error-*` session (no throw) for an unknown provider; `dispatch_task` then links + moves to `dispatched` exactly like a real launch, distinguishable only via the best-effort echo's `ok:false`. Mirrors `launch_pane`'s pre-existing pattern (`tools.ts` `session.status!=='error'`), but `dispatch_task` is the first to drive persistent board-state off it — a supervisor could mark a task in-flight against a dead pane. Fix: on `session.status==='error'`, don't move the task to `dispatched` (leave it `backlog`/`blocked`) + append an error event. Effort: S. (b-rev-t1, P1b T1 review.)
+
 ### Jorvis P1a mission board — parked final-review minors (2026-07-08, Phase 20 first slice)
 
 _Opus whole-branch review: READY, all findings Minor/OK-TO-PARK. The two it recommended logging:_
