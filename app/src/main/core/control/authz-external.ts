@@ -48,6 +48,14 @@ export const EXTERNAL_ESCALATE_TOOLS: ReadonlySet<string> = new Set([
   'kill_swarm',
   'open_url',
   'stop_pane',
+  // Phase 20 P1a — mission-board MUTATIONS. The board is operator-owned state
+  // with no mediated external plane until P3; an external agent may attempt a
+  // board change but the operator approves it. The read (`mission_board`) is
+  // free (perception, like get_app_state). P3's mission plane will refine this.
+  'create_mission',
+  'add_mission_task',
+  'move_mission_task',
+  'complete_mission',
 ]);
 
 /** Tools whose danger depends on the TARGET pane's provider (agent vs shell). */

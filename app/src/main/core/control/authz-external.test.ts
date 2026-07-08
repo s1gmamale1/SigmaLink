@@ -45,7 +45,7 @@ describe('classifyExternal', () => {
     // Task 6c: open_url escalates (weaker SSRF/agentDriving guard than browser_navigate but still navigates).
     // Task 6d: stop_pane escalates (kills a pane's process — operator must approve; "recoverable" is not
     //          sufficient justification for a remote agent to kill a human's running pane unprompted).
-    expect([...EXTERNAL_ESCALATE_TOOLS].sort()).toEqual(['browser_navigate', 'close_pane', 'close_workspace', 'kill_swarm', 'open_url', 'stop_pane']);
+    expect([...EXTERNAL_ESCALATE_TOOLS].sort()).toEqual(['add_mission_task', 'browser_navigate', 'close_pane', 'close_workspace', 'complete_mission', 'create_mission', 'kill_swarm', 'move_mission_task', 'open_url', 'stop_pane']);
     expect([...PROVIDER_GATED_TOOLS].sort()).toEqual(['prompt_agent', 'send_keys']);
     expect([...AGENT_PROVIDERS].sort()).toEqual(['claude', 'codex', 'gemini', 'kimi', 'opencode']);
   });
@@ -95,6 +95,13 @@ describe('classifyExternal', () => {
     resume_swarm: 'free',
     kill_swarm: 'escalate',
     check_escalation: 'free',
+    // Phase 20 P1a — mission board. Mutations escalate (operator-owned state, no
+    // mediated external plane until P3); the read is free perception.
+    create_mission: 'escalate',
+    add_mission_task: 'escalate',
+    move_mission_task: 'escalate',
+    complete_mission: 'escalate',
+    mission_board: 'free',
   };
 
   it('every externally-exposed catalogue tool has a pinned, intended verdict', () => {
@@ -132,6 +139,9 @@ describe('classifyExternal', () => {
     'close_workspace', 'stop_pane', 'split_pane', 'set_pane_minimised', 'set_pane_display_provider',
     'rename_workspace', 'detach_window', 'redock_window', 'send_message_to_agent', 'resume_swarm',
     'kill_swarm', 'browser_navigate', 'browser_snapshot', 'check_escalation',
+    // Phase 20 P1a — mission board tools are externally discoverable (not deny-listed);
+    // mutations escalate, the read is free (see EXPECTED_VERDICT).
+    'create_mission', 'add_mission_task', 'mission_board', 'move_mission_task', 'complete_mission',
   ]);
 
   it('isExternallyListed filters catalogue to the pinned external-safe set (fail-closed guard)', () => {
