@@ -72,7 +72,7 @@ function nextEventTs(): number {
   return lastEventTs;
 }
 
-function appendEvent(
+export function appendEvent(
   missionId: string,
   taskId: string | null,
   kind: string,
