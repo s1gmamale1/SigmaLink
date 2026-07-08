@@ -46,6 +46,8 @@ The Jorvis Persistent Operator arc (Phases 19–22, sequenced below, do in order
 
 ## Phase 20 — Jorvis P1: mission core (kanban + supervisor loop)
 
+> 🟡 **P1a (data layer) SHIPPED in PR #224 `bf103f4` (2026-07-08)** — mission tables (mig 0039) · pure state machine · DAO (guarded moveTask + rollup) · 5 board tools (+ external authz: mutations escalate, read free) · `missions.*` RPC + `missions:changed` · read-only Missions room · VALID_ROOMS compile-time exhaustiveness class-kill. Opus gates: whole-branch READY (axes 93-97) + sigma-check GREEN (~93.8), CI 6/6. Plan `app/docs/superpowers/plans/2026-07-08-jorvis-p1a-mission-board.md`. **P1b (the autonomy — `dispatch_task` pane launches, supervisor loop, wake scheduler, stub-CLI e2e) remains; the DoD below is P1b's.** Owed operator smoke: create a mission via jorvis chat → cards populate the Missions room live.
+
 **Goal.** The operator hands Jorvis a natural-language goal; Jorvis decomposes it onto a kanban board, dispatches worktree-isolated panes, and drives them to done/blocked without per-step human involvement.
 
 **Deliverables.**
