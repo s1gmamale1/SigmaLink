@@ -105,4 +105,40 @@ describe('dispatch_task tool', () => {
     ).rejects.toThrow(/mission task not found/);
     expect(executeLaunchPlanMock).not.toHaveBeenCalled();
   });
+
+  // Review fix (P1b T1) — a task already in-flight ('working') must never be
+  // re-dispatched: no pane spawn, no clobbered assignee/worktree. Before the
+  // fix this sequence spawned a REAL pane, overwrote assigneeSessionId (
+  // orphaning whoever was actually working the task), and only THEN threw.
+  it('refuses to dispatch a task already in "working" status — no pane spawn, no clobbered assignee', async () => {
+    const mission = missionsDao.createMission({ title: 't', goal: 'g', origin: 'local', workspaceId: 'ws-1' });
+    const task = missionsDao.addTask({ missionId: mission.id, title: 'a', spec: 'spec' });
+    missionsDao.moveTask(task.id, 'dispatched');
+    missionsDao.linkTaskToPane(task.id, 'sess-original', '/wt/original');
+    missionsDao.moveTask(task.id, 'working');
+
+    await expect(
+      findTool('dispatch_task')!.handler({ taskId: task.id }, makeCtx()),
+    ).rejects.toThrow(/cannot dispatch task in status 'working'/);
+
+    expect(executeLaunchPlanMock).not.toHaveBeenCalled();
+    const reread = missionsDao.getTask(task.id);
+    expect(reread?.status).toBe('working');
+    expect(reread?.assigneeSessionId).toBe('sess-original');
+    expect(reread?.worktreePath).toBe('/wt/original');
+  });
+
+  // Minor (review) — the workspace-resolution failure path also short-circuits
+  // before any launch: no mission workspace, no default workspace, no explicit
+  // workspaceRoot arg.
+  it('throws before launch when no workspace can be resolved', async () => {
+    const mission = missionsDao.createMission({ title: 't', goal: 'g', origin: 'local' }); // no workspaceId
+    const task = missionsDao.addTask({ missionId: mission.id, title: 'a', spec: 'spec' });
+
+    await expect(
+      findTool('dispatch_task')!.handler({ taskId: task.id }, makeCtx({ defaultWorkspaceId: null })),
+    ).rejects.toThrow(/cannot resolve a workspace/);
+
+    expect(executeLaunchPlanMock).not.toHaveBeenCalled();
+  });
 });
