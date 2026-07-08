@@ -2702,14 +2702,15 @@ async function buildRouter() {
   // DAO at all, so a disabled install spends zero DB writes and zero model
   // turns on pane events.
   const missionSupervisor = createSupervisor({
-    // assistant.send requires a workspaceId even when conversationId is
-    // supplied — it's only actually used if the conversation turns out to
-    // need (re-)creating. Resolve it off the conversation row the
-    // supervisor itself already created via ensureMissionConversation,
-    // which always carries a real workspaceId (the mission's own, or the
-    // supervisor's GLOBAL_WORKSPACE_ID sentinel) — so this is a lookup, not
-    // a guess. The literal fallback below only matters if that row were
-    // ever missing (it can't be, in the supervisor's own call order).
+    // assistant.send requires a non-empty workspaceId on EVERY call (it's
+    // read both to (re-)create a missing conversation AND to anchor the
+    // turn's .mcp.json root — controller.ts uses it unconditionally). Resolve
+    // it off the conversation row the supervisor itself already created via
+    // ensureMissionConversation, which always carries a real workspaceId (the
+    // mission's own, or the supervisor's GLOBAL_WORKSPACE_ID sentinel) — so
+    // this is a lookup, not a guess. The literal fallback below only matters
+    // if that row were ever missing (it can't be, in the supervisor's own
+    // call order); it duplicates supervisor.ts's private sentinel string.
     runTurn: async (input) => {
       const conv = getConversation(input.conversationId);
       return (
