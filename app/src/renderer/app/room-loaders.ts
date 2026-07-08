@@ -78,6 +78,11 @@ export const ROOM_LOADERS: Partial<Record<RoomId, RoomImport>> = {
     import('@/renderer/features/automations/AutomationsRoom').then((m) => ({
       default: m.AutomationsRoom,
     })),
+  // P1a Task 6 — Jorvis Persistent Operator mission board.
+  missions: () =>
+    import('@/renderer/features/missions/MissionsRoom').then((m) => ({
+      default: m.MissionsRoom,
+    })),
 };
 
 /**

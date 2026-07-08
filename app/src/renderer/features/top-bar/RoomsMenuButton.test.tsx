@@ -39,6 +39,7 @@ describe('ROOMS_MENU_ITEMS', () => {
     // ROOMS_MENU_ITEMS is the single source of truth for the room menu.
     // C-12 added the SigmaBench room after Skills.
     // BSP-O3 added the Automations room after Settings.
+    // P1a Task 6 added the Missions room after Jorvis.
     expect(ids).toEqual([
       'workspaces',
       'command',
@@ -51,6 +52,7 @@ describe('ROOMS_MENU_ITEMS', () => {
       'skills',
       'sigmabench',
       'jorvis',
+      'missions',
       'settings',
       'automations',
     ]);

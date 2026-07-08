@@ -663,6 +663,54 @@ export interface TaskComment {
   createdAt: number;
 }
 
+// ── Mission board (Jorvis Persistent Operator, Phase 20) ────────────────────
+export type MissionOrigin = 'local' | 'telegram' | 'external' | 'autonomous';
+export type MissionStatus = 'draft' | 'active' | 'paused' | 'done' | 'failed' | 'cancelled';
+export type MissionTaskStatus =
+  | 'backlog'
+  | 'dispatched'
+  | 'working'
+  | 'reviewing'
+  | 'needs_input'
+  | 'done'
+  | 'blocked';
+
+export interface Mission {
+  id: string;
+  title: string;
+  goal: string;
+  origin: MissionOrigin;
+  clientLabel: string | null;
+  workspaceId: string | null;
+  status: MissionStatus;
+  report: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface MissionTask {
+  id: string;
+  missionId: string;
+  title: string;
+  spec: string;
+  status: MissionTaskStatus;
+  assigneeSessionId: string | null;
+  worktreePath: string | null;
+  attempt: number;
+  orderIdx: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface MissionEvent {
+  id: string;
+  missionId: string;
+  taskId: string | null;
+  kind: string;
+  body: string | null;
+  ts: number;
+}
+
 // ──────────────────────────────────────────────────────────────────────────
 // Notifications (v1.4.9 #07) — top-right bell.
 // Cross-process shape; the manager owns the DB persistence and dedup logic.

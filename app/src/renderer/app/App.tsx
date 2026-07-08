@@ -70,6 +70,8 @@ const SigmaBenchRoom = lazy(ROOM_LOADERS.sigmabench!);
 const GitRoom = lazy(ROOM_LOADERS.git!);
 // BSP-O3 — Automations dashboard (Telegram remote + nightly digest).
 const AutomationsRoom = lazy(ROOM_LOADERS.automations!);
+// P1a Task 6 — Jorvis Persistent Operator mission board.
+const MissionsRoom = lazy(ROOM_LOADERS.missions!);
 
 // Lightweight placeholder rendered while a lazy room module is downloading.
 // A calm centered spinner on the theme surface — NOT a full-bleed `bg-accent`
@@ -152,6 +154,9 @@ function RoomSwitch() {
       break;
     case 'automations':
       body = <AutomationsRoom />;
+      break;
+    case 'missions':
+      body = <MissionsRoom />;
       break;
     default:
       body = null;

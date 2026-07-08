@@ -8,6 +8,7 @@ import {
   Gauge,
   GitBranch,
   Globe,
+  Kanban,
   LayoutGrid,
   Network,
   Settings,
@@ -38,6 +39,8 @@ export const ROOMS_MENU_ITEMS: readonly RoomMenuItem[] = [
   { id: 'skills', label: 'Skills', icon: Wand2 },
   { id: 'sigmabench', label: 'SigmaBench', icon: Gauge },
   { id: 'jorvis', label: 'Jorvis', icon: Bot },
+  // P1a Task 6 — Jorvis Persistent Operator mission board.
+  { id: 'missions', label: 'Missions', icon: Kanban },
   { id: 'settings', label: 'Settings', icon: Settings },
   // BSP-O3 — Automations dashboard. Global (no workspace required).
   { id: 'automations', label: 'Automations', icon: Zap },

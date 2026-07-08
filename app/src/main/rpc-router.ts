@@ -116,6 +116,7 @@ import { buildReviewController } from './core/review/controller';
 import { TasksManager } from './core/tasks/manager';
 import { buildTasksController } from './core/tasks/controller';
 import { buildKvController } from './core/db/kv-controller';
+import * as missionsDao from './core/missions/dao';
 import { buildAssistantController } from './core/assistant/controller';
 import { McpHostSigma, type ToolInvoker } from './core/assistant/mcp-host-sigma';
 import { ControlMcpHost, type ExternalToolInvoker } from './core/control/control-mcp-host';
@@ -2536,6 +2537,20 @@ async function buildRouter() {
       }
     },
   });
+  // P1a Task 5 — mission board read RPC. Pure DAO passthrough; every write
+  // runs through the assistant's mission tools (Task 4), which already emit
+  // `missions:changed` via `ctx.emit` (routed through the `broadcast` below
+  // by the assistant controller's `emit` wrapper further down this function).
+  const missionsCtl = defineController({
+    list: async (input: { workspaceId?: string }) => missionsDao.listMissions({ workspaceId: input?.workspaceId }),
+    get: async (input: { missionId: string }) => ({
+      mission: missionsDao.getMission(input.missionId),
+      tasks: missionsDao.listTasks(input.missionId),
+      events: missionsDao.listEvents(input.missionId),
+    }),
+    events: async (input: { missionId: string; limit?: number }) =>
+      missionsDao.listEvents(input.missionId, input.limit),
+  });
   // R-1 — Telegram bridge taps `assistant:state` here so a remote operator
   // sees the same streamed reply. The assistant `emit` wrapper below fans out
   // to this set; the bridge subscribes/unsubscribes on start()/stop().
@@ -2930,6 +2945,7 @@ async function buildRouter() {
     review: reviewCtl,
     tasks: tasksCtl,
     kv: kvCtl,
+    missions: missionsCtl,
     assistant: assistantCtl,
     design: designCtl,
     voice: voiceCtl,

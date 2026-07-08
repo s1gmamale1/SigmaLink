@@ -46,6 +46,9 @@ import type {
   UsageSummary,
   UsageWeekSummary,
   McpDiagnostic,
+  Mission,
+  MissionTask,
+  MissionEvent,
 } from './types';
 import type { AgentRuntimeProfileId } from './runtime-profiles';
 import type { PlanCapsule } from './plan-capsule';
@@ -733,6 +736,22 @@ export interface AppRouter {
       body: string;
     }) => Promise<TaskComment>;
     removeComment: (commentId: string) => Promise<void>;
+  };
+  /**
+   * Mission board (Phase 20, P1a Task 5) — read RPC over the DAO (Task 3).
+   * `workspaceId` omitted on `list` returns every mission incl. global
+   * (null-workspace) ones — no forced filter. Mutations run only through the
+   * assistant's mission tools (Task 4), which emit `missions:changed` after
+   * every write; this namespace is read-only.
+   */
+  missions: {
+    list: (input: { workspaceId?: string }) => Promise<Mission[]>;
+    get: (input: { missionId: string }) => Promise<{
+      mission: Mission | null;
+      tasks: MissionTask[];
+      events: MissionEvent[];
+    }>;
+    events: (input: { missionId: string; limit?: number }) => Promise<MissionEvent[]>;
   };
   // ────────────────────────────────────────────────────────────────────────
   // V3-W12-017 — placeholder shapes. Bodies are filled in W13/W14/W15:
