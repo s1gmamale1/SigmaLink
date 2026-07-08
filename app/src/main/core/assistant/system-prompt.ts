@@ -106,6 +106,22 @@ Escalation tools (external-control non-blocking approval flow):
                       (pending / approved / denied / expired). Call after receiving
                       status:'needs_approval', then re-issue the original tool call
                       once the status is 'approved'.
+
+Mission board tools (board data only — dispatching a task to a worktree pane
+is a separate, not-yet-available capability):
+  create_mission      { title, goal, workspaceId? }
+                      Create a mission on the board (starts in draft).
+  add_mission_task    { missionId, title, spec? }
+                      Append a task to a mission's backlog.
+  mission_board       { missionId? }
+                      With missionId: that mission + its tasks + recent events.
+                      Without one: list every mission. The "look at the board" tool.
+  move_mission_task   { taskId, status }
+                      Move a task to a new board status (backlog/dispatched/
+                      working/reviewing/needs_input/done/blocked). Throws on
+                      an illegal transition.
+  complete_mission    { missionId, report }
+                      Mark a mission done and attach its final report.
 `;
 // PROMPT-INJECTION RESIDUAL: browser_snapshot returns raw page text which may
 // contain crafted instructions targeting the model (e.g. "IGNORE PREVIOUS
