@@ -30,6 +30,15 @@ _(real upgrades to build once the current system is production-grade)_
 
 _(raw ideas land here; promote to ROADMAP.md once scoped into a phase)_
 
+### Jorvis P1a mission board — parked final-review minors (2026-07-08, Phase 20 first slice)
+
+_Opus whole-branch review: READY, all findings Minor/OK-TO-PARK. The two it recommended logging:_
+
+- **[missions/perf] `refreshMissions` has no monotonic-token guard / debounce** — `app/src/renderer/features/missions/use-missions.ts` list refetches on every `missions:changed` unguarded (board hydrate IS token-guarded). Bounded by real mutation count (reads never emit — no feedback loop), so safe today; a P1b supervisor emitting bursts should add a debounce or token. Effort: S. (m-rev-final.)
+- **[missions/security] `mission_board` is a FREE external read** — an external MCP client can read every mission goal/report (conscious call: perception like `get_app_state`; worktreePath always null in P1a). Revisit at P3 when the mediated external mission plane lands — likely scope reads to the client's own submitted missions. Effort: S–M. (m-rev-final.)
+- 🧹 **[nit][test] `RoomsMenuButton` test title says "13-room" but asserts 14** — stale title string, assertion correct. Effort: XS.
+- 🧹 **[nit][test] P1a component coverage thin** — `MissionList`/`MissionDetail`/`MissionsRoom` are untested presentational components (hook + board are covered); add cases in P1b when they gain behavior. Effort: S.
+
 ### Jorvis tool-arg coercion #223 — parked gate minors (2026-07-08)
 
 _Operator live smoke on merged P0 caught strict-zod rejecting LLM quoted primitives (`count:"2"`, `allWorkspaces:"true"`); fixed at the `T()` parse choke point in PR #223 `9603893` (gate GREEN 95). Three XS follow-ups parked by the gate reviewer:_
