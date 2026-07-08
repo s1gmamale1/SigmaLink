@@ -83,10 +83,13 @@ export function runRefreshOnEvent(
 }
 
 // BUG-V1.1.2-02 — Runtime mirror of the `RoomId` union so the session-restore
-// handler can narrow an incoming string before dispatching SET_ROOM. Adding a
-// room here is a one-line edit; failing to add one means the restore silently
-// drops back to 'workspaces' for that pane — never a crash.
-const VALID_ROOMS: ReadonlySet<RoomId> = new Set<RoomId>([
+// handler can narrow an incoming string before dispatching SET_ROOM. This
+// mirror drifted THREE times ('git', 'sigmabench', then 'missions' in P1a) —
+// each time the restore silently fell back to 'workspaces'. The list is now
+// typed so the drift is a COMPILE error: `satisfies` proves every element is
+// a RoomId, and the `MissingRoom` assertion below proves every RoomId is an
+// element. Add a room to the union without adding it here and tsc fails.
+const VALID_ROOMS_LIST = [
   'workspaces',
   'command',
   'swarm',
@@ -98,13 +101,20 @@ const VALID_ROOMS: ReadonlySet<RoomId> = new Set<RoomId>([
   'skills',
   'jorvis',
   'settings',
-  // BSP-O3 — Automations room. Also backfilling 'git' + 'sigmabench', which
-  // were missing from this runtime mirror and silently fell back to
-  // 'workspaces' on session-restore (same one-line-edit bug class).
   'git',
   'sigmabench',
   'automations',
-]);
+  // Phase 20 P1a — Missions room.
+  'missions',
+] as const satisfies readonly RoomId[];
+
+// Exhaustiveness tripwire: if a RoomId union member is absent from the list
+// above, `MissingRoom` is non-never and this assignment fails to compile.
+type MissingRoom = Exclude<RoomId, (typeof VALID_ROOMS_LIST)[number]>;
+const _assertAllRoomsListed: MissingRoom extends never ? true : never = true;
+void _assertAllRoomsListed;
+
+const VALID_ROOMS: ReadonlySet<RoomId> = new Set<RoomId>(VALID_ROOMS_LIST);
 
 export function isRoomId(value: unknown): value is RoomId {
   return typeof value === 'string' && VALID_ROOMS.has(value as RoomId);
