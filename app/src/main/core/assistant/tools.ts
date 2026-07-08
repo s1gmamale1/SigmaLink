@@ -65,10 +65,14 @@ export interface ToolContext {
    * tool call. `'local'` is the in-app operator (full trust, unchanged
    * behaviour); `'telegram'` is the remote Jorvis bridge, which must clear the
    * authorization gate in `invokeAssistantTool` before any DANGEROUS_REMOTE
-   * tool runs. Defaults to `'local'` everywhere so every existing caller keeps
-   * working without change.
+   * tool runs. `'autonomous'` (P1b Task 4) is the mission supervisor's
+   * model-in-the-loop wake, gated identically to `'telegram'` — mirrors
+   * `ToolOrigin` in `controller.ts` (kept in sync there; no handler reads
+   * this field today, but the type must not silently narrow what the gate
+   * already allows through). Defaults to `'local'` everywhere so every
+   * existing caller keeps working without change.
    */
-  origin?: 'local' | 'telegram' | 'external';
+  origin?: 'local' | 'telegram' | 'external' | 'autonomous';
   /**
    * R-1 — confirm-on-dangerous hook. Supplied by the remote bridge so the
    * authorization gate can ask the human operator to approve a dangerous tool

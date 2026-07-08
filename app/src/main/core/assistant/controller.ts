@@ -136,8 +136,11 @@ interface ActiveTurn {
  * R-1 (Jorvis Telegram remote) — provenance of a turn / tool call.
  * `'local'` (default) = in-app operator, full trust. `'telegram'` = remote
  * bridge, gated through `confirmDangerous` for DANGEROUS_REMOTE tools.
+ * `'autonomous'` (P1b Task 4) = the mission supervisor's model-in-the-loop
+ * wake — an unattended turn, so it shares telegram's DANGEROUS_REMOTE gate
+ * rather than local's full trust.
  */
-export type ToolOrigin = 'local' | 'telegram' | 'external';
+export type ToolOrigin = 'local' | 'telegram' | 'external' | 'autonomous';
 
 /**
  * R-1 — confirm-on-dangerous callback (cross-lane contract). Resolve `true` to
@@ -240,14 +243,16 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
       recordTrace({ ...traceBase, args: input?.args ?? {}, ok: false, result: null, error: err });
       return { ok: false, result: null, error: err };
     }
-    // R-1 (Jorvis Telegram remote) — authorization gate. Remote-origin calls to
-    // DANGEROUS_REMOTE tools (`prompt_agent`, which writes raw bytes into a live
-    // PTY; `close_pane`, which kills a pane) require explicit human
-    // confirmation. Local-origin calls
-    // are NOT gated — in-app operator behaviour is unchanged. Free + contained
-    // tools always pass through here (containment is enforced inside the tool
-    // handlers themselves, for every origin).
-    if (origin === 'telegram' && DANGEROUS_REMOTE.has(tool.id)) {
+    // R-1 (Jorvis Telegram remote) — authorization gate. Remote/unattended-origin
+    // calls to DANGEROUS_REMOTE tools (`prompt_agent`, which writes raw bytes into
+    // a live PTY; `close_pane`, which kills a pane) require explicit human
+    // confirmation. Local-origin calls are NOT gated — in-app operator behaviour
+    // is unchanged. Free + contained tools always pass through here (containment
+    // is enforced inside the tool handlers themselves, for every origin).
+    // P1b Task 4 — `'autonomous'` (the mission supervisor's model-in-the-loop
+    // wake) shares this exact branch: it is unattended just like telegram, so a
+    // DANGEROUS_REMOTE call it makes needs the same human confirmation.
+    if ((origin === 'telegram' || origin === 'autonomous') && DANGEROUS_REMOTE.has(tool.id)) {
       const args = input?.args ?? {};
       let approved = false;
       try {
@@ -430,7 +435,9 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
        * R-1 (Jorvis Telegram remote) — who started this turn. `'local'`
        * (default) is the in-app operator; `'telegram'` is the remote bridge,
        * whose DANGEROUS_REMOTE tool calls are gated through `confirmDangerous`.
-       * Every existing caller omits this and keeps full-trust local behaviour.
+       * P1b Task 4 — `'autonomous'` is the mission supervisor's model-in-the-loop
+       * wake, gated identically to `'telegram'`. Every existing caller omits
+       * this and keeps full-trust local behaviour.
        */
       origin?: ToolOrigin;
       /**
@@ -445,7 +452,8 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
       if (typeof input?.prompt !== 'string') {
         throw new Error('assistant.send: prompt required');
       }
-      const origin: ToolOrigin = input.origin === 'telegram' ? 'telegram' : 'local';
+      const origin: ToolOrigin =
+        input.origin === 'telegram' ? 'telegram' : input.origin === 'autonomous' ? 'autonomous' : 'local';
       const confirmDangerous = input.confirmDangerous;
       let conversationId = input.conversationId ?? null;
       if (conversationId && !getConversation(conversationId)) conversationId = null;
