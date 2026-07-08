@@ -906,6 +906,15 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
   'tasks.listComments': stub,
   'tasks.addComment': stub,
   'tasks.removeComment': stub,
+  // P1a Task 5 — mission board read RPC (list/get/events over the Task-3 DAO).
+  'missions.list': { input: z.object({ workspaceId: z.string().max(200).optional() }) },
+  'missions.get': { input: z.object({ missionId: z.string().min(1).max(200) }) },
+  'missions.events': {
+    input: z.object({
+      missionId: z.string().min(1).max(200),
+      limit: z.number().int().positive().max(1000).optional(),
+    }),
+  },
   // ── notifications (v1.4.9 #07) ────────────────────────────────────────
   'notifications.list': stub,
   'notifications.unreadCount': stub,

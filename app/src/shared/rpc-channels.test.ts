@@ -238,6 +238,10 @@ const TYPED_ROUTER_CHANNELS: ReadonlyArray<string> = [
   // kv (kvCtl — from buildKvController)
   'kv.get',
   'kv.set',
+  // missions (missionsCtl — from missionsDao, P1a Task 5 mission board)
+  'missions.list',
+  'missions.get',
+  'missions.events',
   // assistant (assistantCtl — from buildAssistantController)
   'assistant.send',
   'assistant.list',
@@ -608,6 +612,17 @@ describe('CHANNELS vs AppRouter cross-reference (v1.5.3-B)', () => {
    */
   it('agent:attention is in EVENTS allowlist', () => {
     expect(EVENTS.has('agent:attention')).toBe(true);
+  });
+
+  /**
+   * P1a Task 5 — the 5 mission-board tools (Task 4) already `ctx.emit?.(
+   * 'missions:changed', {})` on every mutating call. Without an EVENTS entry
+   * the preload's eventOn silently no-ops the renderer's (Task 6) subscription
+   * — the same #188 dead-control-plane class the two source-scan guards below
+   * exist to catch.
+   */
+  it('missions:changed is in EVENTS allowlist', () => {
+    expect(EVENTS.has('missions:changed')).toBe(true);
   });
 
   /**

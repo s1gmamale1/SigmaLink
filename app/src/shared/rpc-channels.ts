@@ -235,6 +235,10 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'tasks.listComments',
   'tasks.addComment',
   'tasks.removeComment',
+  // Mission board (Phase 20, P1a Task 5) — read RPC over the DAO built in Task 3.
+  'missions.list',
+  'missions.get',
+  'missions.events',
   // V3-W12-017 — Sigma Assistant (W13 fills bodies)
   'assistant.send',
   'assistant.list',
@@ -434,6 +438,10 @@ export const EVENTS: ReadonlySet<string> = new Set<string>([
   'git:checkpoints-changed',
   'review:run-output',
   'tasks:changed',
+  // P1a Task 4/5 — mission board. Every mutating mission tool (create_mission,
+  // add_mission_task, move_mission_task, complete_mission) already emits this
+  // via `ctx.emit`; the renderer's (Task 6) Missions room refetches on receipt.
+  'missions:changed',
   // V3-W12-017 — Operator Console + Bridge + Design + Voice events
   'swarm:counters',
   'swarm:ledger',
