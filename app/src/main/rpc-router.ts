@@ -2638,7 +2638,14 @@ async function buildRouter() {
   // ahead receive `invoker not wired` and the CLI retries on the next
   // turn — but in practice the CLI doesn't dial in until a user prompt
   // lands, by which point the bridge + invoker are fully wired.
-  resolvedToolInvoker = assistantBundle.invokeTool;
+  // P1b Task 4b (security fix) — the Jorvis-host socket carries no origin
+  // (mcp-host-sigma.ts's `ToolInvoker` type is `{conversationId?, name,
+  // args}` only — the child process has no way to know it). Wiring the
+  // plain `invokeTool` here let origin silently default to 'local', so the
+  // DANGEROUS_REMOTE gate never fired for MCP-executed tool calls on a
+  // telegram- or autonomous-origin turn. `invokeToolForConversation`
+  // resolves origin off the live turn for the conversation instead.
+  resolvedToolInvoker = assistantBundle.invokeToolForConversation;
   // External Control MCP uses the SAME invoker but as the origin+confirmDangerous-
   // aware signature (assistantBundle.invokeTool accepts origin/confirmDangerous).
   resolvedExternalInvoker = assistantBundle.invokeTool as unknown as ExternalToolInvoker;

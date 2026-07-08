@@ -130,6 +130,15 @@ interface ActiveTurn {
   conversationId: string;
   turnId: string;
   cancelled: boolean;
+  /**
+   * P1b Task 4b — the turn's provenance + confirm hook, captured at `send()`
+   * time. `invokeToolForConversation` reads these off the live turn so a
+   * tool call arriving over the MCP-host socket (which carries no origin —
+   * see mcp-host-sigma.ts's `ToolInvoker` type) is gated exactly like the
+   * stdout `dispatchTool` path instead of silently defaulting to `'local'`.
+   */
+  origin: ToolOrigin;
+  confirmDangerous?: ConfirmDangerous;
 }
 
 /**
@@ -175,6 +184,28 @@ export interface AssistantController {
     confirmDangerous?: ConfirmDangerous;
     /** Task 4 — label of the external client (used to key one-shot grants). */
     clientLabel?: string;
+  }) => Promise<{ ok: boolean; result: unknown; error?: string }>;
+  /**
+   * P1b Task 4b (security fix) — the invoker wired to `McpHostSigma`'s
+   * `resolveInvoker()`. The Claude CLI executes its registered MCP tools
+   * over the unix socket, which only ever carries `{conversationId, name,
+   * args}` — no origin (the child process has no way to know it). Calling
+   * the plain `invokeTool` above from that path let `origin` default to
+   * `'local'`, so the DANGEROUS_REMOTE gate never fired for a telegram- or
+   * autonomous-origin turn's MCP-executed tool calls.
+   *
+   * This resolves origin (+ confirmDangerous) by looking up the LIVE turn
+   * for `input.conversationId` — the P0.1 concurrent-turn guard guarantees
+   * at most one live turn per conversation, so that lookup is unambiguous —
+   * and re-dispatches through the same gated `invokeAssistantTool` path.
+   * No live turn for the conversationId (direct RPC, tests, a straggler
+   * socket call after the turn finished) falls back to `origin:'local'`,
+   * preserving today's full-trust behaviour for that non-turn path.
+   */
+  invokeToolForConversation: (input: {
+    conversationId?: string;
+    name: string;
+    args: Record<string, unknown>;
   }) => Promise<{ ok: boolean; result: unknown; error?: string }>;
 }
 
@@ -425,6 +456,28 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
     }
   };
 
+  /**
+   * P1b Task 4b (security fix) — see the `AssistantController` interface
+   * doc comment. Resolves origin + confirmDangerous from the live turn for
+   * `input.conversationId` (P0.1 guarantees at most one), then dispatches
+   * through the same gated `invokeAssistantTool` every other path uses.
+   */
+  const invokeToolForConversation = async (input: {
+    conversationId?: string;
+    name: string;
+    args: Record<string, unknown>;
+  }): Promise<{ ok: boolean; result: unknown; error?: string }> => {
+    const liveTurnId = input.conversationId ? liveTurnByConversation.get(input.conversationId) : undefined;
+    const turn = liveTurnId ? activeTurns.get(liveTurnId) : undefined;
+    return invokeAssistantTool({
+      conversationId: input.conversationId,
+      name: input.name,
+      args: input.args,
+      origin: turn?.origin ?? 'local',
+      confirmDangerous: turn?.confirmDangerous,
+    });
+  };
+
   const controller = defineController({
     send: async (input: {
       workspaceId: string;
@@ -475,7 +528,10 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
       // spawn. Everything from here to the async IIFE is synchronous except the
       // scan, and a sync throw releases the slot in the catch below.
       const turnId = randomUUID();
-      const turn: ActiveTurn = { conversationId, turnId, cancelled: false };
+      // P1b Task 4b — carry origin + confirmDangerous onto the turn record so
+      // invokeToolForConversation (the MCP-host socket path) can resolve them
+      // by conversationId instead of defaulting to 'local'.
+      const turn: ActiveTurn = { conversationId, turnId, cancelled: false, origin, confirmDangerous };
       activeTurns.set(turnId, turn);
       liveTurnByConversation.set(conversationId, turnId);
       try {
@@ -925,7 +981,7 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
       return matches;
     },
   });
-  return { controller, invokeTool: invokeAssistantTool };
+  return { controller, invokeTool: invokeAssistantTool, invokeToolForConversation };
 }
 
 /**
