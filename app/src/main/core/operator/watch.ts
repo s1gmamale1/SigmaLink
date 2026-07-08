@@ -57,13 +57,22 @@ export function createMissionWatcher(deps: MissionWatcherDeps): MissionWatcher {
       // re-appending the event or re-enqueuing the wake.
       if (task.status !== 'working' && task.status !== 'dispatched') continue;
 
+      // In the real dispatch flow PtyRegistry.spawn fires the 'started' event
+      // SYNCHRONOUSLY, before dispatch_task's linkTaskToPane runs — so the
+      // task↔session link doesn't exist yet and the started→working move
+      // above is a guaranteed miss. The task is therefore still `dispatched`,
+      // not `working`, when the terminal event arrives; `dispatched →
+      // reviewing` is illegal, so chain through `working` first. One
+      // try/catch covers the whole sequence (including appendEvent/enqueue)
+      // so nothing — a DB throw, a throwing DI'd enqueue — escapes the sink.
       try {
+        if (task.status === 'dispatched') missionsDao.moveTask(task.id, 'working');
         missionsDao.moveTask(task.id, 'reviewing');
+        missionsDao.appendEvent(task.missionId, task.id, 'task_awaiting_review');
+        enqueue('review', task.missionId, task.id);
       } catch {
-        continue; // racing/illegal transition — skip the append + enqueue too
+        continue; // racing/illegal transition, or a throwing dep — swallow it
       }
-      missionsDao.appendEvent(task.missionId, task.id, 'task_awaiting_review');
-      enqueue('review', task.missionId, task.id);
     }
   }
 

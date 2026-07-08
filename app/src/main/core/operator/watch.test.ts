@@ -102,4 +102,35 @@ describe('createMissionWatcher', () => {
     ).not.toThrow();
     expect(dao.getTask(task.id)?.status).toBe('done'); // unchanged
   });
+
+  // Review finding (Critical): in the REAL dispatch flow, PtyRegistry.spawn
+  // fires 'started' synchronously and returns BEFORE dispatch_task's
+  // linkTaskToPane runs, so 'started' never finds the link and the task sits
+  // at `dispatched` when the terminal event arrives — not `working`. This is
+  // the realistic production sequence the tests above (which fire 'started'
+  // first) invert.
+  it('a terminal event on a still-dispatched task (no started fired) reaches reviewing', () => {
+    const { mission, task } = setupMission(); // status: dispatched, linked
+    const enqueue = vi.fn();
+    const watcher = createMissionWatcher({ enqueue, isEnabled: () => true });
+    watcher.onPaneEvent({ sessionId: 'sess-1', kind: 'exited', exitCode: 0 });
+    expect(dao.getTask(task.id)?.status).toBe('reviewing');
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    expect(enqueue).toHaveBeenCalledWith('review', mission.id, task.id);
+    const kinds = dao.listEvents(mission.id).map((e) => e.kind);
+    expect(kinds).toContain('task_awaiting_review');
+  });
+
+  it('a throwing enqueue never escapes onPaneEvent', () => {
+    const { task } = setupMission();
+    dao.moveTask(task.id, 'working');
+    const enqueue = vi.fn(() => {
+      throw new Error('scheduler blew up');
+    });
+    const watcher = createMissionWatcher({ enqueue, isEnabled: () => true });
+    expect(() =>
+      watcher.onPaneEvent({ sessionId: 'sess-1', kind: 'exited' }),
+    ).not.toThrow();
+    expect(enqueue).toHaveBeenCalledTimes(1);
+  });
 });
