@@ -40,10 +40,24 @@
 // SupervisorDeps (not optional) — rpc-router.ts always has `controlKv`
 // in scope at the createSupervisor call site, so there is no legitimate
 // caller without a KV backing.
+//
+// P2 Task 6 (D4) — wake-time memory recall. Before building either
+// directive this module recalls up to 5 memories relevant to the mission
+// (plus the task, for a review wake) via `./memory`'s `recallMemories`
+// (imported directly, repo convention — same as missionsDao) and renders
+// them through `./context`'s `buildMemoryContext` into the directive's new
+// trailing `extraContext` slot. `recallMemories` already fails soft to `[]`
+// internally, but the whole recall+assemble step is ALSO wrapped in its own
+// try/catch here: defense-in-depth so a broken recall (or a future change to
+// either function) can never throw into — and kill — a wake. Interactive
+// chat does NOT get this auto-injection; it uses the `recall` tool on
+// demand (D4) — this module only runs for supervisor-driven wakes.
 
 import * as missionsDao from '../missions/dao';
 import { createConversation, getConversation } from '../assistant/conversations';
 import { buildDecomposeDirective, buildReviewDirective } from './directive';
+import { buildMemoryContext } from './context';
+import { recallMemories } from './memory';
 import { MAX_ATTEMPTS } from '../missions/state';
 import { JORVIS_GLOBAL_WORKSPACE_ID, KV_MISSION_CONVERSATION_PREFIX } from './global';
 import type { Wake } from './scheduler';
@@ -98,7 +112,13 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
     const mission = missionsDao.getMission(wake.missionId);
     if (!mission) return; // deleted/racing mission — nothing to decompose
     const conversationId = ensureMissionConversation(mission);
-    const prompt = buildDecomposeDirective(mission);
+    let extra = '';
+    try {
+      extra = buildMemoryContext(recallMemories({ query: `${mission.title} ${mission.goal}`, k: 5 }));
+    } catch {
+      extra = '';
+    }
+    const prompt = buildDecomposeDirective(mission, extra);
     await runTurn({ conversationId, prompt, origin: 'autonomous' });
   }
 
@@ -123,8 +143,16 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
     const mission = missionsDao.getMission(task.missionId);
     if (!mission) return; // deleted/racing mission — nothing to review into
     const conversationId = ensureMissionConversation(mission);
+    let extra = '';
+    try {
+      extra = buildMemoryContext(
+        recallMemories({ query: `${mission.title} ${mission.goal} ${task.title} ${task.spec}`, k: 5 }),
+      );
+    } catch {
+      extra = '';
+    }
     const paneExcerpt = task.assigneeSessionId ? readPane(task.assigneeSessionId) : '';
-    const prompt = buildReviewDirective(mission, task, paneExcerpt);
+    const prompt = buildReviewDirective(mission, task, paneExcerpt, extra);
     await runTurn({ conversationId, prompt, origin: 'autonomous' });
   }
 

@@ -12,6 +12,14 @@
 // working unmodified; the new "KV-durable mission conversation" describe
 // block below passes an explicit SHARED kv Map across two separate
 // `createSupervisor` calls to prove restart durability.
+//
+// P2 Task 6 — `recallMemories` (`./memory`) is imported DIRECTLY by
+// supervisor.ts (repo convention, same as missionsDao — not DI'd), so it's
+// mocked here the same way '../db/client' is mocked above, rather than
+// threaded through SupervisorDeps. `beforeEach` resets it to a safe `[]`
+// default so every EXISTING test keeps seeing a byte-identical directive
+// (no memory block); the new "wake-time memory context" describe block below
+// overrides it per-test to exercise the happy path and the fail-soft path.
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 vi.mock('../db/client', () => ({
@@ -20,17 +28,23 @@ vi.mock('../db/client', () => ({
   initializeDatabase: vi.fn(),
   closeDatabase: vi.fn(),
 }));
+vi.mock('./memory', () => ({
+  recallMemories: vi.fn(),
+}));
 import { getDb } from '../db/client';
+import { recallMemories } from './memory';
 import { createDbFake, type DbFake } from '@/test-utils/db-fake';
 import * as missionsDao from '../missions/dao';
 import { getConversation } from '../assistant/conversations';
 import { createSupervisor, MAX_ATTEMPTS, type SupervisorDeps } from './supervisor';
 import { KV_MISSION_CONVERSATION_PREFIX } from './global';
+import type { JorvisMemory } from '../../../shared/types';
 
 let fake: DbFake;
 beforeEach(() => {
   fake = createDbFake();
   vi.mocked(getDb).mockReturnValue(fake.drizzle as unknown as ReturnType<typeof getDb>);
+  vi.mocked(recallMemories).mockReset().mockReturnValue([]);
 });
 
 /** A fresh, isolated in-memory KV store — NOT shared across baseDeps() calls
@@ -264,5 +278,98 @@ describe('createSupervisor — KV-durable mission conversation (P2 Task 5, D1)',
     });
 
     expect(runTurn2.mock.calls[0][0].conversationId).toBe(seededConvId);
+  });
+});
+
+function makeRecalledMemory(overrides: Partial<JorvisMemory> = {}): JorvisMemory {
+  return {
+    id: 'mem-1',
+    kind: 'fact',
+    title: 'Prior lesson',
+    body: 'Ship in small slices.',
+    tags: [],
+    workspaceId: null,
+    confidence: 0.8,
+    createdAt: 0,
+    updatedAt: 0,
+    lastUsedAt: null,
+    ...overrides,
+  };
+}
+
+describe('createSupervisor — wake-time memory context (P2 Task 6, D4)', () => {
+  it('splices recalled memory into the decompose directive, querying with the mission title + goal', async () => {
+    const mission = setupMission();
+    vi.mocked(recallMemories).mockReturnValue([makeRecalledMemory()]);
+    const deps = baseDeps();
+    const supervisor = createSupervisor(deps);
+
+    await supervisor.runWake({ kind: 'decompose', missionId: mission.id });
+
+    expect(recallMemories).toHaveBeenCalledWith({ query: `${mission.title} ${mission.goal}`, k: 5 });
+    const call = (deps.runTurn as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(call.prompt).toContain('## Operator memory');
+    expect(call.prompt).toContain('Prior lesson');
+  });
+
+  it('splices recalled memory into the review directive, querying with mission + task text', async () => {
+    const mission = setupMission();
+    const task = setupTaskInReview(mission.id, 0);
+    vi.mocked(recallMemories).mockReturnValue([makeRecalledMemory({ kind: 'playbook', title: 'Retry playbook' })]);
+    const deps = baseDeps();
+    const supervisor = createSupervisor(deps);
+
+    await supervisor.runWake({ kind: 'review', missionId: mission.id, taskId: task.id });
+
+    expect(recallMemories).toHaveBeenCalledWith({
+      query: `${mission.title} ${mission.goal} ${task.title} ${task.spec}`,
+      k: 5,
+    });
+    const call = (deps.runTurn as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(call.prompt).toContain('## Operator memory');
+    expect(call.prompt).toContain('Retry playbook');
+  });
+
+  it('an empty recall result omits the memory block entirely — no bare heading', async () => {
+    const mission = setupMission();
+    vi.mocked(recallMemories).mockReturnValue([]);
+    const deps = baseDeps();
+    const supervisor = createSupervisor(deps);
+
+    await supervisor.runWake({ kind: 'decompose', missionId: mission.id });
+
+    const call = (deps.runTurn as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(call.prompt).not.toContain('## Operator memory');
+  });
+
+  it('a throwing recallMemories never kills a decompose wake — runTurn still fires, no memory block (defense-in-depth)', async () => {
+    const mission = setupMission();
+    vi.mocked(recallMemories).mockImplementation(() => {
+      throw new Error('fts index corrupt');
+    });
+    const deps = baseDeps();
+    const supervisor = createSupervisor(deps);
+
+    await supervisor.runWake({ kind: 'decompose', missionId: mission.id });
+
+    expect(deps.runTurn).toHaveBeenCalledTimes(1);
+    const call = (deps.runTurn as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(call.prompt).not.toContain('## Operator memory');
+  });
+
+  it('a throwing recallMemories never kills a review wake either — runTurn still fires, no memory block', async () => {
+    const mission = setupMission();
+    const task = setupTaskInReview(mission.id, 0);
+    vi.mocked(recallMemories).mockImplementation(() => {
+      throw new Error('fts index corrupt');
+    });
+    const deps = baseDeps();
+    const supervisor = createSupervisor(deps);
+
+    await supervisor.runWake({ kind: 'review', missionId: mission.id, taskId: task.id });
+
+    expect(deps.runTurn).toHaveBeenCalledTimes(1);
+    const call = (deps.runTurn as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(call.prompt).not.toContain('## Operator memory');
   });
 });
