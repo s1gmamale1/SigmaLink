@@ -61,6 +61,14 @@ export const EXTERNAL_ESCALATE_TOOLS: ReadonlySet<string> = new Set([
   // board, same as its P1a mutation siblings above — escalate for external
   // origin.
   'dispatch_task',
+  // P2 Task 3 — operator-private memory. Jorvis's durable cross-session
+  // memory (facts/playbooks/preferences/postmortems) is the operator's own
+  // long-term record, not a shared external-agent surface; conservative for
+  // recall too (a read, but still operator-private) — all four escalate.
+  'remember',
+  'recall',
+  'update_memory',
+  'forget',
 ]);
 
 /** Tools whose danger depends on the TARGET pane's provider (agent vs shell). */

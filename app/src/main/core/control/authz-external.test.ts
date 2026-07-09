@@ -45,7 +45,7 @@ describe('classifyExternal', () => {
     // Task 6c: open_url escalates (weaker SSRF/agentDriving guard than browser_navigate but still navigates).
     // Task 6d: stop_pane escalates (kills a pane's process — operator must approve; "recoverable" is not
     //          sufficient justification for a remote agent to kill a human's running pane unprompted).
-    expect([...EXTERNAL_ESCALATE_TOOLS].sort()).toEqual(['add_mission_task', 'browser_navigate', 'close_pane', 'close_workspace', 'complete_mission', 'create_mission', 'dispatch_task', 'kill_swarm', 'move_mission_task', 'open_url', 'stop_pane']);
+    expect([...EXTERNAL_ESCALATE_TOOLS].sort()).toEqual(['add_mission_task', 'browser_navigate', 'close_pane', 'close_workspace', 'complete_mission', 'create_mission', 'dispatch_task', 'forget', 'kill_swarm', 'move_mission_task', 'open_url', 'recall', 'remember', 'stop_pane', 'update_memory']);
     expect([...PROVIDER_GATED_TOOLS].sort()).toEqual(['prompt_agent', 'send_keys']);
     expect([...AGENT_PROVIDERS].sort()).toEqual(['claude', 'codex', 'gemini', 'kimi', 'opencode']);
   });
@@ -104,6 +104,12 @@ describe('classifyExternal', () => {
     mission_board: 'free',
     // Phase 20 P1b — dispatch_task launches a real pane; escalate.
     dispatch_task: 'escalate',
+    // P2 Task 3 — operator-private durable memory; all four escalate,
+    // including the read (recall) — conservative by design (D5).
+    remember: 'escalate',
+    recall: 'escalate',
+    update_memory: 'escalate',
+    forget: 'escalate',
   };
 
   it('every externally-exposed catalogue tool has a pinned, intended verdict', () => {
@@ -146,6 +152,8 @@ describe('classifyExternal', () => {
     'create_mission', 'add_mission_task', 'mission_board', 'move_mission_task', 'complete_mission',
     // Phase 20 P1b — dispatch_task is externally discoverable too; escalates.
     'dispatch_task',
+    // P2 Task 3 — memory tools are externally discoverable too; all escalate.
+    'remember', 'recall', 'update_memory', 'forget',
   ]);
 
   it('isExternallyListed filters catalogue to the pinned external-safe set (fail-closed guard)', () => {

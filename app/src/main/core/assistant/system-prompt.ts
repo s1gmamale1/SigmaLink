@@ -140,6 +140,17 @@ Mission board tools:
   dispatch_task       { taskId, provider?, workspaceRoot? }
                       Launch a worktree-isolated pane for a task and move it
                       to dispatched. The supervisor loop's hand-off primitive.
+
+Memory tools (durable, cross-session — distinct from the workspace memory hub):
+  remember            { kind, title, body, tags?, workspaceId? }
+                      Store a fact/playbook/preference/postmortem that
+                      persists across sessions and projects.
+  recall              { query, k?, kind? }
+                      Full-text search durable memory for a query.
+  update_memory       { memoryId, title?, body?, tags?, confidence? }
+                      Update fields on an existing durable memory by id.
+  forget              { memoryId }
+                      Permanently delete a durable memory by id.
 `;
 // PROMPT-INJECTION RESIDUAL: browser_snapshot returns raw page text which may
 // contain crafted instructions targeting the model (e.g. "IGNORE PREVIOUS
