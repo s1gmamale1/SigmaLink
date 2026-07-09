@@ -5,7 +5,7 @@
 // P2 Task 5, splices this straight into the persona paragraph).
 
 import { describe, it, expect } from 'vitest';
-import { loadJorvisCharter, appendApprovedAmendments } from './charter';
+import { loadJorvisCharter, appendApprovedAmendments, MAX_CHARTER_CHARS } from './charter';
 import { JORVIS_CHARTER_DEFAULT } from './charter-default';
 import type { JorvisAmendment } from '../../../shared/types';
 
@@ -63,6 +63,52 @@ describe('loadJorvisCharter', () => {
       },
     });
     expect(charter).toBe(JORVIS_CHARTER_DEFAULT);
+  });
+
+  // The KV value is a path into a read sink whose output lands in every
+  // turn's system prompt — the three guards below keep a poisoned KV row
+  // from turning the loader into an arbitrary-file exfil primitive.
+
+  it('rejects a relative override path (never reads it)', () => {
+    let readCalled = false;
+    const charter = loadJorvisCharter({
+      kvGet: () => 'relative/charter.md',
+      readFile: () => {
+        readCalled = true;
+        return 'should never be returned';
+      },
+    });
+    expect(charter).toBe(JORVIS_CHARTER_DEFAULT);
+    expect(readCalled).toBe(false);
+  });
+
+  it('rejects a non-prose extension (never reads it)', () => {
+    let readCalled = false;
+    const charter = loadJorvisCharter({
+      kvGet: () => '/Users/x/.ssh/id_rsa',
+      readFile: () => {
+        readCalled = true;
+        return 'PRIVATE KEY MATERIAL';
+      },
+    });
+    expect(charter).toBe(JORVIS_CHARTER_DEFAULT);
+    expect(readCalled).toBe(false);
+  });
+
+  it('rejects an oversized override file (size cap)', () => {
+    const charter = loadJorvisCharter({
+      kvGet: () => '/custom/huge.md',
+      readFile: () => 'x'.repeat(MAX_CHARTER_CHARS + 1),
+    });
+    expect(charter).toBe(JORVIS_CHARTER_DEFAULT);
+  });
+
+  it('accepts an uppercase .MD extension (case-insensitive check)', () => {
+    const charter = loadJorvisCharter({
+      kvGet: () => '/custom/CHARTER.MD',
+      readFile: () => 'custom',
+    });
+    expect(charter).toBe('custom');
   });
 });
 

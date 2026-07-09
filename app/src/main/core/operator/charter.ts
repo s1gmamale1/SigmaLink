@@ -14,10 +14,20 @@
 // prompt-build time (system-prompt.ts, P2 Task 5), never edited into it.
 
 import fs from 'node:fs';
+import nodePath from 'node:path';
 import { JORVIS_CHARTER_DEFAULT } from './charter-default';
 import type { JorvisAmendment } from '../../../shared/types';
 
 const KV_CHARTER_PATH = 'jorvis.charter.path';
+
+// The KV override value is a file path flowing into a read sink whose output
+// lands verbatim in every turn's system prompt (and can relay onward, e.g.
+// over Telegram). KV writers are operator-side surfaces (settings RPC, main
+// process) — no assistant tool exposes arbitrary kvSet — but gate the sink
+// anyway: absolute path only, prose extensions only, size-capped. Anything
+// else fails soft to the bundled charter, same as an unreadable file.
+const CHARTER_EXTENSIONS = new Set(['.md', '.txt']);
+export const MAX_CHARTER_CHARS = 262_144; // 256 KiB of text — far above any real charter
 
 export interface LoadJorvisCharterDeps {
   kvGet: (key: string) => string | null;
@@ -28,9 +38,13 @@ export interface LoadJorvisCharterDeps {
 export function loadJorvisCharter(deps: LoadJorvisCharterDeps): string {
   const path = deps.kvGet(KV_CHARTER_PATH);
   if (!path) return JORVIS_CHARTER_DEFAULT;
+  if (!nodePath.isAbsolute(path)) return JORVIS_CHARTER_DEFAULT;
+  if (!CHARTER_EXTENSIONS.has(nodePath.extname(path).toLowerCase())) return JORVIS_CHARTER_DEFAULT;
   const readFile = deps.readFile ?? ((p: string) => fs.readFileSync(p, 'utf8'));
   try {
-    return readFile(path);
+    const content = readFile(path);
+    if (content.length > MAX_CHARTER_CHARS) return JORVIS_CHARTER_DEFAULT;
+    return content;
   } catch {
     return JORVIS_CHARTER_DEFAULT;
   }
