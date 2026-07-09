@@ -67,10 +67,11 @@ function createFakeKv() {
   };
 }
 
-/** Mirrors dispatch_task's two DAO writes exactly, minus the real pane spawn. */
+/** Mirrors dispatch_task's three DAO writes exactly, minus the real pane spawn. */
 function simulateDispatch(taskId: string, sessionId: string): void {
   missionsDao.linkTaskToPane(taskId, sessionId, null);
   missionsDao.moveTask(taskId, 'dispatched');
+  missionsDao.incrementAttempt(taskId);
 }
 
 describe('mission-loop e2e — decompose → dispatch → review → done (stub CLI)', () => {
@@ -262,5 +263,141 @@ describe('mission-loop e2e — decompose → dispatch → review → done (stub 
     // never touches the DAO at all, so the task is untouched too.
     expect(missionsDao.getTask(task.id)?.status).toBe('dispatched');
     expect(scheduler.wakesSpentToday()).toBe(0);
+  });
+
+  it('recovers a failed task via the retry verdict, then lands the mission done', async () => {
+    const kv = createFakeKv();
+    kv.kvSet('missions.autonomy.enabled', '1');
+    kv.kvSet('missions.autonomy.dailyBudget', '40');
+
+    const dispatchedSessions: string[] = [];
+    let nextSession = 0;
+    const runTurnCalls: string[] = [];
+
+    const runTurn: SupervisorDeps['runTurn'] = async (input) => {
+      runTurnCalls.push(input.prompt);
+      if (input.prompt.includes('Decompose this mission')) {
+        const mission = missionsDao.listMissions().find((m) => m.status === 'active')!;
+        const t = missionsDao.addTask({ missionId: mission.id, title: 'Flaky task', spec: 'attempt 1 spec' });
+        const sessionId = `retry-sess-${nextSession++}`;
+        dispatchedSessions.push(sessionId);
+        simulateDispatch(t.id, sessionId);
+        return { turnId: 't' };
+      }
+      if (input.prompt.includes('Review the result')) {
+        const mission = missionsDao.listMissions().find((m) => m.status === 'active')!;
+        const reviewing = missionsDao.listTasks(mission.id).find((t) => t.status === 'reviewing')!;
+        if (input.prompt.includes('Attempt: 1 of 3')) {
+          // verdict: RETRY — mirrors dispatch_task(taskId, revisedSpec)'s writes
+          missionsDao.updateTask(reviewing.id, { spec: 'attempt 2: build first, then test' });
+          const sessionId = `retry-sess-${nextSession++}`;
+          dispatchedSessions.push(sessionId);
+          simulateDispatch(reviewing.id, sessionId);
+          missionsDao.appendEvent(mission.id, reviewing.id, 'task_retried', JSON.stringify({ attempt: 2 }));
+        } else {
+          // verdict: DONE — second attempt succeeded
+          missionsDao.moveTask(reviewing.id, 'done');
+          missionsDao.setMissionReport(mission.id, 'Recovered on attempt 2.');
+          missionsDao.setMissionStatus(mission.id, 'done');
+        }
+        return { turnId: 't' };
+      }
+      throw new Error(`unrecognized directive: ${input.prompt}`);
+    };
+
+    const readPane = vi.fn().mockReturnValue('output');
+    const supervisor = createSupervisor({ runTurn, readPane });
+    const scheduler = createWakeScheduler({
+      runWake: (w: Wake) => supervisor.runWake(w),
+      kvGet: kv.kvGet, kvSet: kv.kvSet, now: () => Date.now(), isFrozen: () => false,
+      onDropped: vi.fn(),
+    });
+    const watcher = createMissionWatcher({
+      enqueue: scheduler.enqueue,
+      isEnabled: () => kv.kvGet('missions.autonomy.enabled') === '1',
+    });
+
+    const mission = missionsDao.createMission({ title: 'Retry drill', goal: 'g', origin: 'autonomous' });
+    missionsDao.setMissionStatus(mission.id, 'active');
+    scheduler.enqueue('decompose', mission.id);
+    await flush();
+
+    // attempt 1 fails (nonzero exit) → review wake 1 → retry verdict
+    watcher.onPaneEvent({ sessionId: dispatchedSessions[0], kind: 'exited', exitCode: 1 });
+    await flush();
+
+    const afterRetry = missionsDao.listTasks(mission.id)[0];
+    expect(afterRetry.status).toBe('dispatched');
+    expect(afterRetry.attempt).toBe(2);
+    expect(afterRetry.spec).toBe('attempt 2: build first, then test');
+
+    // attempt 2 succeeds → review wake 2 → done
+    watcher.onPaneEvent({ sessionId: dispatchedSessions[1], kind: 'exited', exitCode: 0 });
+    await flush();
+
+    expect(missionsDao.listTasks(mission.id)[0].status).toBe('done');
+    expect(missionsDao.getMission(mission.id)?.status).toBe('done');
+    expect(runTurnCalls).toHaveLength(3); // 1 decompose + 2 reviews
+    const kinds = missionsDao.listEvents(mission.id, 500).map((e) => e.kind);
+    expect(kinds).toContain('task_retried');
+  });
+
+  it('auto-blocks at MAX_ATTEMPTS with zero model spend on the capped wake', async () => {
+    const kv = createFakeKv();
+    kv.kvSet('missions.autonomy.enabled', '1');
+    kv.kvSet('missions.autonomy.dailyBudget', '40');
+
+    const dispatchedSessions: string[] = [];
+    let nextSession = 0;
+    let reviewTurns = 0;
+
+    const runTurn: SupervisorDeps['runTurn'] = async (input) => {
+      const mission = missionsDao.listMissions().find((m) => m.status === 'active')!;
+      if (input.prompt.includes('Decompose this mission')) {
+        const t = missionsDao.addTask({ missionId: mission.id, title: 'Doomed task', spec: 's' });
+        const sessionId = `cap-sess-${nextSession++}`;
+        dispatchedSessions.push(sessionId);
+        simulateDispatch(t.id, sessionId);
+        return { turnId: 't' };
+      }
+      // an incorrigible brain: ALWAYS retries
+      reviewTurns++;
+      const reviewing = missionsDao.listTasks(mission.id).find((t) => t.status === 'reviewing')!;
+      const sessionId = `cap-sess-${nextSession++}`;
+      dispatchedSessions.push(sessionId);
+      simulateDispatch(reviewing.id, sessionId);
+      return { turnId: 't' };
+    };
+
+    const supervisor = createSupervisor({ runTurn, readPane: vi.fn().mockReturnValue('fail') });
+    const scheduler = createWakeScheduler({
+      runWake: (w: Wake) => supervisor.runWake(w),
+      kvGet: kv.kvGet, kvSet: kv.kvSet, now: () => Date.now(), isFrozen: () => false,
+      onDropped: vi.fn(),
+    });
+    const watcher = createMissionWatcher({
+      enqueue: scheduler.enqueue,
+      isEnabled: () => kv.kvGet('missions.autonomy.enabled') === '1',
+    });
+
+    const mission = missionsDao.createMission({ title: 'Cap drill', goal: 'g', origin: 'autonomous' });
+    missionsDao.setMissionStatus(mission.id, 'active');
+    scheduler.enqueue('decompose', mission.id);
+    await flush();
+
+    // fail all three attempts
+    watcher.onPaneEvent({ sessionId: dispatchedSessions[0], kind: 'exited', exitCode: 1 }); // → review 1 → retry (attempt 2)
+    await flush();
+    watcher.onPaneEvent({ sessionId: dispatchedSessions[1], kind: 'exited', exitCode: 1 }); // → review 2 → retry (attempt 3)
+    await flush();
+    watcher.onPaneEvent({ sessionId: dispatchedSessions[2], kind: 'exited', exitCode: 1 }); // → capped wake: NO model call
+    await flush();
+
+    const task = missionsDao.listTasks(mission.id)[0];
+    expect(task.status).toBe('blocked');
+    expect(task.attempt).toBe(3);
+    expect(reviewTurns).toBe(2); // the third review wake never reached the model
+    const kinds = missionsDao.listEvents(mission.id, 500).map((e) => e.kind);
+    expect(kinds).toContain('task_max_attempts');
   });
 });
