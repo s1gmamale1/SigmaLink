@@ -12,7 +12,15 @@
 // Previously this was the inline `PaneCell` function in CommandRoom.tsx.
 // Extracted to keep CommandRoom.tsx under 500 LOC (v1.5.1-A caveat 1).
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type DragEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type DragEvent,
+  type MouseEvent as ReactMouseEvent,
+} from 'react';
 import { useAppStateSelector } from '@/renderer/app/state';
 import { ClipboardPaste, Copy, FolderOpen, GitBranch, Pencil, RotateCw, Square, SquareTerminal, Terminal as TerminalIcon, FolderGit2, LayoutPanelLeft } from 'lucide-react';
 import { toast } from 'sonner';
@@ -279,6 +287,29 @@ export function PaneShell({
     }
   }
 
+  // Click ⇒ focus invariant (operator report 2026-07-10): clicking ANYWHERE
+  // on the pane that isn't an interactive control focuses the pane's active
+  // tab — window-manager semantics. Before this, a click on non-interactive
+  // chrome (header strip, footer, gaps) moved the active glow (PaneGrid's
+  // mousedown-capture activation) but keyboard focus stayed in the previous
+  // pane, so the operator had to click again on the terminal text itself.
+  // Both presenters (DomTerminalView input host + the xterm cache host)
+  // already listen for sigma:pty-focus and no-op when already focused.
+  // Fires on click (release), not mousedown, so it never fights a
+  // selection drag; interactive controls keep their own focus.
+  function handlePaneClick(e: ReactMouseEvent<HTMLDivElement>): void {
+    const el = e.target as HTMLElement;
+    if (
+      el.closest(
+        'button, a, input, textarea, select, [role="menu"], [role="menuitem"], [contenteditable="true"]',
+      )
+    )
+      return;
+    window.dispatchEvent(
+      new CustomEvent('sigma:pty-focus', { detail: { sessionId: activeTabId } }),
+    );
+  }
+
   function handleDrop(e: DragEvent<HTMLDivElement>): void {
     if (e.dataTransfer.types.includes(PANE_DRAG_MIME)) return;
     e.preventDefault();
@@ -436,6 +467,7 @@ export function PaneShell({
     <div
       ref={paneContainerRef}
       data-testid="pane-shell"
+      onClick={handlePaneClick}
       className={`sl-pane-enter flex h-full min-h-0 min-w-0 flex-col overflow-hidden${
         needsAttention ? ' sl-attention' : ''
       }`}

@@ -24,6 +24,13 @@ _(consciously NOT built — each is a separate track or a non-goal, not a gap)_
 
 _(real upgrades to build once the current system is production-grade)_
 
+- **[panes] tab-switch should move keyboard focus too** — the click⇒focus invariant
+  (fix/pane-first-click-focus, 2026-07-10) deliberately skips interactive controls, so clicking a
+  scratch TAB switches the view but keyboard focus stays in the previous tab's terminal; same for
+  Cmd+T spawn. Fix: dispatch `sigma:pty-focus` for the new `activeTabId` on tab change (skip the
+  mount run) in `app/src/renderer/features/command-room/PaneShell.tsx`. Effort: S. Build when the
+  first "typed into the wrong tab" report lands.
+
 ---
 
 ## 🆕 New ideas (untriaged)
