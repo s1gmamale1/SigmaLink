@@ -120,6 +120,7 @@ import * as missionsDao from './core/missions/dao';
 import { createMissionWatcher, type MissionWatcher } from './core/operator/watch';
 import { createWakeScheduler, type WakeScheduler } from './core/operator/scheduler';
 import { createSupervisor } from './core/operator/supervisor';
+import { JORVIS_GLOBAL_WORKSPACE_ID } from './core/operator/global';
 import { buildAssistantController } from './core/assistant/controller';
 import { McpHostSigma, type ToolInvoker } from './core/assistant/mcp-host-sigma';
 import { ControlMcpHost, type ExternalToolInvoker } from './core/control/control-mcp-host';
@@ -2707,10 +2708,11 @@ async function buildRouter() {
     // turn's .mcp.json root — controller.ts uses it unconditionally). Resolve
     // it off the conversation row the supervisor itself already created via
     // ensureMissionConversation, which always carries a real workspaceId (the
-    // mission's own, or the supervisor's GLOBAL_WORKSPACE_ID sentinel) — so
-    // this is a lookup, not a guess. The literal fallback below only matters
-    // if that row were ever missing (it can't be, in the supervisor's own
-    // call order); it duplicates supervisor.ts's private sentinel string.
+    // mission's own, or the JORVIS_GLOBAL_WORKSPACE_ID sentinel) — so this is
+    // a lookup, not a guess. The fallback below only matters if that row were
+    // ever missing (it can't be, in the supervisor's own call order); it
+    // imports the single source of truth (P2 T5 core/operator/global.ts)
+    // instead of hand-duplicating the literal the way this call site used to.
     runTurn: async (input) => {
       const conv = getConversation(input.conversationId);
       return (
@@ -2723,13 +2725,18 @@ async function buildRouter() {
           }) => Promise<{ turnId: string }>;
         }
       ).send({
-        workspaceId: conv?.workspaceId ?? 'jorvis-missions-global',
+        workspaceId: conv?.workspaceId ?? JORVIS_GLOBAL_WORKSPACE_ID,
         conversationId: input.conversationId,
         prompt: input.prompt,
         origin: 'autonomous',
       });
     },
     readPane: (sessionId) => pty.snapshot(sessionId),
+    // P2 T5 (D1) — KV-durable mission→conversation pinning; controlKv is
+    // already the raw kv-table reader/writer every other control-plane
+    // consumer in this file uses (see its own definition above).
+    kvGet: controlKv.get,
+    kvSet: controlKv.set,
   });
   missionScheduler = createWakeScheduler({
     runWake: (wake) => missionSupervisor.runWake(wake),

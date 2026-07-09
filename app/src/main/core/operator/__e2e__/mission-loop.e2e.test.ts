@@ -129,7 +129,7 @@ describe('mission-loop e2e — decompose → dispatch → review → done (stub 
     };
 
     const readPane = vi.fn().mockReturnValue('stub pane output — the task finished successfully');
-    const supervisor = createSupervisor({ runTurn, readPane });
+    const supervisor = createSupervisor({ runTurn, readPane, kvGet: kv.kvGet, kvSet: kv.kvSet });
 
     const onDropped = vi.fn();
     const scheduler = createWakeScheduler({
@@ -232,7 +232,7 @@ describe('mission-loop e2e — decompose → dispatch → review → done (stub 
 
     const runTurn = vi.fn().mockResolvedValue({ turnId: 'never' });
     const readPane = vi.fn().mockReturnValue('');
-    const supervisor = createSupervisor({ runTurn, readPane });
+    const supervisor = createSupervisor({ runTurn, readPane, kvGet: kv.kvGet, kvSet: kv.kvSet });
     const onDropped = vi.fn();
     const scheduler = createWakeScheduler({
       runWake: (wake: Wake) => supervisor.runWake(wake),
@@ -306,7 +306,7 @@ describe('mission-loop e2e — decompose → dispatch → review → done (stub 
     };
 
     const readPane = vi.fn().mockReturnValue('output');
-    const supervisor = createSupervisor({ runTurn, readPane });
+    const supervisor = createSupervisor({ runTurn, readPane, kvGet: kv.kvGet, kvSet: kv.kvSet });
     const scheduler = createWakeScheduler({
       runWake: (w: Wake) => supervisor.runWake(w),
       kvGet: kv.kvGet, kvSet: kv.kvSet, now: () => Date.now(), isFrozen: () => false,
@@ -369,7 +369,12 @@ describe('mission-loop e2e — decompose → dispatch → review → done (stub 
       return { turnId: 't' };
     };
 
-    const supervisor = createSupervisor({ runTurn, readPane: vi.fn().mockReturnValue('fail') });
+    const supervisor = createSupervisor({
+      runTurn,
+      readPane: vi.fn().mockReturnValue('fail'),
+      kvGet: kv.kvGet,
+      kvSet: kv.kvSet,
+    });
     const scheduler = createWakeScheduler({
       runWake: (w: Wake) => supervisor.runWake(w),
       kvGet: kv.kvGet, kvSet: kv.kvSet, now: () => Date.now(), isFrozen: () => false,

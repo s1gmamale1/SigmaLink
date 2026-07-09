@@ -27,17 +27,29 @@
 // workspace-less) falls back to a sentinel global id — `conversations.
 // workspace_id` is NOT NULL but carries no foreign key (checked migration
 // `0006_assistant.ts`), so a sentinel string is a safe, real row.
+//
+// P2 Task 5 (D1) — the in-memory map above is restart-lossy: every app
+// relaunch forgot every mission's conversation, silently starting a FRESH
+// one and stranding prior turns' history. `ensureMissionConversation` now
+// checks a KV-durable pointer (`KV_MISSION_CONVERSATION_PREFIX + missionId`,
+// imported from `./global`) before minting a new conversation: in-memory
+// map hit → use it (same-process fast path); else a KV hit whose
+// conversation ROW STILL EXISTS → adopt + cache it (restart recovery); else
+// create fresh + persist the new pointer (first wake, or the pinned
+// conversation was deleted out from under it). `kvGet`/`kvSet` are REQUIRED
+// SupervisorDeps (not optional) — rpc-router.ts always has `controlKv`
+// in scope at the createSupervisor call site, so there is no legitimate
+// caller without a KV backing.
 
 import * as missionsDao from '../missions/dao';
-import { createConversation } from '../assistant/conversations';
+import { createConversation, getConversation } from '../assistant/conversations';
 import { buildDecomposeDirective, buildReviewDirective } from './directive';
 import { MAX_ATTEMPTS } from '../missions/state';
+import { JORVIS_GLOBAL_WORKSPACE_ID, KV_MISSION_CONVERSATION_PREFIX } from './global';
 import type { Wake } from './scheduler';
 import type { Mission } from '../../../shared/types';
 
 export { MAX_ATTEMPTS };
-
-const GLOBAL_WORKSPACE_ID = 'jorvis-missions-global';
 
 export interface SupervisorDeps {
   /** DI'd `assistant.send` — the ONLY way this module wakes the model. No CLI spawn, no other model path. */
@@ -48,6 +60,10 @@ export interface SupervisorDeps {
   }) => Promise<{ turnId: string }>;
   /** Reads a pane's recent output for the review directive's excerpt (capped by directive.ts). */
   readPane: (sessionId: string) => string;
+  /** KV-durable mission→conversation pinning (P2 T5, D1). Raw read; null if absent/on error. */
+  kvGet: (key: string) => string | null;
+  /** KV-durable mission→conversation pinning (P2 T5, D1). Best-effort write. */
+  kvSet: (key: string, value: string) => void;
 }
 
 export interface Supervisor {
@@ -55,16 +71,25 @@ export interface Supervisor {
 }
 
 export function createSupervisor(deps: SupervisorDeps): Supervisor {
-  const { runTurn, readPane } = deps;
+  const { runTurn, readPane, kvGet, kvSet } = deps;
   const conversationByMission = new Map<string, string>();
 
   function ensureMissionConversation(mission: Mission): string {
     const existing = conversationByMission.get(mission.id);
     if (existing) return existing;
+
+    const kvKey = `${KV_MISSION_CONVERSATION_PREFIX}${mission.id}`;
+    const pinned = kvGet(kvKey);
+    if (pinned && getConversation(pinned)) {
+      conversationByMission.set(mission.id, pinned);
+      return pinned;
+    }
+
     const conversation = createConversation({
-      workspaceId: mission.workspaceId ?? GLOBAL_WORKSPACE_ID,
+      workspaceId: mission.workspaceId ?? JORVIS_GLOBAL_WORKSPACE_ID,
       kind: 'assistant',
     });
+    kvSet(kvKey, conversation.id);
     conversationByMission.set(mission.id, conversation.id);
     return conversation.id;
   }

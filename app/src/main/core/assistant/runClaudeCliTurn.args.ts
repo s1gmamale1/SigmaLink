@@ -4,21 +4,75 @@
 //
 // Extracted: buildCliArgs, applyMcpHostConfig, resolveSystemPrompt,
 // getPriorClaudeSessionId, clearPriorClaudeSessionId, appendAssistantMessage.
+//
+// P2 Task 5 — defaultSystemPromptForWorkspace now threads the operator's
+// charter through every real turn (D2/D3 — charter is default-ON, not a
+// safety gate) and switches to a portfolio listing for the
+// JORVIS_GLOBAL_WORKSPACE_ID sentinel (D1). `amendments` stays an
+// undefined seam here — core/operator/amendments.ts (the DAO) doesn't
+// exist until Task 8, which wires `listAmendments('approved')` into this
+// same call site. Everything below is fail-soft: a throwing charter load
+// (or a DB miss) degrades to the legacy inline persona / placeholder
+// workspace fields, never blocks a turn.
 
 import { eq } from 'drizzle-orm';
-import { getDb } from '../db/client';
+import { getDb, getRawDb } from '../db/client';
 import { workspaces as workspacesTable } from '../db/schema';
 import { isClaudeSessionId } from '../pty/claude-resume-sigma';
 import { buildJorvisSystemPrompt } from './system-prompt';
 import { writeJorvisHostMcpConfig } from './mcp-host-sigma';
 import * as conversationsDao from './conversations';
+import { loadJorvisCharter } from '../operator/charter';
+import { JORVIS_GLOBAL_WORKSPACE_ID } from '../operator/global';
 import type { CliTurnDeps } from './runClaudeCliTurn';
 
 // ---------------------------------------------------------------------------
 // System-prompt helpers
 // ---------------------------------------------------------------------------
 
+// Inline raw-SQL kv read — mirrors allowedReadRoots' DEV_WORKSPACE_KV_KEY
+// read in tools.ts (~:483): its own try/catch swallows any DB error to
+// `null` so a broken/absent kv table can never throw past this point.
+function kvGetRaw(key: string): string | null {
+  try {
+    const row = getRawDb()
+      .prepare('SELECT value FROM kv WHERE key = ?')
+      .get(key) as { value?: string } | undefined;
+    return row?.value ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function loadCharterFailSoft(): string | undefined {
+  try {
+    return loadJorvisCharter({ kvGet: kvGetRaw });
+  } catch {
+    // loadJorvisCharter is internally fail-soft for its own readFile step;
+    // this is defense-in-depth for anything else that might throw (e.g. a
+    // future change to its kvGet contract) — charter undefined means
+    // buildJorvisSystemPrompt falls back to the legacy inline persona.
+    return undefined;
+  }
+}
+
 function defaultSystemPromptForWorkspace(workspaceId: string): string {
+  const charter = loadCharterFailSoft();
+
+  if (workspaceId === JORVIS_GLOBAL_WORKSPACE_ID) {
+    let portfolio: Array<{ name: string; root: string }> = [];
+    try {
+      portfolio = getDb()
+        .select()
+        .from(workspacesTable)
+        .all()
+        .map((ws) => ({ name: ws.name, root: ws.rootPath }));
+    } catch {
+      /* DB miss is non-fatal — the portfolio just renders empty */
+    }
+    return buildJorvisSystemPrompt({ workspaceName: 'Portfolio', workspaceRoot: '', charter, portfolio });
+  }
+
   let workspaceName = 'workspace';
   let workspaceRoot = '';
   try {
@@ -34,7 +88,7 @@ function defaultSystemPromptForWorkspace(workspaceId: string): string {
   } catch {
     /* DB miss is non-fatal — prompt still works with placeholders */
   }
-  return buildJorvisSystemPrompt({ workspaceName, workspaceRoot });
+  return buildJorvisSystemPrompt({ workspaceName, workspaceRoot, charter });
 }
 
 export function resolveSystemPrompt(
