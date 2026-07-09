@@ -141,4 +141,87 @@ describe('dispatch_task tool', () => {
 
     expect(executeLaunchPlanMock).not.toHaveBeenCalled();
   });
+
+  // P1c — dispatch_task's retry lane: revisedSpec, the reviewing-lane attempt
+  // cap, and the fresh-grant reset for human recoveries (blocked/needs_input).
+  it('accepts revisedSpec: updates the task spec and uses it as the initialPrompt', async () => {
+    const mission = missionsDao.createMission({ title: 't', goal: 'g', origin: 'local', workspaceId: 'ws-1' });
+    const task = missionsDao.addTask({ missionId: mission.id, title: 'a', spec: 'attempt 1 spec' });
+    missionsDao.moveTask(task.id, 'dispatched');
+    missionsDao.moveTask(task.id, 'working');
+    missionsDao.moveTask(task.id, 'reviewing');
+    missionsDao.updateTask(task.id, { attempt: 1 });
+
+    const out = (await findTool('dispatch_task')!.handler(
+      { taskId: task.id, revisedSpec: 'attempt 2: fix the build first' },
+      makeCtx(),
+    )) as { sessionId: string; taskId: string; status: string };
+
+    expect(missionsDao.getTask(task.id)?.spec).toBe('attempt 2: fix the build first');
+    expect(out.status).toBe('dispatched');
+    expect(missionsDao.getTask(task.id)?.attempt).toBe(2);
+
+    const plan = executeLaunchPlanMock.mock.calls[0][0] as { panes: Array<{ initialPrompt?: string }> };
+    expect(plan.panes[0].initialPrompt).toBe('attempt 2: fix the build first');
+  });
+
+  it('appends a task_retried event when dispatching from reviewing', async () => {
+    const mission = missionsDao.createMission({ title: 't', goal: 'g', origin: 'local', workspaceId: 'ws-1' });
+    const task = missionsDao.addTask({ missionId: mission.id, title: 'a', spec: 'spec' });
+    missionsDao.moveTask(task.id, 'dispatched');
+    missionsDao.moveTask(task.id, 'working');
+    missionsDao.moveTask(task.id, 'reviewing');
+    missionsDao.updateTask(task.id, { attempt: 1 });
+
+    await findTool('dispatch_task')!.handler({ taskId: task.id }, makeCtx());
+
+    const events = missionsDao.listEvents(mission.id, 500);
+    const retried = events.find((e) => e.kind === 'task_retried');
+    expect(retried).toBeDefined();
+    expect(JSON.parse(retried!.body!)).toEqual({ attempt: 2 });
+  });
+
+  it('throws at the attempt cap when dispatching from reviewing', async () => {
+    const mission = missionsDao.createMission({ title: 't', goal: 'g', origin: 'local', workspaceId: 'ws-1' });
+    const task = missionsDao.addTask({ missionId: mission.id, title: 'a', spec: 'spec' });
+    missionsDao.moveTask(task.id, 'dispatched');
+    missionsDao.moveTask(task.id, 'working');
+    missionsDao.moveTask(task.id, 'reviewing');
+    missionsDao.updateTask(task.id, { attempt: 3 });
+
+    await expect(
+      findTool('dispatch_task')!.handler({ taskId: task.id }, makeCtx()),
+    ).rejects.toThrow(/exhausted its 3 attempts/);
+
+    expect(executeLaunchPlanMock).not.toHaveBeenCalled();
+    expect(missionsDao.getTask(task.id)?.status).toBe('reviewing');
+  });
+
+  it('fresh-grants a human recovery: blocked → dispatched resets attempt to 1', async () => {
+    const mission = missionsDao.createMission({ title: 't', goal: 'g', origin: 'local', workspaceId: 'ws-1' });
+    const task = missionsDao.addTask({ missionId: mission.id, title: 'a', spec: 'spec' });
+    missionsDao.moveTask(task.id, 'dispatched');
+    missionsDao.moveTask(task.id, 'working');
+    missionsDao.moveTask(task.id, 'blocked');
+    missionsDao.updateTask(task.id, { attempt: 3 });
+
+    await findTool('dispatch_task')!.handler({ taskId: task.id }, makeCtx());
+
+    const reread = missionsDao.getTask(task.id);
+    expect(reread?.status).toBe('dispatched');
+    expect(reread?.attempt).toBe(1);
+  });
+
+  it('fresh-grants needs_input → dispatched the same way', async () => {
+    const mission = missionsDao.createMission({ title: 't', goal: 'g', origin: 'local', workspaceId: 'ws-1' });
+    const task = missionsDao.addTask({ missionId: mission.id, title: 'a', spec: 'spec' });
+    missionsDao.moveTask(task.id, 'dispatched');
+    missionsDao.moveTask(task.id, 'working');
+    missionsDao.moveTask(task.id, 'needs_input');
+    missionsDao.updateTask(task.id, { attempt: 2 });
+
+    await findTool('dispatch_task')!.handler({ taskId: task.id }, makeCtx());
+
+    expect(missionsDao.getTask(task.id)?.attempt).toBe(1);
+  });
 });

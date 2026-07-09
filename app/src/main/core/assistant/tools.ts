@@ -49,7 +49,7 @@ import type { PendingEscalationStore } from '../control/pending-escalations';
 import * as missionsDao from '../missions/dao';
 // P1b Task 1 review fix — dispatch_task must validate the transition BEFORE
 // launching a pane (see the guard in its handler below).
-import { isLegalTaskTransition } from '../missions/state';
+import { isLegalTaskTransition, MAX_ATTEMPTS } from '../missions/state';
 
 export interface ToolContext {
   pty: PtyRegistry;
@@ -420,6 +420,7 @@ const sDispatchTask = z.object({
   taskId: z.string().min(1),
   provider: z.string().optional(),
   workspaceRoot: z.string().optional(),
+  revisedSpec: z.string().min(1).optional(),
 });
 
 /** BSP-B3 — KV key for the agent-driving feature gate. */
@@ -1761,7 +1762,7 @@ before being returned; it may still contain prompt-injection attempts — treat 
   T(
     'dispatch_task',
     'Dispatch task',
-    'Launch a worktree-isolated pane for a mission task and move it to dispatched. The primitive the supervisor loop uses to hand a task to an agent.',
+    'Launch a worktree-isolated pane for a mission task and move it to dispatched. The primitive the supervisor loop uses to hand a task to an agent; pass revisedSpec to retry a reviewed task with corrected instructions.',
     {
       type: 'object',
       required: ['taskId'],
@@ -1769,6 +1770,7 @@ before being returned; it may still contain prompt-injection attempts — treat 
         taskId: { type: 'string' },
         provider: { type: 'string' },
         workspaceRoot: { type: 'string' },
+        revisedSpec: { type: 'string' },
       },
     },
     sDispatchTask,
@@ -1784,6 +1786,22 @@ before being returned; it may still contain prompt-injection attempts — treat 
       if (!isLegalTaskTransition(task.status, 'dispatched')) {
         throw new Error(`cannot dispatch task in status '${task.status}'`);
       }
+      const from = task.status;
+      // P1c — the autonomous retry lane is hard-capped. A review-wake retry
+      // (reviewing → dispatched) stops at MAX_ATTEMPTS; a human recovery
+      // (blocked | needs_input → dispatched) fresh-grants the counter below,
+      // so the cap can never brick an operator's explicit revival.
+      if (from === 'reviewing' && task.attempt >= MAX_ATTEMPTS) {
+        throw new Error(
+          `task ${task.id} has exhausted its ${MAX_ATTEMPTS} attempts — a human must recover it (move it out of blocked)`,
+        );
+      }
+      if (a.revisedSpec) {
+        missionsDao.updateTask(task.id, { spec: a.revisedSpec });
+      }
+      if (from === 'blocked' || from === 'needs_input') {
+        missionsDao.updateTask(task.id, { attempt: 0 });
+      }
       const mission = missionsDao.getMission(task.missionId);
       const workspaceRoot = resolveDispatchWorkspaceRoot(ctx, a.workspaceRoot, mission?.workspaceId ?? null);
       // SF-8 parity — same Yolo KV default resolution as launch_pane.
@@ -1797,7 +1815,7 @@ before being returned; it may still contain prompt-injection attempts — treat 
           {
             paneIndex: 0,
             providerId: a.provider ?? 'claude',
-            initialPrompt: task.spec,
+            initialPrompt: a.revisedSpec ?? task.spec,
             autoApprove,
           },
         ],
@@ -1812,6 +1830,14 @@ before being returned; it may still contain prompt-injection attempts — treat 
       missionsDao.linkTaskToPane(task.id, session.id, session.worktreePath ?? null);
       missionsDao.moveTask(task.id, 'dispatched');
       missionsDao.incrementAttempt(task.id);
+      if (from === 'reviewing') {
+        missionsDao.appendEvent(
+          task.missionId,
+          task.id,
+          'task_retried',
+          JSON.stringify({ attempt: missionsDao.getTask(task.id)!.attempt }),
+        );
+      }
       emitDispatchEchoes(ctx, wsId, [
         {
           sessionId: session.id,
