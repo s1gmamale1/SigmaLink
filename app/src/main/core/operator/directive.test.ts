@@ -71,6 +71,15 @@ describe('buildReviewDirective', () => {
     expect(directive).toContain('complete_mission');
   });
 
+  it('does NOT promise automatic re-dispatch (retry loop is not wired yet — P1c)', () => {
+    const directive = buildReviewDirective(makeMission(), makeTask(), 'output');
+    // The supervisor + state machine have no working→dispatched re-run path yet;
+    // the directive must steer an incomplete task to `blocked`, not falsely
+    // promise a "working" re-run that would stall the task forever.
+    expect(directive).not.toMatch(/re-dispatch/i);
+    expect(directive).toContain('blocked');
+  });
+
   it('caps a very long pane excerpt to MAX_EXCERPT_CHARS', () => {
     const hugeOutput = 'x'.repeat(MAX_EXCERPT_CHARS * 4);
     const directive = buildReviewDirective(makeMission(), makeTask(), hugeOutput);

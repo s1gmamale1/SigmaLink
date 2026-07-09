@@ -44,7 +44,6 @@ export function buildReviewDirective(mission: Mission, task: MissionTask, paneEx
     '',
     'Review the result and call exactly one verdict tool:',
     '- move_mission_task(status: "done") if the task is complete — then dispatch_task the next backlog task, or complete_mission if this was the last one.',
-    '- move_mission_task(status: "working") if it needs another pass — the supervisor will re-dispatch it.',
-    '- move_mission_task(status: "blocked") if it needs a human to unblock it.',
+    '- move_mission_task(status: "blocked") if it is not complete or needs a human — the operator will pick it up. (Automatic retry is not available yet; do NOT mark it "working" expecting a re-run.)',
   ].join('\n');
 }
