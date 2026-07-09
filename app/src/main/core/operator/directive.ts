@@ -9,6 +9,7 @@
 // them in the pane) — MAX_EXCERPT_CHARS caps it so a runaway build log can't
 // blow the model's context on one wake.
 
+import { MAX_ATTEMPTS } from '../missions/state';
 import type { Mission, MissionTask } from '../../../shared/types';
 
 export const MAX_EXCERPT_CHARS = 4000;
@@ -32,10 +33,12 @@ export function buildDecomposeDirective(mission: Mission): string {
 }
 
 export function buildReviewDirective(mission: Mission, task: MissionTask, paneExcerpt: string): string {
+  const retriesLeft = Math.max(0, MAX_ATTEMPTS - task.attempt);
   return [
     `Mission: ${mission.title}`,
     `Task: ${task.title}`,
     `Spec: ${task.spec}`,
+    `Attempt: ${task.attempt} of ${MAX_ATTEMPTS}`,
     '',
     "Recent output from the task's pane:",
     '```',
@@ -44,6 +47,7 @@ export function buildReviewDirective(mission: Mission, task: MissionTask, paneEx
     '',
     'Review the result and call exactly one verdict tool:',
     '- move_mission_task(status: "done") if the task is complete — then dispatch_task the next backlog task, or complete_mission if this was the last one.',
-    '- move_mission_task(status: "blocked") if it is not complete or needs a human — the operator will pick it up. (Automatic retry is not available yet; do NOT mark it "working" expecting a re-run.)',
+    `- dispatch_task(taskId, revisedSpec) to RETRY if it failed but a revised approach could succeed — put what went wrong and the corrected instructions into revisedSpec. Retries left: ${retriesLeft}.`,
+    '- move_mission_task(status: "blocked") if it needs a human decision or no viable retry remains.',
   ].join('\n');
 }

@@ -31,10 +31,11 @@
 import * as missionsDao from '../missions/dao';
 import { createConversation } from '../assistant/conversations';
 import { buildDecomposeDirective, buildReviewDirective } from './directive';
+import { MAX_ATTEMPTS } from '../missions/state';
 import type { Wake } from './scheduler';
 import type { Mission } from '../../../shared/types';
 
-export const MAX_ATTEMPTS = 3;
+export { MAX_ATTEMPTS };
 
 const GLOBAL_WORKSPACE_ID = 'jorvis-missions-global';
 

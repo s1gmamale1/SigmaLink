@@ -71,13 +71,24 @@ describe('buildReviewDirective', () => {
     expect(directive).toContain('complete_mission');
   });
 
-  it('does NOT promise automatic re-dispatch (retry loop is not wired yet — P1c)', () => {
+  it('offers the dispatch_task retry verdict with the attempt counter (P1c)', () => {
+    const directive = buildReviewDirective(makeMission(), makeTask({ attempt: 1 }), 'output');
+    expect(directive).toContain('Attempt: 1 of 3');
+    expect(directive).toContain('revisedSpec');
+    expect(directive).toContain('Retries left: 2');
+    // the P1b-era false-promise disclaimer must be gone
+    expect(directive).not.toContain('Automatic retry is not available yet');
+  });
+
+  it('still offers blocked for tasks that need a human', () => {
     const directive = buildReviewDirective(makeMission(), makeTask(), 'output');
-    // The supervisor + state machine have no working→dispatched re-run path yet;
-    // the directive must steer an incomplete task to `blocked`, not falsely
-    // promise a "working" re-run that would stall the task forever.
-    expect(directive).not.toMatch(/re-dispatch/i);
     expect(directive).toContain('blocked');
+  });
+
+  it('shows zero retries left at the cap boundary', () => {
+    const directive = buildReviewDirective(makeMission(), makeTask({ attempt: 3 }), 'output');
+    expect(directive).toContain('Attempt: 3 of 3');
+    expect(directive).toContain('Retries left: 0');
   });
 
   it('caps a very long pane excerpt to MAX_EXCERPT_CHARS', () => {
