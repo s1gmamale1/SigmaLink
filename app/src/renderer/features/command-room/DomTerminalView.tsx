@@ -182,6 +182,11 @@ export function DomTerminalView({
     const onFocusReq = (ev: Event) => {
       const detail = (ev as CustomEvent<{ sessionId?: string }>).detail;
       if (!detail || detail.sessionId !== sessionId) return;
+      // Already-focused early-return (parity with the xterm host): PaneShell
+      // now dispatches sigma:pty-focus on every non-interactive pane click,
+      // so without this a click on an already-focused, partially-clipped
+      // pane would smooth-scroll it on each click.
+      if (document.activeElement === inputRef.current) return;
       inputRef.current?.focus({ preventScroll: true });
       try {
         container.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
@@ -399,16 +404,22 @@ export function DomTerminalView({
   // xterm path's onSelectionChange→clipboard pipe), THEN focus is set
   // UNCONDITIONALLY — gating focus behind "selection collapsed" let a stray
   // micro-selection (the tiny range an ordinary click leaves) swallow the
-  // click's focus, which is the "pane needs 3-4 clicks to focus" bug. Under
-  // SGR mouse-tracking the native press handler already focused, so stand down.
+  // click's focus, which is the "pane needs 3-4 clicks to focus" bug.
+  //
+  // NO stand-down under SGR tracking: the old `if tracking, mousedown already
+  // focused` early-return re-read LIVE engine state at release time — a busy
+  // TUI writing DECSET 1000/1006 between press and release (or a PTY that
+  // died with tracking latched on, which the press gate rejects via
+  // ptyExited but this gate didn't) made the two gates disagree and the
+  // click focused NOTHING (the "multiple clicks to focus" bug, round 2).
+  // Re-focusing an already-focused element is a no-op, so the release
+  // simply always claims focus — no cross-moment state check to race.
   const onMouseUp = () => {
     const sel = window.getSelection();
     if (sel && !sel.isCollapsed) {
       const text = sel.toString();
       if (text) void navigator.clipboard?.writeText(text).catch(() => undefined);
     }
-    const mt = entry.engine.mouseTracking;
-    if (mt.mode !== 'none' && mt.sgr) return; // tracking focused on mousedown
     // `preventScroll` stops the browser scroll-jumping to reveal the
     // bottom-pinned 1×1 hidden textarea — that scroll-jump was the
     // "flicker on click".
