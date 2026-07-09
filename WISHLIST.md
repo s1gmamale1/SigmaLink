@@ -24,6 +24,14 @@ _(consciously NOT built — each is a separate track or a non-goal, not a gap)_
 
 _(real upgrades to build once the current system is production-grade)_
 
+- **[panes] harden the click⇒focus interactive-element guard** — `PaneShell.tsx` `handlePaneClick`
+  guard misses span-based FlowView links + `role="dialog"` chrome; harmless today (the handler never
+  cancels the event, worst case = an extra idempotent focus dispatch) but add `[role="dialog"]`,
+  `label`, `[data-link]` if a focus-leak-under-modal ever surfaces. Effort: S. (PR #226 review M2.)
+- **[perf][state] CLEAR_SESSION_ATTENTION always allocates fresh state** — `state.reducer.ts`
+  returns a new top-level object even when the attention map is unchanged, so every pane click
+  re-renders CommandRoom. Negligible at human click rate; return `state` unchanged when the key is
+  absent. Effort: S. (PR #226 review M3, pre-existing pattern.)
 - **[panes] tab-switch should move keyboard focus too** — the click⇒focus invariant
   (fix/pane-first-click-focus, 2026-07-10) deliberately skips interactive controls, so clicking a
   scratch TAB switches the view but keyboard focus stays in the previous tab's terminal; same for

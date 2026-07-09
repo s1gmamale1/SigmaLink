@@ -182,6 +182,11 @@ export function DomTerminalView({
     const onFocusReq = (ev: Event) => {
       const detail = (ev as CustomEvent<{ sessionId?: string }>).detail;
       if (!detail || detail.sessionId !== sessionId) return;
+      // Already-focused early-return (parity with the xterm host): PaneShell
+      // now dispatches sigma:pty-focus on every non-interactive pane click,
+      // so without this a click on an already-focused, partially-clipped
+      // pane would smooth-scroll it on each click.
+      if (document.activeElement === inputRef.current) return;
       inputRef.current?.focus({ preventScroll: true });
       try {
         container.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
