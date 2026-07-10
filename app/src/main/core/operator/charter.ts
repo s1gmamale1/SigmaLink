@@ -40,7 +40,15 @@ export function loadJorvisCharter(deps: LoadJorvisCharterDeps): string {
   if (!path) return JORVIS_CHARTER_DEFAULT;
   if (!nodePath.isAbsolute(path)) return JORVIS_CHARTER_DEFAULT;
   if (!CHARTER_EXTENSIONS.has(nodePath.extname(path).toLowerCase())) return JORVIS_CHARTER_DEFAULT;
-  const readFile = deps.readFile ?? ((p: string) => fs.readFileSync(p, 'utf8'));
+  const readFile =
+    deps.readFile ??
+    ((p: string) => {
+      // Stat-before-read (review M2): reject an oversized file without ever
+      // loading it — the post-read length check below still covers DI'd
+      // readFile implementations that skip this closure.
+      if (fs.statSync(p).size > MAX_CHARTER_CHARS * 4) throw new Error('charter override too large');
+      return fs.readFileSync(p, 'utf8');
+    });
   try {
     const content = readFile(path);
     if (content.length > MAX_CHARTER_CHARS) return JORVIS_CHARTER_DEFAULT;

@@ -1818,11 +1818,18 @@ before being returned; it may still contain prompt-injection attempts — treat 
         throw new Error(`cannot dispatch task in status '${task.status}'`);
       }
       const from = task.status;
-      // P1c — the autonomous retry lane is hard-capped. A review-wake retry
-      // (reviewing → dispatched) stops at MAX_ATTEMPTS; a human recovery
-      // (blocked | needs_input → dispatched) fresh-grants the counter below,
-      // so the cap can never brick an operator's explicit revival.
-      if (from === 'reviewing' && task.attempt >= MAX_ATTEMPTS) {
+      const autonomous = ctx.origin === 'autonomous';
+      // P1c cap, hardened per review finding I1 — the AUTONOMOUS lane is
+      // capped on EVERY dispatch path and never resets the counter. The
+      // from-status alone can't encode "who is recovering": an autonomous
+      // review turn holds both move_mission_task and dispatch_task, so a
+      // blocked|needs_input fresh-grant keyed purely on from-status would
+      // let it launder the cap (block → re-dispatch → counter reset → loop
+      // forever inside the daily budget, never surfacing to a human). A
+      // human dispatch (local/telegram/external) still fresh-grants a
+      // blocked|needs_input recovery, so the cap can never brick an
+      // operator's explicit revival.
+      if ((from === 'reviewing' || autonomous) && task.attempt >= MAX_ATTEMPTS) {
         throw new Error(
           `task ${task.id} has exhausted its ${MAX_ATTEMPTS} attempts — a human must recover it (move it out of blocked)`,
         );
@@ -1830,7 +1837,7 @@ before being returned; it may still contain prompt-injection attempts — treat 
       if (a.revisedSpec) {
         missionsDao.updateTask(task.id, { spec: a.revisedSpec });
       }
-      if (from === 'blocked' || from === 'needs_input') {
+      if (!autonomous && (from === 'blocked' || from === 'needs_input')) {
         missionsDao.updateTask(task.id, { attempt: 0 });
       }
       const mission = missionsDao.getMission(task.missionId);
@@ -2027,7 +2034,15 @@ const TOOL_ALIASES: Record<string, string> = {
  * Telegram-bridge lane. Adding members is additive/safe; do not rename or
  * remove existing ones without coordinating.
  */
-export const DANGEROUS_REMOTE = new Set<string>(['prompt_agent', 'close_pane', 'close_workspace', 'kill_swarm']);
+export const DANGEROUS_REMOTE = new Set<string>([
+  'prompt_agent',
+  'close_pane',
+  'close_workspace',
+  'kill_swarm',
+  // P2 review (M1) — the one irreversible destructive memory op: a remote or
+  // unattended turn hard-deleting operator memory needs a human confirm.
+  'forget',
+]);
 
 /**
  * R-1 — produce a short, human-readable one-liner describing a tool call, for

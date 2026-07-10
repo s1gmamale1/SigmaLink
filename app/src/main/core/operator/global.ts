@@ -23,6 +23,10 @@ export const JORVIS_GLOBAL_WORKSPACE_ID = 'jorvis-missions-global';
  * portfolio-wide, workspace-less conversation — Telegram/global-scope
  * turns). Durable across restarts: the in-memory-only approach this
  * replaces lost the conversation on every app relaunch.
+ *
+ * RESERVED FOR P3 (no consumer yet): P2 wires only the per-mission pins
+ * (`KV_MISSION_CONVERSATION_PREFIX`) + the portfolio prompt path; the
+ * Telegram cockpit (Phase 22) binds its command-channel conversation here.
  */
 export const KV_OPERATOR_CONVERSATION = 'jorvis.operator.conversationId';
 

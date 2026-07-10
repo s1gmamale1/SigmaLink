@@ -224,4 +224,53 @@ describe('dispatch_task tool', () => {
 
     expect(missionsDao.getTask(task.id)?.attempt).toBe(1);
   });
+
+  // Review finding I1 — the autonomous lane must not be able to launder the
+  // cap: block → re-dispatch (from 'blocked') would reset the counter and
+  // ping-pong a doomed task forever if the fresh-grant keyed on from-status
+  // alone. Autonomous dispatches never reset and are capped on EVERY path.
+  it('autonomous origin: blocked → dispatched does NOT reset the counter', async () => {
+    const mission = missionsDao.createMission({ title: 't', goal: 'g', origin: 'autonomous', workspaceId: 'ws-1' });
+    const task = missionsDao.addTask({ missionId: mission.id, title: 'a', spec: 'spec' });
+    missionsDao.moveTask(task.id, 'dispatched');
+    missionsDao.moveTask(task.id, 'working');
+    missionsDao.moveTask(task.id, 'blocked');
+    missionsDao.updateTask(task.id, { attempt: 1 });
+
+    await findTool('dispatch_task')!.handler({ taskId: task.id }, makeCtx({ origin: 'autonomous' }));
+
+    // no fresh-grant: 1 → incremented to 2, not reset to 0 → 1
+    expect(missionsDao.getTask(task.id)?.attempt).toBe(2);
+  });
+
+  it('autonomous origin: a capped task cannot be dispatched from ANY status', async () => {
+    const mission = missionsDao.createMission({ title: 't', goal: 'g', origin: 'autonomous', workspaceId: 'ws-1' });
+    const task = missionsDao.addTask({ missionId: mission.id, title: 'a', spec: 'spec' });
+    missionsDao.moveTask(task.id, 'dispatched');
+    missionsDao.moveTask(task.id, 'working');
+    missionsDao.moveTask(task.id, 'blocked');
+    missionsDao.updateTask(task.id, { attempt: 3 });
+
+    await expect(
+      findTool('dispatch_task')!.handler({ taskId: task.id }, makeCtx({ origin: 'autonomous' })),
+    ).rejects.toThrow(/exhausted its 3 attempts/);
+
+    expect(executeLaunchPlanMock).not.toHaveBeenCalled();
+    expect(missionsDao.getTask(task.id)?.status).toBe('blocked');
+    expect(missionsDao.getTask(task.id)?.attempt).toBe(3);
+  });
+
+  it('human recovery still fresh-grants a capped task (origin local/undefined)', async () => {
+    const mission = missionsDao.createMission({ title: 't', goal: 'g', origin: 'local', workspaceId: 'ws-1' });
+    const task = missionsDao.addTask({ missionId: mission.id, title: 'a', spec: 'spec' });
+    missionsDao.moveTask(task.id, 'dispatched');
+    missionsDao.moveTask(task.id, 'working');
+    missionsDao.moveTask(task.id, 'blocked');
+    missionsDao.updateTask(task.id, { attempt: 3 });
+
+    await findTool('dispatch_task')!.handler({ taskId: task.id }, makeCtx({ origin: 'local' }));
+
+    expect(missionsDao.getTask(task.id)?.status).toBe('dispatched');
+    expect(missionsDao.getTask(task.id)?.attempt).toBe(1);
+  });
 });

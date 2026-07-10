@@ -137,9 +137,11 @@ Mission board tools:
                       an illegal transition.
   complete_mission    { missionId, report }
                       Mark a mission done and attach its final report.
-  dispatch_task       { taskId, provider?, workspaceRoot? }
+  dispatch_task       { taskId, provider?, workspaceRoot?, revisedSpec? }
                       Launch a worktree-isolated pane for a task and move it
-                      to dispatched. The supervisor loop's hand-off primitive.
+                      to dispatched. The supervisor loop's hand-off primitive;
+                      pass revisedSpec to retry a reviewed task with corrected
+                      instructions.
 
 Memory tools (durable, cross-session — distinct from the workspace memory hub):
   remember            { kind, title, body, tags?, workspaceId? }
