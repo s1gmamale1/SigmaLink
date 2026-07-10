@@ -597,7 +597,12 @@ export class TelegramBridge extends EventEmitter {
           return;
         }
         case '/status': {
-          await this.reply(chatId, formatBoardSummary(missions.boardRead()));
+          // /status was the bridge-health command before the P3 cockpit
+          // repurposed it for the board — keep the one health fact a board
+          // summary can't carry (any reply already proves the bridge is
+          // alive): whether the assistant lane is locked.
+          const lockPrefix = this.isLocked() ? '🔒 Jorvis is locked (/unlock to resume)\n\n' : '';
+          await this.reply(chatId, lockPrefix + formatBoardSummary(missions.boardRead()));
           return;
         }
         case '/tasks': {
