@@ -33,6 +33,7 @@ import { EventEmitter } from 'node:events';
 import { createTelegramClient, type TelegramClient } from './telegram-client';
 import { createSafetyLayer, type SafetyLayer } from './safety';
 import { createAuditLog, type AuditEntry, type AuditKind, type AuditLog } from './audit';
+import { formatBoardSummary, formatTasks, type MissionBoardRow } from './board-format';
 
 // ── constants ────────────────────────────────────────────────────────────────
 
@@ -63,6 +64,20 @@ const CONFIRM_TIMEOUT_MS = 60_000;
 const MAX_RELAY_CHARS = 8192;
 /** Default idle-lock window when unset (minutes). */
 const DEFAULT_IDLE_LOCK_MIN = 30;
+/** P3 T2 — mission-cockpit command tokens, dispatched via runMissionCommand().
+ *  Matched against the lowercased leading token (splitCommand's `cmd`), so
+ *  each of these may carry a case-preserved argument tail. */
+const MISSION_COMMANDS = new Set([
+  '/mission',
+  '/status',
+  '/tasks',
+  '/approve',
+  '/deny',
+  '/panes',
+  '/workspaces',
+]);
+/** Fixed fail-soft reply for every mission command when `deps.missions` is unset. */
+const MISSIONS_NOT_WIRED = 'mission commands are not wired on this build';
 
 // ── public types ─────────────────────────────────────────────────────────────
 
@@ -106,6 +121,33 @@ export interface BridgeNotifier {
   }): unknown;
 }
 
+/**
+ * P3 T2 — mission-cockpit closures injected from rpc-router. Optional so the
+ * bridge stays usable (and every test above this section keeps working)
+ * without a mission board wired up; when absent every mission command
+ * replies a fixed fail-soft message instead of throwing. Keeps the bridge
+ * DAO-decoupled: it never imports missionsDao directly.
+ */
+export interface MissionsBridgeDeps {
+  /** Create a mission (title = first 60 chars of goal) + set it active. Returns the new mission id. */
+  createAndStart(goal: string): string;
+  /** Enqueue the mission's decompose wake. Called unconditionally — the
+   *  autonomy-disabled gate is responsible for dropping the wake itself. */
+  enqueueDecompose(missionId: string): void;
+  /** Whether autonomous wakes currently run (the `/mission` reply text only — never gates the enqueue). */
+  autonomyEnabled(): boolean;
+  /** Full board snapshot (all missions + their tasks) for `/status` and `/tasks`. */
+  boardRead(): MissionBoardRow[];
+  /** One-line-per-pane summaries for `/panes`. */
+  listPanes(): string[];
+  /** One-line-per-workspace summaries for `/workspaces`. */
+  listWorkspaces(): string[];
+  /** Try to decide a pending amendment. 'not-found' when the id isn't a pending amendment. */
+  decideAmendment(id: string, approved: boolean): 'decided' | 'not-found';
+  /** Try to resolve a pending escalation. 'not-found' when the id isn't a pending escalation. */
+  resolveEscalation(id: string, approved: boolean): 'resolved' | 'not-found';
+}
+
 export interface TelegramBridgeDeps {
   kv: KvLike;
   credentials: CredentialStoreLike;
@@ -120,6 +162,10 @@ export interface TelegramBridgeDeps {
   rufloCall?: (tool: string, args: Record<string, unknown>) => Promise<unknown>;
   /** Directory for the append-only audit JSONL (created if absent). */
   auditDir: string;
+  /** P3 T2 — optional mission-cockpit closures. Undefined → every mission
+   *  command (`/mission /status /tasks /approve /deny /panes /workspaces`)
+   *  fail-softs to a fixed "not wired" reply instead of throwing. */
+  missions?: MissionsBridgeDeps;
   /** Test seams — default to the real factories + global fetch + Date.now. */
   now?: () => number;
   fetchImpl?: typeof fetch;
@@ -166,6 +212,18 @@ export function chunkText(text: string, maxChars: number = TELEGRAM_MAX_CHARS): 
     out.push(text.slice(i, i + maxChars));
   }
   return out;
+}
+
+/**
+ * Split a raw inbound message into a lowercased command token + its
+ * (case-preserved) argument tail — `/mission Ship it` → `{cmd:'/mission',
+ * arg:'Ship it'}`. A bare command (no space) yields an empty arg.
+ */
+function splitCommand(raw: string): { cmd: string; arg: string } {
+  const trimmed = raw.trim();
+  const spaceIdx = trimmed.indexOf(' ');
+  if (spaceIdx === -1) return { cmd: trimmed.toLowerCase(), arg: '' };
+  return { cmd: trimmed.slice(0, spaceIdx).toLowerCase(), arg: trimmed.slice(spaceIdx + 1).trim() };
 }
 
 /** Parse the persisted allowlist (JSON array of numbers). Tolerant of junk. */
@@ -399,20 +457,26 @@ export class TelegramBridge extends EventEmitter {
       this.deps.kv.set(KV_TELEGRAM_OPERATOR_CHAT, String(chatId));
     }
 
-    const command = text.trim().toLowerCase();
+    const trimmedText = text.trim();
+    const command = trimmedText.toLowerCase();
+    // P3 T2 — mission-cockpit commands take a (case-preserved) argument tail;
+    // `cmd` is the lowercased leading token, matched against MISSION_COMMANDS
+    // below. `/status` moved from the plain bridge-health reply to the
+    // mission-board summary (see MISSION_COMMANDS + runMissionCommand()).
+    const { cmd, arg } = splitCommand(trimmedText);
 
-    // Control commands (/lock /unlock /status /new /subscribe /unsubscribe)
-    // are gated by ALLOWLIST ONLY — they must bypass the lock gate so an
-    // allowlisted operator can /unlock after a lock (a lock-gated /unlock
-    // could never get through). A non-allowlisted sender is still dropped
-    // silently.
+    // Control commands (/lock /unlock /new /subscribe /unsubscribe) plus the
+    // P3 T2 mission-cockpit commands are gated by ALLOWLIST ONLY — they must
+    // bypass the lock gate so an allowlisted operator can /unlock after a
+    // lock (a lock-gated /unlock could never get through). A non-allowlisted
+    // sender is still dropped silently.
     if (
       command === '/lock' ||
       command === '/unlock' ||
-      command === '/status' ||
       command === '/new' ||
       command === '/subscribe' ||
-      command === '/unsubscribe'
+      command === '/unsubscribe' ||
+      MISSION_COMMANDS.has(cmd)
     ) {
       const allowlist = parseAllowlist(this.deps.kv.get(KV_TELEGRAM_ALLOWLIST));
       if (!allowlist.includes(chatId)) {
@@ -453,11 +517,8 @@ export class TelegramBridge extends EventEmitter {
         this.deps.kv.set(KV_TELEGRAM_OPERATOR_CHAT, '');
         await this.reply(chatId, '🔕 Unsubscribed — no more reports here.');
       } else {
-        const locked = this.isLocked();
-        await this.reply(
-          chatId,
-          `Status: ${this.isRunning() ? 'running' : 'stopped'}${locked ? ' (locked)' : ''}.`,
-        );
+        // MISSION_COMMANDS.has(cmd) — the only other way into this block.
+        await this.runMissionCommand(chatId, cmd, arg);
       }
       return;
     }
@@ -493,6 +554,86 @@ export class TelegramBridge extends EventEmitter {
       const conversationId = (res as { conversationId?: unknown } | null)?.conversationId;
       if (typeof conversationId === 'string' && conversationId) {
         this.lastConversationId = conversationId;
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logAudit('dispatch-error', chatId, message);
+      await this.reply(chatId, `Sigma hit an error: ${message}`);
+    }
+  }
+
+  // ── mission cockpit commands (P3 T2) ─────────────────────────────────────────
+
+  /**
+   * `/mission /status /tasks /approve /deny /panes /workspaces` — thin
+   * dispatch over the injected `missions` closures. `deps.missions` unset →
+   * fixed fail-soft reply for every one of these, never a throw. A closure
+   * that itself throws is caught the same way `assistant.send` is above.
+   */
+  private async runMissionCommand(chatId: number, cmd: string, arg: string): Promise<void> {
+    const missions = this.deps.missions;
+    if (!missions) {
+      await this.reply(chatId, MISSIONS_NOT_WIRED);
+      return;
+    }
+    try {
+      switch (cmd) {
+        case '/mission': {
+          if (!arg) {
+            await this.reply(chatId, 'usage: /mission <goal>');
+            return;
+          }
+          const id = missions.createAndStart(arg);
+          // Enqueue regardless of the autonomy flag — the scheduler's
+          // disabled gate drops the wake itself (with an audited reason);
+          // this reply is just the honest reflection of that outcome.
+          missions.enqueueDecompose(id);
+          await this.reply(
+            chatId,
+            missions.autonomyEnabled()
+              ? `mission ${id} created — decompose queued`
+              : `mission ${id} created — parked (autonomy disabled)`,
+          );
+          return;
+        }
+        case '/status': {
+          await this.reply(chatId, formatBoardSummary(missions.boardRead()));
+          return;
+        }
+        case '/tasks': {
+          await this.reply(chatId, formatTasks(missions.boardRead(), arg || undefined));
+          return;
+        }
+        case '/approve':
+        case '/deny': {
+          const approved = cmd === '/approve';
+          if (!arg) {
+            await this.reply(chatId, `usage: ${cmd} <id>`);
+            return;
+          }
+          if (missions.decideAmendment(arg, approved) === 'decided') {
+            await this.reply(chatId, `amendment ${arg} ${approved ? 'approved' : 'denied'}`);
+            return;
+          }
+          if (missions.resolveEscalation(arg, approved) === 'resolved') {
+            await this.reply(chatId, `escalation ${arg} ${approved ? 'approved' : 'denied'}`);
+            return;
+          }
+          await this.reply(chatId, `nothing pending with id ${arg}`);
+          return;
+        }
+        case '/panes': {
+          const panes = missions.listPanes();
+          await this.reply(chatId, panes.length ? panes.join('\n') : 'no live panes');
+          return;
+        }
+        case '/workspaces': {
+          const workspaces = missions.listWorkspaces();
+          await this.reply(chatId, workspaces.length ? workspaces.join('\n') : 'no workspaces');
+          return;
+        }
+        default:
+          return;
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
