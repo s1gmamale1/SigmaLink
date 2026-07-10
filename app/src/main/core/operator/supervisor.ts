@@ -74,6 +74,7 @@ import { buildMemoryContext } from './context';
 import { recallMemories } from './memory';
 import { MAX_ATTEMPTS } from '../missions/state';
 import { JORVIS_GLOBAL_WORKSPACE_ID, KV_MISSION_CONVERSATION_PREFIX } from './global';
+import { formatCapBlockPush } from './push-format';
 import type { Wake, WakeKind } from './scheduler';
 import type { Mission } from '../../../shared/types';
 
@@ -98,6 +99,15 @@ export interface SupervisorDeps {
    *  it), but every EXISTING test's baseDeps() must keep working unmodified,
    *  and a missing dep must never crash a wake — always called via `?.`. */
   enqueue?: (kind: WakeKind, missionId: string) => void;
+  /** P3 T3 (D6) — proactive operator push. Wired by rpc-router.ts to the
+   *  Telegram bridge's `pushToOperator` (late-bound the same way `enqueue`
+   *  is, since the bridge is constructed after the supervisor). Used ONLY by
+   *  runReview's MAX_ATTEMPTS block path today — blocked-verdict/amendment
+   *  pushes ride the tool-trace hooks in rpc-router.ts instead, since those
+   *  fire off a successful tool call rather than a supervisor wake. Optional:
+   *  every EXISTING test's baseDeps() must keep working unmodified, and a
+   *  THROWING notify must never kill a wake — always called inside try/catch. */
+  notify?: (message: string) => void;
 }
 
 export interface Supervisor {
@@ -162,6 +172,19 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
       // path) — this is the ONLY other trigger for a postmortem wake besides
       // rpc-router's complete_mission hook. Optional dep, best-effort.
       deps.enqueue?.('postmortem', task.missionId);
+      // P3 T3 (D6) — push the cap-block to the operator's phone: this is the
+      // one wake outcome a human needs to see immediately (the mission is
+      // stuck on a task the model gave up retrying). Wrapped in its own
+      // try/catch — deps.notify is caller-supplied and a throw here must
+      // never take down the wake that already did its DB writes above.
+      if (deps.notify) {
+        try {
+          const capMission = missionsDao.getMission(task.missionId);
+          deps.notify(formatCapBlockPush(task.title, capMission?.title ?? task.missionId, MAX_ATTEMPTS));
+        } catch {
+          /* notify is best-effort — must never break a wake */
+        }
+      }
       return;
     }
 

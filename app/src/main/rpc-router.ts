@@ -123,6 +123,14 @@ import { createMissionWatcher, type MissionWatcher } from './core/operator/watch
 import { createWakeScheduler, type WakeScheduler } from './core/operator/scheduler';
 import { createSupervisor } from './core/operator/supervisor';
 import { JORVIS_GLOBAL_WORKSPACE_ID } from './core/operator/global';
+// P3 Task 3 (D6) — pure push-text builders for the proactive Telegram
+// pushes wired below (complete_mission / move_mission_task blocked /
+// propose_amendment trace hooks + the supervisor's notify dep).
+import {
+  formatAmendmentProposedPush,
+  formatMissionDonePush,
+  formatTaskBlockedPush,
+} from './core/operator/push-format';
 import { buildAssistantController } from './core/assistant/controller';
 import { McpHostSigma, type ToolInvoker } from './core/assistant/mcp-host-sigma';
 import { ControlMcpHost, type ExternalToolInvoker } from './core/control/control-mcp-host';
@@ -927,6 +935,14 @@ async function buildRouter() {
   // after boot finishes, so the null window is never observed.
   let missionWatcher: MissionWatcher | null = null;
   let missionScheduler: WakeScheduler | null = null;
+  // P3 Task 3 — forward-declared exactly like missionWatcher/missionScheduler
+  // above: the Telegram bridge is constructed much further down (after the
+  // assistant controller + supervisor + scheduler all exist), but the
+  // supervisor's `notify` dep and the tool-trace push hooks both need to
+  // call `pushToOperator` on it. Every closure below reads the CURRENT
+  // value at call time; the null window is never observed in practice
+  // (pushes only fire off a real wake/trace, well after boot completes).
+  let telegramBridge: TelegramBridge | null = null;
   const controlMcpHost = new ControlMcpHost({
     socketPath: controlSocketPath(app.getPath('userData')),
     getToken: () => controlBearer,
@@ -2688,6 +2704,63 @@ async function buildRouter() {
           } catch {
             /* autonomy enqueue is best-effort — must never break the trace stream */
           }
+          // P3 T3 (D6) — proactive "mission done" push to the operator's
+          // phone. Re-reads the mission for title/report (the trace payload
+          // carries neither): missionsDao.getMission is a cheap sync read,
+          // and a miss (mission deleted mid-flight) just skips the push.
+          // Fire-and-forget + `.catch()` — mirrors the supervisor's `notify`
+          // wiring above so a push failure can never break the trace stream.
+          try {
+            const doneMission = missionsDao.getMission(missionId);
+            if (doneMission) {
+              void telegramBridge
+                ?.pushToOperator(formatMissionDonePush(doneMission.title, doneMission.report))
+                .catch(() => {});
+            }
+          } catch {
+            /* push is best-effort — must never break the trace stream */
+          }
+        }
+      }
+      // P3 T3 (D6) — task-blocked push. Fires on a SUCCESSFUL
+      // move_mission_task call whose requested status is 'blocked' (args are
+      // always present on the trace payload — the tool's own required
+      // schema field, sMoveMissionTask). Mirrors the create_mission/
+      // complete_mission hooks' shape exactly.
+      if (
+        event === 'assistant:tool-trace' &&
+        payload &&
+        typeof payload === 'object' &&
+        (payload as { name?: string }).name === 'move_mission_task' &&
+        (payload as { ok?: boolean }).ok === true &&
+        (payload as { args?: { status?: string } }).args?.status === 'blocked'
+      ) {
+        const taskId = (payload as { args?: { taskId?: string } }).args?.taskId;
+        if (taskId) {
+          try {
+            void telegramBridge?.pushToOperator(formatTaskBlockedPush(taskId)).catch(() => {});
+          } catch {
+            /* push is best-effort — must never break the trace stream */
+          }
+        }
+      }
+      // P3 T3 (D6) — amendment-proposed push. Fires on a SUCCESSFUL
+      // propose_amendment call; the amendment id comes back on `result`
+      // (tools.ts's handler returns `{amendmentId}`), not `args`.
+      if (
+        event === 'assistant:tool-trace' &&
+        payload &&
+        typeof payload === 'object' &&
+        (payload as { name?: string }).name === 'propose_amendment' &&
+        (payload as { ok?: boolean }).ok === true
+      ) {
+        const amendmentId = (payload as { result?: { amendmentId?: string } }).result?.amendmentId;
+        if (amendmentId) {
+          try {
+            void telegramBridge?.pushToOperator(formatAmendmentProposedPush(amendmentId)).catch(() => {});
+          } catch {
+            /* push is best-effort — must never break the trace stream */
+          }
         }
       }
       // R-1 — fan `assistant:state` deltas out to the Telegram bridge so a
@@ -2792,6 +2865,16 @@ async function buildRouter() {
     // few lines below, exactly like the decompose/postmortem tool-trace
     // hooks above already do. Intentional late-binding, not a bug.
     enqueue: (kind, missionId) => missionScheduler?.enqueue(kind, missionId),
+    // P3 T3 (D6) — proactive push for the MAX_ATTEMPTS cap-block, late-bound
+    // to the Telegram bridge exactly like `enqueue` is late-bound to
+    // `missionScheduler` above (`telegramBridge` is a forward-declared `let`
+    // constructed well after this call site). Fire-and-forget + `.catch()`
+    // so a rejected push promise can never become an unhandled rejection;
+    // `void` because the supervisor's `notify` contract is synchronous
+    // fire-and-forget, not something a wake awaits.
+    notify: (message) => {
+      void telegramBridge?.pushToOperator(message).catch(() => {});
+    },
   });
   missionScheduler = createWakeScheduler({
     runWake: (wake) => missionSupervisor.runWake(wake),
@@ -3018,7 +3101,10 @@ async function buildRouter() {
       }
     },
   };
-  const telegramBridge = new TelegramBridge({
+  // P3 Task 3 — assigns the forward-declared `let telegramBridge` above
+  // (not `const`): the supervisor's `notify` dep and the tool-trace push
+  // hooks were wired earlier in this function, closing over that binding.
+  telegramBridge = new TelegramBridge({
     kv: telegramKv,
     credentials: CredentialStore,
     // Assistant seam via the same CAST pattern as the voice path's
