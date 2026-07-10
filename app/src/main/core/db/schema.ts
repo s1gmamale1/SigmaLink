@@ -643,6 +643,51 @@ export type MissionTaskInsert = typeof missionTasks.$inferInsert;
 export type MissionEventRow = typeof missionEvents.$inferSelect;
 export type MissionEventInsert = typeof missionEvents.$inferInsert;
 
+// Phase 21 P2 — Jorvis persistent identity: durable memory + self-amendments.
+// Migration 0041_jorvis_identity owns the DDL; these Drizzle tables mirror it.
+// LOCAL-ONLY — not in the sync allowlist (operator-private memory, design
+// decision D5), same treatment as the missions tables above.
+export const jorvisMemory = sqliteTable(
+  'jorvis_memory',
+  {
+    id: text('id').primaryKey(),
+    kind: text('kind', { enum: ['fact', 'playbook', 'preference', 'postmortem'] }).notNull(),
+    title: text('title').notNull(),
+    body: text('body').notNull(),
+    tags: text('tags').notNull().default('[]'),
+    workspaceId: text('workspace_id'),
+    confidence: real('confidence').notNull().default(0.7),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    lastUsedAt: integer('last_used_at'),
+  },
+  (t) => ({
+    jorvisMemoryKindIdx: index('jorvis_memory_kind_idx').on(t.kind),
+    jorvisMemoryWsIdx: index('jorvis_memory_ws_idx').on(t.workspaceId),
+  }),
+);
+
+export const jorvisAmendments = sqliteTable(
+  'jorvis_amendments',
+  {
+    id: text('id').primaryKey(),
+    text: text('text').notNull(),
+    rationale: text('rationale'),
+    status: text('status', { enum: ['proposed', 'approved', 'denied'] })
+      .notNull()
+      .default('proposed'),
+    decisionReason: text('decision_reason'),
+    proposedAt: integer('proposed_at').notNull(),
+    decidedAt: integer('decided_at'),
+  },
+  (t) => ({ jorvisAmendmentsStatusIdx: index('jorvis_amendments_status_idx').on(t.status) }),
+);
+
+export type JorvisMemoryRow = typeof jorvisMemory.$inferSelect;
+export type JorvisMemoryInsert = typeof jorvisMemory.$inferInsert;
+export type JorvisAmendmentRow = typeof jorvisAmendments.$inferSelect;
+export type JorvisAmendmentInsert = typeof jorvisAmendments.$inferInsert;
+
 // Phase — V3-W14-006 — Sigma Canvas persistence.
 // Migration 0007_canvases owns the DDL; these Drizzle tables mirror it so the
 // design controller stays end-to-end typed.

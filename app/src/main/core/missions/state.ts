@@ -8,7 +8,9 @@ const TASK_TRANSITIONS: Record<MissionTaskStatus, MissionTaskStatus[]> = {
   backlog: ['dispatched'],
   dispatched: ['working', 'blocked', 'needs_input'],
   working: ['reviewing', 'blocked', 'needs_input', 'done'],
-  reviewing: ['working', 'done', 'blocked', 'needs_input'],
+  // 'dispatched' is the P1c retry verdict — a review wake re-dispatches a
+  // failed-but-retryable task (fresh pane, revised spec, attempt+1).
+  reviewing: ['working', 'done', 'blocked', 'needs_input', 'dispatched'],
   needs_input: ['working', 'dispatched', 'blocked'],
   blocked: ['dispatched', 'working'],
   done: [], // terminal
@@ -18,6 +20,15 @@ export function isLegalTaskTransition(from: MissionTaskStatus, to: MissionTaskSt
   if (from === to) return true; // idempotent update
   return TASK_TRANSITIONS[from].includes(to);
 }
+
+/**
+ * Hard cap on autonomous dispatches of one task (P1c). Lives here — beside
+ * the machine whose retry edge it bounds — so the supervisor's pre-model
+ * block and dispatch_task's reviewing-lane guard share ONE value. A human
+ * recovery (blocked|needs_input → dispatched) resets the counter; the
+ * autonomous lane (reviewing → dispatched) is monotonic and stops here.
+ */
+export const MAX_ATTEMPTS = 3;
 
 const TERMINAL_MISSION: MissionStatus[] = ['done', 'failed', 'cancelled'];
 

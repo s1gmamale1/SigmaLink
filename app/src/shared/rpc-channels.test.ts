@@ -242,6 +242,9 @@ const TYPED_ROUTER_CHANNELS: ReadonlyArray<string> = [
   'missions.list',
   'missions.get',
   'missions.events',
+  // jorvis (jorvisCtl — from amendmentsDao, P2 Task 8 self-amendments)
+  'jorvis.amendmentsList',
+  'jorvis.amendmentsDecide',
   // assistant (assistantCtl — from buildAssistantController)
   'assistant.send',
   'assistant.list',
@@ -623,6 +626,17 @@ describe('CHANNELS vs AppRouter cross-reference (v1.5.3-B)', () => {
    */
   it('missions:changed is in EVENTS allowlist', () => {
     expect(EVENTS.has('missions:changed')).toBe(true);
+  });
+
+  /**
+   * P2 Task 8 — the propose_amendment tool AND the jorvis.amendmentsDecide
+   * RPC both `ctx.emit`/`broadcast` 'jorvis:amendments-changed' on every
+   * mutating call. Without an EVENTS entry the preload's eventOn silently
+   * no-ops the renderer's AmendmentsPanel subscription — same class as
+   * missions:changed above.
+   */
+  it('jorvis:amendments-changed is in EVENTS allowlist', () => {
+    expect(EVENTS.has('jorvis:amendments-changed')).toBe(true);
   });
 
   /**

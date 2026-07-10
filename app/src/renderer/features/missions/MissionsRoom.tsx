@@ -11,6 +11,7 @@ import { useMissions } from './use-missions';
 import { MissionList } from './MissionList';
 import { MissionBoard } from './MissionBoard';
 import { MissionDetail } from './MissionDetail';
+import { AmendmentsPanel } from './AmendmentsPanel';
 
 interface Props {
   className?: string;
@@ -33,6 +34,7 @@ export function MissionsRoom({ className }: Props) {
             <span className="ml-2 truncate text-xs text-muted-foreground">{mission.title}</span>
           ) : null}
         </header>
+        <AmendmentsPanel />
         {missionId ? (
           <MissionBoard tasks={tasks} />
         ) : (

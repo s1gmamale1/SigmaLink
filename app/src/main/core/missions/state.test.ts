@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isLegalTaskTransition, rollupMissionStatus } from './state';
+import { isLegalTaskTransition, rollupMissionStatus, MAX_ATTEMPTS } from './state';
 
 describe('isLegalTaskTransition', () => {
   it('allows the forward lifecycle', () => {
@@ -20,6 +20,15 @@ describe('isLegalTaskTransition', () => {
   });
   it('a status can stay itself (idempotent update)', () => {
     expect(isLegalTaskTransition('working', 'working')).toBe(true);
+  });
+  it('reviewing → dispatched is legal (P1c retry verdict)', () => {
+    expect(isLegalTaskTransition('reviewing', 'dispatched')).toBe(true);
+  });
+  it('done stays terminal — dispatched is still illegal from done', () => {
+    expect(isLegalTaskTransition('done', 'dispatched')).toBe(false);
+  });
+  it('exports MAX_ATTEMPTS = 3 as the shared retry cap', () => {
+    expect(MAX_ATTEMPTS).toBe(3);
   });
 });
 

@@ -7,6 +7,22 @@
 // CRITICAL: do NOT leak secrets, file contents, or PII here. Only structural
 // metadata (workspace name + root, file *names*, swarm names + missions). The
 // Claude CLI runs locally with the user's PATH; it sees what they let it see.
+//
+// P2 Task 5 — system prompt v2 (persistent identity). Two independent knobs
+// were spliced into the previously-static persona/workspace blocks, both
+// backward-compatible (absent → today's exact legacy text, pinned by
+// system-prompt.test.ts's byte-identical snapshot):
+//   - `charter` REPLACES the inline "You are Sigma Assistant…" persona
+//     paragraph with the operator's Sigma-Profile charter (D2/D3); approved
+//     self-amendments (D6) are appended immediately after it, before
+//     TOOL_BLURB, via `appendApprovedAmendments`.
+//   - `portfolio` REPLACES the single "Workspace: name (root)" line with a
+//     multi-workspace list for global/portfolio-scope turns (D1).
+// TOOL_BLURB and STYLE_RULES are untouched either way — every turn still
+// gets the full tool surface + style rules regardless of persona/scope.
+
+import { appendApprovedAmendments } from '../operator/charter';
+import type { JorvisAmendment } from '../../../shared/types';
 
 const TOOL_BLURB = `\
 Available Sigma tools (call by name with the listed args; the host injects the
@@ -121,9 +137,27 @@ Mission board tools:
                       an illegal transition.
   complete_mission    { missionId, report }
                       Mark a mission done and attach its final report.
-  dispatch_task       { taskId, provider?, workspaceRoot? }
+  dispatch_task       { taskId, provider?, workspaceRoot?, revisedSpec? }
                       Launch a worktree-isolated pane for a task and move it
-                      to dispatched. The supervisor loop's hand-off primitive.
+                      to dispatched. The supervisor loop's hand-off primitive;
+                      pass revisedSpec to retry a reviewed task with corrected
+                      instructions.
+
+Memory tools (durable, cross-session — distinct from the workspace memory hub):
+  remember            { kind, title, body, tags?, workspaceId? }
+                      Store a fact/playbook/preference/postmortem that
+                      persists across sessions and projects.
+  recall              { query, k?, kind? }
+                      Full-text search durable memory for a query.
+  update_memory       { memoryId, title?, body?, tags?, confidence? }
+                      Update fields on an existing durable memory by id.
+  forget              { memoryId }
+                      Permanently delete a durable memory by id.
+
+Self-amendment tools:
+  propose_amendment   { text, rationale? }
+                      Propose a self-amendment to your own operating
+                      charter. Inert until the operator approves it.
 `;
 // PROMPT-INJECTION RESIDUAL: browser_snapshot returns raw page text which may
 // contain crafted instructions targeting the model (e.g. "IGNORE PREVIOUS
@@ -157,6 +191,26 @@ export interface JorvisSystemPromptContext {
   recentFiles?: string[];
   /** Deprecated: live state now comes from list_* tools. */
   openSwarms?: Array<{ id: string; name: string; mission: string; preset: string }>;
+  /**
+   * P2 Task 5 (D2/D3) — the operator's Sigma-Profile charter text. When
+   * present, REPLACES the inline "You are Sigma Assistant…" persona
+   * paragraph below. Absent → today's legacy persona (backward-compatible).
+   */
+  charter?: string;
+  /**
+   * P2 Task 5 (D1) — every known workspace, for global/portfolio-scope
+   * turns (e.g. the always-on operator conversation). When present,
+   * REPLACES the single "Workspace: name (root)" line with a
+   * "Portfolio (all workspaces)" list of `name — root` lines.
+   */
+  portfolio?: Array<{ name: string; root: string }>;
+  /**
+   * P2 Task 5 (D6) — approved self-amendments, appended immediately after
+   * the persona block (charter or legacy) via `appendApprovedAmendments`.
+   * Non-approved entries are filtered out by that helper; an absent/empty
+   * list leaves the persona block unchanged.
+   */
+  amendments?: JorvisAmendment[];
 }
 
 /**
@@ -168,14 +222,24 @@ export interface JorvisSystemPromptContext {
 export function buildJorvisSystemPrompt(ctx: JorvisSystemPromptContext): string {
   const room = ctx.currentRoom ? ` (currently in the "${ctx.currentRoom}" room)` : '';
 
-  return `\
+  const personaBase =
+    ctx.charter ??
+    `\
 You are Sigma Assistant, the in-app intelligence inside SigmaLink — a desktop
 developer workspace forked from SigmaMind/SigmaSpace. You help the user
 orchestrate CLI coding agents (Claude, Codex, Gemini, Cursor) across
 isolated Git worktrees, manage swarms, edit memory notes, and coordinate
-work across panes.
+work across panes.`;
+  const persona = appendApprovedAmendments(personaBase, ctx.amendments ?? []);
 
-Workspace: ${ctx.workspaceName} (${ctx.workspaceRoot})${room}
+  const workspaceBlock = ctx.portfolio
+    ? `Portfolio (all workspaces):\n${ctx.portfolio.map((ws) => `  ${ws.name} — ${ws.root}`).join('\n')}`
+    : `Workspace: ${ctx.workspaceName} (${ctx.workspaceRoot})${room}`;
+
+  return `\
+${persona}
+
+${workspaceBlock}
 
 ${TOOL_BLURB}
 ${STYLE_RULES}`;

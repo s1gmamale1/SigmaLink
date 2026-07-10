@@ -117,9 +117,12 @@ import { TasksManager } from './core/tasks/manager';
 import { buildTasksController } from './core/tasks/controller';
 import { buildKvController } from './core/db/kv-controller';
 import * as missionsDao from './core/missions/dao';
+// P2 Task 8 — self-amendments DAO (jorvis.amendmentsList/amendmentsDecide RPC).
+import * as amendmentsDao from './core/operator/amendments';
 import { createMissionWatcher, type MissionWatcher } from './core/operator/watch';
 import { createWakeScheduler, type WakeScheduler } from './core/operator/scheduler';
 import { createSupervisor } from './core/operator/supervisor';
+import { JORVIS_GLOBAL_WORKSPACE_ID } from './core/operator/global';
 import { buildAssistantController } from './core/assistant/controller';
 import { McpHostSigma, type ToolInvoker } from './core/assistant/mcp-host-sigma';
 import { ControlMcpHost, type ExternalToolInvoker } from './core/control/control-mcp-host';
@@ -2586,6 +2589,22 @@ async function buildRouter() {
     events: async (input: { missionId: string; limit?: number }) =>
       missionsDao.listEvents(input.missionId, input.limit),
   });
+  // P2 Task 8 — self-amendments RPC. `amendmentsList` is a pure DAO
+  // passthrough (mirrors missionsCtl.list); `amendmentsDecide` is a REAL
+  // mutation the renderer's AmendmentsPanel calls directly (unlike
+  // missions.*, which is tool-mediated only) — it broadcasts
+  // `jorvis:amendments-changed` itself, the same channel the
+  // propose_amendment tool's `ctx.emit` already uses, so the panel refetches
+  // regardless of which path changed the data.
+  const jorvisCtl = defineController({
+    amendmentsList: async (input?: { status?: 'proposed' | 'approved' | 'denied' }) =>
+      amendmentsDao.listAmendments(input?.status),
+    amendmentsDecide: async (input: { amendmentId: string; approved: boolean; reason?: string }) => {
+      const decided = amendmentsDao.decideAmendment(input.amendmentId, input.approved, input.reason);
+      broadcast('jorvis:amendments-changed', {});
+      return decided;
+    },
+  });
   // R-1 — Telegram bridge taps `assistant:state` here so a remote operator
   // sees the same streamed reply. The assistant `emit` wrapper below fans out
   // to this set; the bridge subscribes/unsubscribes on start()/stop().
@@ -2643,6 +2662,29 @@ async function buildRouter() {
         if (missionId) {
           try {
             missionScheduler?.enqueue('decompose', missionId);
+          } catch {
+            /* autonomy enqueue is best-effort — must never break the trace stream */
+          }
+        }
+      }
+      // P2 Task 7 — postmortem-enqueue hook, mirrors the decompose-enqueue
+      // hook directly above. complete_mission's handler (tools.ts) returns
+      // only `{ok: true}` — no missionId in `result` — but its ARGS carry
+      // `missionId` (the tool's own required schema field, `sCompleteMission`),
+      // and every tool-trace already carries the raw `args` it was called
+      // with (see ToolTracer's `ToolTrace.args`), so read it off `payload.args`
+      // instead of `payload.result`.
+      if (
+        event === 'assistant:tool-trace' &&
+        payload &&
+        typeof payload === 'object' &&
+        (payload as { name?: string }).name === 'complete_mission' &&
+        (payload as { ok?: boolean }).ok === true
+      ) {
+        const missionId = (payload as { args?: { missionId?: string } }).args?.missionId;
+        if (missionId) {
+          try {
+            missionScheduler?.enqueue('postmortem', missionId);
           } catch {
             /* autonomy enqueue is best-effort — must never break the trace stream */
           }
@@ -2707,10 +2749,11 @@ async function buildRouter() {
     // turn's .mcp.json root — controller.ts uses it unconditionally). Resolve
     // it off the conversation row the supervisor itself already created via
     // ensureMissionConversation, which always carries a real workspaceId (the
-    // mission's own, or the supervisor's GLOBAL_WORKSPACE_ID sentinel) — so
-    // this is a lookup, not a guess. The literal fallback below only matters
-    // if that row were ever missing (it can't be, in the supervisor's own
-    // call order); it duplicates supervisor.ts's private sentinel string.
+    // mission's own, or the JORVIS_GLOBAL_WORKSPACE_ID sentinel) — so this is
+    // a lookup, not a guess. The fallback below only matters if that row were
+    // ever missing (it can't be, in the supervisor's own call order); it
+    // imports the single source of truth (P2 T5 core/operator/global.ts)
+    // instead of hand-duplicating the literal the way this call site used to.
     runTurn: async (input) => {
       const conv = getConversation(input.conversationId);
       return (
@@ -2723,13 +2766,25 @@ async function buildRouter() {
           }) => Promise<{ turnId: string }>;
         }
       ).send({
-        workspaceId: conv?.workspaceId ?? 'jorvis-missions-global',
+        workspaceId: conv?.workspaceId ?? JORVIS_GLOBAL_WORKSPACE_ID,
         conversationId: input.conversationId,
         prompt: input.prompt,
         origin: 'autonomous',
       });
     },
     readPane: (sessionId) => pty.snapshot(sessionId),
+    // P2 T5 (D1) — KV-durable mission→conversation pinning; controlKv is
+    // already the raw kv-table reader/writer every other control-plane
+    // consumer in this file uses (see its own definition above).
+    kvGet: controlKv.get,
+    kvSet: controlKv.set,
+    // P2 T7 — late-bound enqueue for the supervisor's MAX_ATTEMPTS "blocker
+    // postmortem" path. `missionScheduler` is a forward-declared `let`
+    // (top of this function) constructed AFTER this very call — this arrow
+    // closes over that binding and reads it lazily, once wiring completes a
+    // few lines below, exactly like the decompose/postmortem tool-trace
+    // hooks above already do. Intentional late-binding, not a bug.
+    enqueue: (kind, missionId) => missionScheduler?.enqueue(kind, missionId),
   });
   missionScheduler = createWakeScheduler({
     runWake: (wake) => missionSupervisor.runWake(wake),
@@ -3063,6 +3118,7 @@ async function buildRouter() {
     tasks: tasksCtl,
     kv: kvCtl,
     missions: missionsCtl,
+    jorvis: jorvisCtl,
     assistant: assistantCtl,
     design: designCtl,
     voice: voiceCtl,

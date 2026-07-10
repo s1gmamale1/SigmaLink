@@ -711,6 +711,32 @@ export interface MissionEvent {
   ts: number;
 }
 
+// ── Jorvis persistent identity — durable memory + self-amendments (P2) ─────
+export type JorvisMemoryKind = 'fact' | 'playbook' | 'preference' | 'postmortem';
+export interface JorvisMemory {
+  id: string;
+  kind: JorvisMemoryKind;
+  title: string;
+  body: string;
+  tags: string[]; // stored as JSON text
+  workspaceId: string | null;
+  confidence: number; // 0..1
+  createdAt: number;
+  updatedAt: number;
+  lastUsedAt: number | null;
+}
+
+export type JorvisAmendmentStatus = 'proposed' | 'approved' | 'denied';
+export interface JorvisAmendment {
+  id: string;
+  text: string;
+  rationale: string | null;
+  status: JorvisAmendmentStatus;
+  decisionReason: string | null;
+  proposedAt: number;
+  decidedAt: number | null;
+}
+
 // ──────────────────────────────────────────────────────────────────────────
 // Notifications (v1.4.9 #07) — top-right bell.
 // Cross-process shape; the manager owns the DB persistence and dedup logic.

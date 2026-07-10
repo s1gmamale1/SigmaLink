@@ -915,6 +915,20 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
       limit: z.number().int().positive().max(1000).optional(),
     }),
   },
+  // P2 Task 8 — self-amendments approve/deny surface over the amendments DAO.
+  // `amendmentsList` takes an optional filter object (mirrors missions.list);
+  // `amendmentsDecide` is a REAL renderer-callable mutation (unlike
+  // missions.*, tool-mediated only), so its input is bounded here too.
+  'jorvis.amendmentsList': {
+    input: z.object({ status: z.enum(['proposed', 'approved', 'denied']).optional() }).optional(),
+  },
+  'jorvis.amendmentsDecide': {
+    input: z.object({
+      amendmentId: z.string().min(1).max(200),
+      approved: z.boolean(),
+      reason: z.string().max(4000).optional(),
+    }),
+  },
   // ── notifications (v1.4.9 #07) ────────────────────────────────────────
   'notifications.list': stub,
   'notifications.unreadCount': stub,
