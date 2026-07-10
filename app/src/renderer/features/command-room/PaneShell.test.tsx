@@ -1121,3 +1121,68 @@ describe('PaneShell — flash-drop timer hygiene', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// CLICK ⇒ FOCUS INVARIANT (operator report 2026-07-10 — a pane needed several
+// clicks to focus: clicks on non-interactive pane chrome moved the active
+// glow but never the keyboard focus). Clicking anywhere on the pane that is
+// not an interactive control must dispatch sigma:pty-focus for the pane's
+// ACTIVE TAB — both presenters (DomTerminalView + xterm host) already listen
+// for it and focus their input host.
+// ---------------------------------------------------------------------------
+describe('PaneShell — click focuses the pane (sigma:pty-focus dispatch)', () => {
+  function collectFocusEvents(): { seen: string[]; stop: () => void } {
+    const seen: string[] = [];
+    const onFocusEvt = (ev: Event) => {
+      const d = (ev as CustomEvent<{ sessionId?: string }>).detail;
+      if (d?.sessionId) seen.push(d.sessionId);
+    };
+    window.addEventListener('sigma:pty-focus', onFocusEvt);
+    return { seen, stop: () => window.removeEventListener('sigma:pty-focus', onFocusEvt) };
+  }
+
+  it('clicking a non-interactive spot dispatches sigma:pty-focus for the main session', async () => {
+    const { seen, stop } = collectFocusEvents();
+    try {
+      await renderPaneShell();
+      fireEvent.click(screen.getByTestId('terminal-main-session'));
+      expect(seen).toEqual(['main-session']);
+    } finally {
+      stop();
+    }
+  });
+
+  it('clicking an interactive control (scratch-tab button) does NOT dispatch', async () => {
+    const { seen, stop } = collectFocusEvents();
+    try {
+      const { container } = await renderPaneShell();
+      const paneContainer = container.firstElementChild as HTMLElement;
+      await act(async () => {
+        fireEvent.keyDown(paneContainer, { key: 't', metaKey: true, bubbles: true });
+        await Promise.resolve();
+      });
+      seen.length = 0; // only the tab-button click below is under test
+      fireEvent.click(screen.getByTestId('pane-tab-main'));
+      expect(seen).toEqual([]);
+    } finally {
+      stop();
+    }
+  });
+
+  it('with a scratch tab active, a body click dispatches the SCRATCH session id', async () => {
+    const { seen, stop } = collectFocusEvents();
+    try {
+      const { container } = await renderPaneShell();
+      const paneContainer = container.firstElementChild as HTMLElement;
+      await act(async () => {
+        fireEvent.keyDown(paneContainer, { key: 't', metaKey: true, bubbles: true });
+        await Promise.resolve();
+      });
+      seen.length = 0;
+      fireEvent.click(screen.getByTestId('terminal-scratch-1'));
+      expect(seen).toEqual(['scratch-1']);
+    } finally {
+      stop();
+    }
+  });
+});
