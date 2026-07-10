@@ -39,7 +39,10 @@ export type AuditKind =
   | 'confirm-approved'
   | 'confirm-denied'
   | 'relay-error'
-  | 'reply-error';
+  | 'reply-error'
+  // P3 T1 — proactive push (pushToOperator); drop reasons ride the
+  // pre-existing 'drop' kind with a `push-*` detail string.
+  | 'push';
 
 export interface AuditEntry {
   ts: number;

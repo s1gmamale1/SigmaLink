@@ -40,6 +40,9 @@ import { createAuditLog, type AuditEntry, type AuditKind, type AuditLog } from '
 export const KV_TELEGRAM_ENABLED = 'remote.telegram.enabled';
 export const KV_TELEGRAM_IDLE_LOCK_MIN = 'remote.telegram.idleLockMinutes';
 export const KV_TELEGRAM_ALLOWLIST = 'remote.telegram.allowlist';
+/** P3 D1 — durable operator chat id, auto-captured on every allowlisted
+ *  inbound contact (last-writer-wins); the target of pushToOperator(). */
+export const KV_TELEGRAM_OPERATOR_CHAT = 'remote.telegram.operatorChatId';
 export const KV_VOICE_ACTIVE_WORKSPACE = 'voice.activeWorkspaceId';
 /** CredentialStore key for the bot token. */
 export const CRED_TELEGRAM_TOKEN = 'remote.telegram.botToken';
@@ -386,13 +389,31 @@ export class TelegramBridge extends EventEmitter {
   private async handleMessage(chatId: number, text: string): Promise<void> {
     if (!this.safety || !this.client) return;
 
+    // P3 D1 — capture the durable operator chat id on EVERY allowlisted
+    // contact (last-writer-wins), BEFORE command routing so it rides both
+    // control commands and normal prompts alike. Non-allowlisted senders are
+    // never captured (their drop is handled below by the existing gates —
+    // this never confirms allowlist membership either way).
+    const captureAllowlist = parseAllowlist(this.deps.kv.get(KV_TELEGRAM_ALLOWLIST));
+    if (captureAllowlist.includes(chatId)) {
+      this.deps.kv.set(KV_TELEGRAM_OPERATOR_CHAT, String(chatId));
+    }
+
     const command = text.trim().toLowerCase();
 
-    // Control commands (/lock /unlock /status /new) are gated by ALLOWLIST
-    // ONLY — they must bypass the lock gate so an allowlisted operator can
-    // /unlock after a lock (a lock-gated /unlock could never get through). A
-    // non-allowlisted sender is still dropped silently.
-    if (command === '/lock' || command === '/unlock' || command === '/status' || command === '/new') {
+    // Control commands (/lock /unlock /status /new /subscribe /unsubscribe)
+    // are gated by ALLOWLIST ONLY — they must bypass the lock gate so an
+    // allowlisted operator can /unlock after a lock (a lock-gated /unlock
+    // could never get through). A non-allowlisted sender is still dropped
+    // silently.
+    if (
+      command === '/lock' ||
+      command === '/unlock' ||
+      command === '/status' ||
+      command === '/new' ||
+      command === '/subscribe' ||
+      command === '/unsubscribe'
+    ) {
       const allowlist = parseAllowlist(this.deps.kv.get(KV_TELEGRAM_ALLOWLIST));
       if (!allowlist.includes(chatId)) {
         this.logAudit('inbound-dropped', chatId, 'dropped: not-allowlisted (command)');
@@ -421,6 +442,16 @@ export class TelegramBridge extends EventEmitter {
             await this.reply(chatId, `Sigma hit an error: ${message}`);
           }
         }
+      } else if (command === '/subscribe') {
+        // Explicit opt-in — redundant with the auto-capture above (this chat
+        // is already allowlisted-and-captured) but kept deliberate/independent
+        // so the intent is discoverable and doesn't rely solely on the
+        // implicit last-writer-wins capture.
+        this.deps.kv.set(KV_TELEGRAM_OPERATOR_CHAT, String(chatId));
+        await this.reply(chatId, '📬 Subscribed — reports will land here.');
+      } else if (command === '/unsubscribe') {
+        this.deps.kv.set(KV_TELEGRAM_OPERATOR_CHAT, '');
+        await this.reply(chatId, '🔕 Unsubscribed — no more reports here.');
       } else {
         const locked = this.isLocked();
         await this.reply(
@@ -573,25 +604,27 @@ export class TelegramBridge extends EventEmitter {
     const buffered = this.relayBuffer;
     this.relayBuffer = '';
     if (!this.client || !this.safety || chatId === null || !buffered) return;
-    let scrubbed: string;
-    try {
-      scrubbed = await this.safety.scrubOutbound(buffered);
-    } catch {
-      scrubbed = buffered;
-    }
-    const safe = escapeHtml(scrubbed);
-    for (const chunk of chunkText(safe)) {
-      try {
-        await this.client.sendMessage(chatId, chunk, { parseMode: 'HTML' });
-      } catch (err) {
-        this.logAudit('relay-error', chatId, err instanceof Error ? err.message : String(err));
-        break;
-      }
-    }
+    await this.sendScrubbed(chatId, buffered, 'relay-error');
   }
 
   /** Plain operator reply (lock/unlock/status etc.). Scrubbed + escaped. */
   private async reply(chatId: number, text: string): Promise<void> {
+    if (!this.client) return;
+    await this.sendScrubbed(chatId, text, 'reply-error');
+  }
+
+  /**
+   * Shared outbound choke point — every byte leaving the bridge (relay flush,
+   * plain replies, and pushToOperator) goes through here: scrub → escapeHtml
+   * → chunk(4096) → client.sendMessage per chunk, parseMode HTML. A send
+   * failure on any chunk is audited under `errorKind` and stops the
+   * remaining chunks (matches the prior flushRelay behavior).
+   */
+  private async sendScrubbed(
+    chatId: number,
+    text: string,
+    errorKind: AuditKind = 'relay-error',
+  ): Promise<void> {
     if (!this.client) return;
     let scrubbed = text;
     if (this.safety) {
@@ -601,11 +634,51 @@ export class TelegramBridge extends EventEmitter {
         scrubbed = text;
       }
     }
-    try {
-      await this.client.sendMessage(chatId, escapeHtml(scrubbed), { parseMode: 'HTML' });
-    } catch (err) {
-      this.logAudit('reply-error', chatId, err instanceof Error ? err.message : String(err));
+    const safe = escapeHtml(scrubbed);
+    for (const chunk of chunkText(safe)) {
+      try {
+        await this.client.sendMessage(chatId, chunk, { parseMode: 'HTML' });
+      } catch (err) {
+        this.logAudit(errorKind, chatId, err instanceof Error ? err.message : String(err));
+        break;
+      }
     }
+  }
+
+  /**
+   * P3 D1 — proactive push to the durable operator chat. Kills the
+   * incidental-`activeChatId` hole: a caller (rpc-router push hooks, the
+   * daily-brief scheduler) can notify the operator's phone without an
+   * in-flight conversation.
+   *
+   * Fail-soft by design (returns false, never throws): bridge not running →
+   * audited drop; chat id unset/empty → audited drop; captured chat no
+   * longer allowlisted (operator revoked it without clearing the capture) →
+   * audited drop. Otherwise sends via the same scrub/escape/chunk pipeline
+   * `flushRelay`/`reply` use and audits kind 'push'.
+   */
+  async pushToOperator(text: string): Promise<boolean> {
+    if (!this.isRunning() || !this.client) {
+      this.logAudit('drop', null, 'push-bridge-stopped');
+      return false;
+    }
+
+    const chatIdRaw = this.deps.kv.get(KV_TELEGRAM_OPERATOR_CHAT);
+    if (!chatIdRaw) {
+      this.logAudit('drop', null, 'push-no-operator-chat');
+      return false;
+    }
+    const chatId = Number(chatIdRaw);
+
+    const allowlist = parseAllowlist(this.deps.kv.get(KV_TELEGRAM_ALLOWLIST));
+    if (!allowlist.includes(chatId)) {
+      this.logAudit('drop', chatId, 'push-chat-not-allowlisted');
+      return false;
+    }
+
+    await this.sendScrubbed(chatId, text, 'relay-error');
+    this.logAudit('push', chatId, 'pushed to operator');
+    return true;
   }
 
   // ── workspace resolution (mirrors the voice path) ────────────────────────────

@@ -13,6 +13,8 @@ import {
   escapeHtml,
   chunkText,
   parseAllowlist,
+  KV_TELEGRAM_OPERATOR_CHAT,
+  KV_TELEGRAM_ALLOWLIST,
   type TelegramBridgeDeps,
   type AssistantSendInput,
 } from './bridge';
@@ -476,5 +478,191 @@ describe('TelegramBridge — stop', () => {
     await bridge.stop();
     expect(client._stopped).toBe(true);
     expect(bridge.isRunning()).toBe(false);
+  });
+});
+
+// ── operator chat-id capture (P3 T1 / D1) ───────────────────────────────────────
+
+describe('TelegramBridge — operator chat-id capture', () => {
+  it('captures the sender chat id on any allowlisted inbound message (before command routing)', async () => {
+    const kv = makeKv({
+      'remote.telegram.enabled': '1',
+      'remote.telegram.allowlist': JSON.stringify([42]),
+    });
+    const { bridge, client } = makeBridge({ kv });
+    await bridge.start();
+    expect(kv.store.get(KV_TELEGRAM_OPERATOR_CHAT)).toBeUndefined();
+
+    await client._handlers!.onMessage({ chatId: 42, text: 'hello jorvis' });
+    expect(kv.store.get(KV_TELEGRAM_OPERATOR_CHAT)).toBe('42');
+  });
+
+  it('captures on a control command too (e.g. /lock), not just prompts', async () => {
+    const kv = makeKv({
+      'remote.telegram.enabled': '1',
+      'remote.telegram.allowlist': JSON.stringify([42]),
+    });
+    const { bridge, client } = makeBridge({ kv });
+    await bridge.start();
+    await client._handlers!.onMessage({ chatId: 42, text: '/lock' });
+    expect(kv.store.get(KV_TELEGRAM_OPERATOR_CHAT)).toBe('42');
+  });
+
+  it('does NOT capture from a non-allowlisted sender', async () => {
+    const kv = makeKv({
+      'remote.telegram.enabled': '1',
+      'remote.telegram.allowlist': JSON.stringify([42]),
+    });
+    const { bridge, client } = makeBridge({ kv });
+    await bridge.start();
+    await client._handlers!.onMessage({ chatId: 999, text: 'hi' });
+    expect(kv.store.get(KV_TELEGRAM_OPERATOR_CHAT)).toBeUndefined();
+  });
+
+  it('last-writer-wins: a second allowlisted chat overwrites the captured id', async () => {
+    const kv = makeKv({
+      'remote.telegram.enabled': '1',
+      'remote.telegram.allowlist': JSON.stringify([42, 43]),
+    });
+    const { bridge, client } = makeBridge({ kv });
+    await bridge.start();
+    await client._handlers!.onMessage({ chatId: 42, text: 'hi' });
+    expect(kv.store.get(KV_TELEGRAM_OPERATOR_CHAT)).toBe('42');
+    await client._handlers!.onMessage({ chatId: 43, text: 'hi' });
+    expect(kv.store.get(KV_TELEGRAM_OPERATOR_CHAT)).toBe('43');
+  });
+});
+
+// ── pushToOperator (P3 T1 / D1) ─────────────────────────────────────────────────
+
+describe('TelegramBridge — pushToOperator', () => {
+  it('returns false and audits push-bridge-stopped when the bridge is not running', async () => {
+    const kv = makeKv({
+      'remote.telegram.enabled': '1',
+      'remote.telegram.allowlist': JSON.stringify([42]),
+      [KV_TELEGRAM_OPERATOR_CHAT]: '42',
+    });
+    const { bridge, client } = makeBridge({ kv });
+    // Never started — bridge stays 'inert'.
+    const ok = await bridge.pushToOperator('hello');
+    expect(ok).toBe(false);
+    expect(client._sent).toHaveLength(0);
+    const tail = bridge.auditTail(10);
+    expect(tail.some((e) => e.kind === 'drop' && e.detail === 'push-bridge-stopped')).toBe(true);
+  });
+
+  it('returns false and audits push-no-operator-chat when the chat id is unset', async () => {
+    const kv = makeKv({
+      'remote.telegram.enabled': '1',
+      'remote.telegram.allowlist': JSON.stringify([42]),
+    });
+    const { bridge } = makeBridge({ kv });
+    await bridge.start();
+    // No inbound message ever received — operatorChatId stays unset.
+    const ok = await bridge.pushToOperator('hello');
+    expect(ok).toBe(false);
+    const tail = bridge.auditTail(10);
+    expect(tail.some((e) => e.kind === 'drop' && e.detail === 'push-no-operator-chat')).toBe(true);
+  });
+
+  it('returns false and audits push-chat-not-allowlisted when the captured chat is revoked', async () => {
+    const kv = makeKv({
+      'remote.telegram.enabled': '1',
+      'remote.telegram.allowlist': JSON.stringify([42]),
+    });
+    const { bridge, client } = makeBridge({ kv });
+    await bridge.start();
+    await client._handlers!.onMessage({ chatId: 42, text: 'hi' });
+    expect(kv.store.get(KV_TELEGRAM_OPERATOR_CHAT)).toBe('42');
+
+    // Operator revokes 42 from the allowlist without clearing the captured id.
+    kv.set(KV_TELEGRAM_ALLOWLIST, JSON.stringify([]));
+
+    const ok = await bridge.pushToOperator('hello');
+    expect(ok).toBe(false);
+    const tail = bridge.auditTail(10);
+    expect(
+      tail.some((e) => e.kind === 'drop' && e.detail === 'push-chat-not-allowlisted' && e.chatId === 42),
+    ).toBe(true);
+  });
+
+  it('happy path: scrubs, escapes, chunks, sends, and audits kind push', async () => {
+    const kv = makeKv({
+      'remote.telegram.enabled': '1',
+      'remote.telegram.allowlist': JSON.stringify([42]),
+    });
+    const { bridge, client } = makeBridge({ kv });
+    await bridge.start();
+    await client._handlers!.onMessage({ chatId: 42, text: 'hi' });
+
+    const ok = await bridge.pushToOperator('mission done <ok>');
+    expect(ok).toBe(true);
+    const sent = client._sent.find((m) => m.text.includes('mission done'));
+    expect(sent).toBeTruthy();
+    // Same escapeHtml pipeline as flushRelay/reply.
+    expect(sent!.text).toContain('&lt;ok&gt;');
+    const tail = bridge.auditTail(10);
+    expect(tail.some((e) => e.kind === 'push' && e.chatId === 42)).toBe(true);
+  });
+
+  it('chunks an over-long push across multiple sendMessage calls (same choke point as relay)', async () => {
+    const kv = makeKv({
+      'remote.telegram.enabled': '1',
+      'remote.telegram.allowlist': JSON.stringify([42]),
+    });
+    const { bridge, client } = makeBridge({ kv });
+    await bridge.start();
+    await client._handlers!.onMessage({ chatId: 42, text: 'hi' });
+    client._sent.length = 0; // clear the /hi dispatch noise (none expected, but be safe)
+
+    const huge = 'x'.repeat(5000);
+    const ok = await bridge.pushToOperator(huge);
+    expect(ok).toBe(true);
+    const pushed = client._sent.filter((m) => m.text.includes('x'));
+    expect(pushed.length).toBeGreaterThanOrEqual(2);
+    expect(pushed.every((m) => m.text.length <= 4096)).toBe(true);
+  });
+});
+
+// ── /subscribe /unsubscribe (P3 T1 / D1) ────────────────────────────────────────
+
+describe('TelegramBridge — subscribe/unsubscribe', () => {
+  it('/subscribe sets the operator chat id and confirms', async () => {
+    const kv = makeKv({
+      'remote.telegram.enabled': '1',
+      'remote.telegram.allowlist': JSON.stringify([42]),
+    });
+    const { bridge, client } = makeBridge({ kv });
+    await bridge.start();
+    await client._handlers!.onMessage({ chatId: 42, text: '/subscribe' });
+    expect(kv.store.get(KV_TELEGRAM_OPERATOR_CHAT)).toBe('42');
+    expect(client._sent).toHaveLength(1);
+    expect(client._sent[0].text.toLowerCase()).toContain('subscri');
+  });
+
+  it('/unsubscribe clears the operator chat id and confirms', async () => {
+    const kv = makeKv({
+      'remote.telegram.enabled': '1',
+      'remote.telegram.allowlist': JSON.stringify([42]),
+      [KV_TELEGRAM_OPERATOR_CHAT]: '42',
+    });
+    const { bridge, client } = makeBridge({ kv });
+    await bridge.start();
+    await client._handlers!.onMessage({ chatId: 42, text: '/unsubscribe' });
+    expect(kv.store.get(KV_TELEGRAM_OPERATOR_CHAT)).toBe('');
+    expect(client._sent).toHaveLength(1);
+    expect(client._sent[0].text.toLowerCase()).toContain('unsubscri');
+  });
+
+  it('/subscribe and /unsubscribe are allowlist-gated like /lock', async () => {
+    const kv = makeKv({
+      'remote.telegram.enabled': '1',
+      'remote.telegram.allowlist': JSON.stringify([42]),
+    });
+    const { bridge, client } = makeBridge({ kv });
+    await bridge.start();
+    await client._handlers!.onMessage({ chatId: 999, text: '/subscribe' });
+    expect(client._sent).toHaveLength(0);
+    expect(kv.store.get(KV_TELEGRAM_OPERATOR_CHAT)).toBeUndefined();
   });
 });
