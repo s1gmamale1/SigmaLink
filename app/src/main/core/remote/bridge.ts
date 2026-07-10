@@ -151,8 +151,11 @@ export interface MissionsBridgeDeps {
   listWorkspaces(): string[];
   /** Try to decide a pending amendment. 'not-found' when the id isn't a pending amendment. */
   decideAmendment(id: string, approved: boolean): 'decided' | 'not-found';
-  /** Try to resolve a pending escalation. 'not-found' when the id isn't a pending escalation. */
-  resolveEscalation(id: string, approved: boolean): 'resolved' | 'not-found';
+  /** Try to resolve a pending escalation. Null when the id isn't a pending
+   *  escalation; on success returns the escalation's summary so the reply can
+   *  echo WHAT was just approved (review I3 — informed consent, not a blind
+   *  id-grant). */
+  resolveEscalation(id: string, approved: boolean): { summary: string } | null;
 }
 
 export interface TelegramBridgeDeps {
@@ -627,8 +630,12 @@ export class TelegramBridge extends EventEmitter {
             await this.reply(chatId, `amendment ${arg} ${approved ? 'approved' : 'denied'}`);
             return;
           }
-          if (missions.resolveEscalation(arg, approved) === 'resolved') {
-            await this.reply(chatId, `escalation ${arg} ${approved ? 'approved' : 'denied'}`);
+          const resolved = missions.resolveEscalation(arg, approved);
+          if (resolved) {
+            await this.reply(
+              chatId,
+              `escalation ${arg} ${approved ? 'approved' : 'denied'}: ${resolved.summary.slice(0, 200)}`,
+            );
             return;
           }
           await this.reply(chatId, `nothing pending with id ${arg}`);
@@ -687,7 +694,20 @@ export class TelegramBridge extends EventEmitter {
     if (!this.client) return false;
     let messageId: number;
     try {
-      const sent = await this.client.sendConfirm(chatId, summary);
+      // Review I1 — the confirm summary interpolates RAW tool-arg values (a
+      // prompt-injected brain or an external client controls them) and
+      // sendConfirm renders parse_mode:'HTML'. Scrub + escape like every
+      // other outbound byte, or the one human-in-the-loop control can be
+      // styled/obscured (or 400-bricked) by the very action it is gating.
+      let scrubbed = summary;
+      if (this.safety) {
+        try {
+          scrubbed = await this.safety.scrubOutbound(summary);
+        } catch {
+          scrubbed = summary;
+        }
+      }
+      const sent = await this.client.sendConfirm(chatId, escapeHtml(scrubbed));
       messageId = sent.messageId;
     } catch (err) {
       this.logAudit('confirm-error', chatId, err instanceof Error ? err.message : String(err));

@@ -33,7 +33,10 @@ export function formatTaskBlockedPush(taskId: string): string {
   return `🚧 task blocked: ${taskId} — check the board`;
 }
 
-/** propose_amendment trace-hook push. */
-export function formatAmendmentProposedPush(amendmentId: string): string {
-  return `🔏 amendment proposed (${amendmentId}): /approve ${amendmentId} or /deny ${amendmentId}`;
+/** propose_amendment trace-hook push. Carries the amendment TEXT (capped) —
+ *  the operator approves a charter-surface change from the phone and must
+ *  never be asked to sign a bare id blind (review I4). */
+export function formatAmendmentProposedPush(amendmentId: string, text?: string): string {
+  const excerpt = text ? `\n"${text.length > 200 ? `${text.slice(0, 200)}…` : text}"` : '';
+  return `🔏 amendment proposed (${amendmentId}):${excerpt}\n/approve ${amendmentId} or /deny ${amendmentId}`;
 }

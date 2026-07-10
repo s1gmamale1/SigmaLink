@@ -51,6 +51,19 @@ describe('formatTaskBlockedPush', () => {
 describe('formatAmendmentProposedPush', () => {
   it('includes the amendment id and both approve/deny commands', () => {
     const text = formatAmendmentProposedPush('amd-7');
-    expect(text).toBe('🔏 amendment proposed (amd-7): /approve amd-7 or /deny amd-7');
+    expect(text).toContain('amd-7');
+    expect(text).toContain('/approve amd-7');
+    expect(text).toContain('/deny amd-7');
+  });
+
+  it('carries the amendment text so the operator never signs blind (I4)', () => {
+    const text = formatAmendmentProposedPush('amd-7', 'Always announce the model id first.');
+    expect(text).toContain('"Always announce the model id first."');
+  });
+
+  it('caps a long amendment text at 200 chars', () => {
+    const text = formatAmendmentProposedPush('amd-7', 'x'.repeat(500));
+    expect(text).toContain(`"${'x'.repeat(200)}…"`);
+    expect(text).not.toContain('x'.repeat(201));
   });
 });

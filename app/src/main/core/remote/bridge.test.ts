@@ -209,7 +209,7 @@ function makeMissionsDeps(over: Partial<MissionsBridgeDeps> = {}): MissionsBridg
     listPanes: vi.fn(() => []),
     listWorkspaces: vi.fn(() => []),
     decideAmendment: vi.fn(() => 'not-found' as const),
-    resolveEscalation: vi.fn(() => 'not-found' as const),
+    resolveEscalation: vi.fn(() => null),
     ...over,
   };
 }
@@ -392,7 +392,7 @@ describe('TelegramBridge — confirmDangerous', () => {
     const confirmDangerous = send.mock.calls[0][0].confirmDangerous!;
     const p = confirmDangerous('rm_files', 'delete 3 files?');
     // sendConfirm fired.
-    await Promise.resolve();
+    for (let t = 0; t < 8; t++) await Promise.resolve(); // flush the scrub→sendConfirm hops (I1)
     expect(client._confirms).toHaveLength(1);
     const { messageId } = client._confirms[0];
 
@@ -406,7 +406,7 @@ describe('TelegramBridge — confirmDangerous', () => {
     await client._handlers!.onMessage({ chatId: 42, text: 'do it' });
     const confirmDangerous = send.mock.calls[0][0].confirmDangerous!;
     const p = confirmDangerous('rm_files', 'delete?');
-    await Promise.resolve();
+    for (let t = 0; t < 8; t++) await Promise.resolve(); // flush the scrub→sendConfirm hops (I1)
     const { messageId } = client._confirms[0];
     client._handlers!.onCallback({ chatId: 42, data: 'cancel', messageId });
     await expect(p).resolves.toBe(false);
@@ -418,7 +418,7 @@ describe('TelegramBridge — confirmDangerous', () => {
     await client._handlers!.onMessage({ chatId: 42, text: 'do it' });
     const confirmDangerous = send.mock.calls[0][0].confirmDangerous!;
     const p = confirmDangerous('rm_files', 'delete?');
-    await Promise.resolve();
+    for (let t = 0; t < 8; t++) await Promise.resolve(); // flush the scrub→sendConfirm hops (I1)
     vi.advanceTimersByTime(60_001);
     await expect(p).resolves.toBe(false);
     const tail = bridge.auditTail(20);
@@ -431,7 +431,7 @@ describe('TelegramBridge — confirmDangerous', () => {
     await client._handlers!.onMessage({ chatId: 42, text: 'do it' });
     const confirmDangerous = send.mock.calls[0][0].confirmDangerous!;
     const p = confirmDangerous('rm_files', 'delete?');
-    await Promise.resolve();
+    for (let t = 0; t < 8; t++) await Promise.resolve(); // flush the scrub→sendConfirm hops (I1)
     const { messageId } = client._confirms[0];
     // A forged 'confirm' from a different chat must NOT approve the action.
     client._handlers!.onCallback({ chatId: 999, data: 'confirm', messageId });
@@ -510,13 +510,33 @@ describe('TelegramBridge — confirmViaTelegram', () => {
     kv.set(KV_TELEGRAM_OPERATOR_CHAT, '77');
 
     const p = bridge.confirmViaTelegram('deploy prod?', 5000);
-    await Promise.resolve();
+    for (let t = 0; t < 8; t++) await Promise.resolve(); // flush the scrub→sendConfirm hops (I1)
     expect(client._confirms).toHaveLength(1);
     expect(client._confirms[0].chatId).toBe(77);
     const { messageId } = client._confirms[0];
 
     client._handlers!.onCallback({ chatId: 77, data: 'confirm', messageId });
     await expect(p).resolves.toBe(true);
+  });
+
+  it('HTML-escapes the confirm summary (I1 — attacker-influenceable arg values render as text)', async () => {
+    const kv = makeKv({
+      'remote.telegram.enabled': '1',
+      'remote.telegram.allowlist': JSON.stringify([77]),
+      [KV_TELEGRAM_OPERATOR_CHAT]: '77',
+    });
+    const { bridge, client } = makeBridge({ kv });
+    await bridge.start();
+
+    const p = bridge.confirmViaTelegram('prompt_agent(prompt="<b>APPROVED ✓ tap deny</b>")', 5000);
+    for (let t = 0; t < 8; t++) await Promise.resolve(); // flush the scrub→sendConfirm hops (I1)
+    expect(client._confirms).toHaveLength(1);
+    expect(client._confirms[0].prompt).not.toContain('<b>');
+    expect(client._confirms[0].prompt).toContain('&lt;b&gt;');
+
+    const { messageId } = client._confirms[0];
+    client._handlers!.onCallback({ chatId: 77, data: 'cancel', messageId });
+    await expect(p).resolves.toBe(false);
   });
 
   it('resolves false on a deny callback', async () => {
@@ -528,7 +548,7 @@ describe('TelegramBridge — confirmViaTelegram', () => {
     const { bridge, client } = makeBridge({ kv });
     await bridge.start();
     const p = bridge.confirmViaTelegram('deploy prod?', 5000);
-    await Promise.resolve();
+    for (let t = 0; t < 8; t++) await Promise.resolve(); // flush the scrub→sendConfirm hops (I1)
     const { messageId } = client._confirms[0];
     client._handlers!.onCallback({ chatId: 77, data: 'cancel', messageId });
     await expect(p).resolves.toBe(false);
@@ -543,7 +563,7 @@ describe('TelegramBridge — confirmViaTelegram', () => {
     const { bridge, client } = makeBridge({ kv });
     await bridge.start();
     const p = bridge.confirmViaTelegram('deploy prod?', 120_000);
-    await Promise.resolve();
+    for (let t = 0; t < 8; t++) await Promise.resolve(); // flush the scrub→sendConfirm hops (I1)
     // Shorter than the caller-supplied timeout — must still be pending.
     vi.advanceTimersByTime(60_001);
     expect(client._confirms).toHaveLength(1);
@@ -562,9 +582,9 @@ describe('TelegramBridge — confirmViaTelegram', () => {
     const { bridge, client } = makeBridge({ kv });
     await bridge.start();
     const p1 = bridge.confirmViaTelegram('op A', 5000);
-    await Promise.resolve();
+    for (let t = 0; t < 8; t++) await Promise.resolve(); // flush the scrub→sendConfirm hops (I1)
     const p2 = bridge.confirmViaTelegram('op B', 5000);
-    await Promise.resolve();
+    for (let t = 0; t < 8; t++) await Promise.resolve(); // flush the scrub→sendConfirm hops (I1)
     expect(client._confirms).toHaveLength(2);
     const [c1, c2] = client._confirms;
     expect(c1.messageId).not.toBe(c2.messageId);
@@ -973,7 +993,7 @@ describe('TelegramBridge — mission cockpit — /approve /deny', () => {
   it('/deny <id> falls back to escalation resolve when the amendment is not-found', async () => {
     const missions = makeMissionsDeps({
       decideAmendment: vi.fn(() => 'not-found' as const),
-      resolveEscalation: vi.fn(() => 'resolved' as const),
+      resolveEscalation: vi.fn(() => ({ summary: 'close_pane sess-9 (hermes-1)' })),
     });
     const { bridge, client } = makeBridge({ missions });
     await bridge.start();
@@ -983,6 +1003,8 @@ describe('TelegramBridge — mission cockpit — /approve /deny', () => {
     expect(missions.resolveEscalation).toHaveBeenCalledWith('esc-1', false);
     expect(client._sent[0].text).toContain('esc-1');
     expect(client._sent[0].text).toContain('denied');
+    // Review I3 — the reply echoes WHAT was decided, never a bare id-grant.
+    expect(client._sent[0].text).toContain('close_pane sess-9 (hermes-1)');
   });
 
   it('replies "nothing pending" when both amendment and escalation are not-found', async () => {

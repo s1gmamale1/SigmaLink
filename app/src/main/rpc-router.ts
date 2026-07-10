@@ -743,8 +743,24 @@ async function buildRouter() {
   const viewportShadow = createViewportShadow();
   // Task 4 — non-blocking escalation store. Created here (before appStateProvider)
   // so appStateProvider.snapshot can list pending escalations in get_app_state.
+  // P3 review I3 — random ids: the default `pesc-<seq>` ids are enumerable,
+  // and telegram /approve resolves by bare id — a guessed id would blind-grant
+  // a pending external dangerous call. randomUUID kills the enumeration.
+  // P3 review I2 — the store's notify is ALSO the phone door: the external
+  // gate takes this non-blocking path (never the blocking escalator), so
+  // without this push an external escalation is renderer-only and the
+  // "phone-first" story is a lie. telegramBridge is the forward-declared let
+  // above — assigned later, read at notify time; fail-soft void+catch.
   const pendingEscalationsStore = new PendingEscalationStore({
-    notify: (req) => broadcast('control:escalation', req),
+    genId: () => randomUUID(),
+    notify: (req) => {
+      broadcast('control:escalation', req);
+      void telegramBridge
+        ?.pushToOperator(
+          `🔐 external escalation (${req.clientLabel}): ${req.toolName} — ${req.summary}\n/approve ${req.id} or /deny ${req.id}`,
+        )
+        .catch(() => {});
+    },
   });
 
   // get_app_state provider — built once, passed into the assistant tool ctx.
@@ -1400,7 +1416,7 @@ async function buildRouter() {
           dailyBudget: () => Number(readKv('missions.autonomy.dailyBudget')) || 40,
           now: () => Date.now(),
         });
-        void telegramBridge?.pushToOperator(brief);
+        void telegramBridge?.pushToOperator(brief).catch(() => {});
       } catch {
         /* a failed brief build must not break the scheduler's re-arm */
       }
@@ -2822,7 +2838,12 @@ async function buildRouter() {
         const amendmentId = (payload as { result?: { amendmentId?: string } }).result?.amendmentId;
         if (amendmentId) {
           try {
-            void telegramBridge?.pushToOperator(formatAmendmentProposedPush(amendmentId)).catch(() => {});
+            // Review I4 — carry the proposal text (from the trace args) so
+            // the phone approval is informed, never a blind id-grant.
+            const amendmentText = (payload as { args?: { text?: string } }).args?.text;
+            void telegramBridge
+              ?.pushToOperator(formatAmendmentProposedPush(amendmentId, amendmentText))
+              .catch(() => {});
           } catch {
             /* push is best-effort — must never break the trace stream */
           }
@@ -3273,9 +3294,10 @@ async function buildRouter() {
         }
       },
       resolveEscalation: (id: string, approved: boolean) => {
-        if (pendingEscalationsStore.checkEscalation(id) !== 'pending') return 'not-found';
+        if (pendingEscalationsStore.checkEscalation(id) !== 'pending') return null;
+        const entry = pendingEscalationsStore.listPending().find((e) => e.id === id);
         pendingEscalationsStore.resolveEscalation(id, approved);
-        return 'resolved';
+        return { summary: entry?.summary ?? '(no summary recorded)' };
       },
     },
   });
