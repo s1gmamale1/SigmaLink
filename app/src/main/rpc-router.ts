@@ -2649,6 +2649,29 @@ async function buildRouter() {
           }
         }
       }
+      // P2 Task 7 — postmortem-enqueue hook, mirrors the decompose-enqueue
+      // hook directly above. complete_mission's handler (tools.ts) returns
+      // only `{ok: true}` — no missionId in `result` — but its ARGS carry
+      // `missionId` (the tool's own required schema field, `sCompleteMission`),
+      // and every tool-trace already carries the raw `args` it was called
+      // with (see ToolTracer's `ToolTrace.args`), so read it off `payload.args`
+      // instead of `payload.result`.
+      if (
+        event === 'assistant:tool-trace' &&
+        payload &&
+        typeof payload === 'object' &&
+        (payload as { name?: string }).name === 'complete_mission' &&
+        (payload as { ok?: boolean }).ok === true
+      ) {
+        const missionId = (payload as { args?: { missionId?: string } }).args?.missionId;
+        if (missionId) {
+          try {
+            missionScheduler?.enqueue('postmortem', missionId);
+          } catch {
+            /* autonomy enqueue is best-effort — must never break the trace stream */
+          }
+        }
+      }
       // R-1 — fan `assistant:state` deltas out to the Telegram bridge so a
       // remote operator sees the same streamed reply. Best-effort + isolated
       // from the renderer broadcast above.
@@ -2737,6 +2760,13 @@ async function buildRouter() {
     // consumer in this file uses (see its own definition above).
     kvGet: controlKv.get,
     kvSet: controlKv.set,
+    // P2 T7 — late-bound enqueue for the supervisor's MAX_ATTEMPTS "blocker
+    // postmortem" path. `missionScheduler` is a forward-declared `let`
+    // (top of this function) constructed AFTER this very call — this arrow
+    // closes over that binding and reads it lazily, once wiring completes a
+    // few lines below, exactly like the decompose/postmortem tool-trace
+    // hooks above already do. Intentional late-binding, not a bug.
+    enqueue: (kind, missionId) => missionScheduler?.enqueue(kind, missionId),
   });
   missionScheduler = createWakeScheduler({
     runWake: (wake) => missionSupervisor.runWake(wake),

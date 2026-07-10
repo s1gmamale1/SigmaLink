@@ -129,6 +129,45 @@ describe('createSupervisor — review wakes', () => {
     expect(kinds).toContain('task_max_attempts');
   });
 
+  it('a review wake AT MAX_ATTEMPTS calls deps.enqueue("postmortem", missionId) after appending task_max_attempts (P2 T7)', async () => {
+    const mission = setupMission();
+    const task = setupTaskInReview(mission.id, MAX_ATTEMPTS);
+    const enqueue = vi.fn();
+    const deps = baseDeps({ enqueue });
+    const supervisor = createSupervisor(deps);
+
+    await supervisor.runWake({ kind: 'review', missionId: mission.id, taskId: task.id });
+
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    expect(enqueue).toHaveBeenCalledWith('postmortem', task.missionId);
+    const kinds = missionsDao.listEvents(mission.id).map((e) => e.kind);
+    // task_max_attempts must already be recorded by the time enqueue fires.
+    expect(kinds).toContain('task_max_attempts');
+  });
+
+  it('a review wake AT MAX_ATTEMPTS with no deps.enqueue provided never throws (optional dep)', async () => {
+    const mission = setupMission();
+    const task = setupTaskInReview(mission.id, MAX_ATTEMPTS);
+    const deps = baseDeps(); // enqueue omitted
+    const supervisor = createSupervisor(deps);
+
+    await expect(
+      supervisor.runWake({ kind: 'review', missionId: mission.id, taskId: task.id }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('a review wake BELOW MAX_ATTEMPTS never calls deps.enqueue', async () => {
+    const mission = setupMission();
+    const task = setupTaskInReview(mission.id, MAX_ATTEMPTS - 1);
+    const enqueue = vi.fn();
+    const deps = baseDeps({ enqueue });
+    const supervisor = createSupervisor(deps);
+
+    await supervisor.runWake({ kind: 'review', missionId: mission.id, taskId: task.id });
+
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
   it('a review wake PAST MAX_ATTEMPTS (already blocked once, re-queued) also stops — never calls runTurn', async () => {
     const mission = setupMission();
     const task = setupTaskInReview(mission.id, MAX_ATTEMPTS + 5);
@@ -204,6 +243,74 @@ describe('createSupervisor — decompose wakes', () => {
       supervisor.runWake({ kind: 'decompose', missionId: 'nonexistent' }),
     ).resolves.toBeUndefined();
     expect(deps.runTurn).not.toHaveBeenCalled();
+  });
+});
+
+describe('createSupervisor — postmortem wakes (P2 Task 7)', () => {
+  it('routes kind:"postmortem" to a directive containing the mission title/goal and calls runTurn once', async () => {
+    const mission = setupMission();
+    const deps = baseDeps();
+    const supervisor = createSupervisor(deps);
+
+    await supervisor.runWake({ kind: 'postmortem', missionId: mission.id });
+
+    expect(deps.runTurn).toHaveBeenCalledTimes(1);
+    const call = (deps.runTurn as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(call.origin).toBe('autonomous');
+    expect(call.prompt).toContain(mission.title);
+    expect(call.prompt).toContain(mission.goal);
+    expect(call.prompt).toContain('Write ONE postmortem memory');
+    expect(typeof call.conversationId).toBe('string');
+  });
+
+  it('includes a one-liner per mission task in the postmortem directive', async () => {
+    const mission = setupMission();
+    const task = setupTaskInReview(mission.id, 0);
+    const deps = baseDeps();
+    const supervisor = createSupervisor(deps);
+
+    await supervisor.runWake({ kind: 'postmortem', missionId: mission.id });
+
+    const call = (deps.runTurn as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(call.prompt).toContain(task.title);
+    expect(call.prompt).toContain('reviewing');
+  });
+
+  it('a postmortem wake for a deleted/unknown mission is a no-op — never calls runTurn', async () => {
+    const deps = baseDeps();
+    const supervisor = createSupervisor(deps);
+
+    await expect(
+      supervisor.runWake({ kind: 'postmortem', missionId: 'nonexistent' }),
+    ).resolves.toBeUndefined();
+    expect(deps.runTurn).not.toHaveBeenCalled();
+  });
+
+  it('reuses the mission\'s existing conversation (same KV-durable pinning as decompose/review)', async () => {
+    const mission = setupMission();
+    const deps = baseDeps();
+    const supervisor = createSupervisor(deps);
+
+    await supervisor.runWake({ kind: 'decompose', missionId: mission.id });
+    const firstConvId = (deps.runTurn as ReturnType<typeof vi.fn>).mock.calls[0][0].conversationId;
+
+    await supervisor.runWake({ kind: 'postmortem', missionId: mission.id });
+    const secondConvId = (deps.runTurn as ReturnType<typeof vi.fn>).mock.calls[1][0].conversationId;
+
+    expect(secondConvId).toBe(firstConvId);
+  });
+
+  it('never calls recallMemories — postmortem wakes get NO memory-recall context (kept lean)', async () => {
+    const mission = setupMission();
+    vi.mocked(recallMemories).mockReturnValue([makeRecalledMemory()]);
+    const deps = baseDeps();
+    const supervisor = createSupervisor(deps);
+
+    await supervisor.runWake({ kind: 'postmortem', missionId: mission.id });
+
+    expect(recallMemories).not.toHaveBeenCalled();
+    const call = (deps.runTurn as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(call.prompt).not.toContain('## Operator memory');
   });
 });
 

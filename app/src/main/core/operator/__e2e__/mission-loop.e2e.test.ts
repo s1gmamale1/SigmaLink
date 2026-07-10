@@ -41,8 +41,9 @@ import { getDb } from '../../db/client';
 import { createDbFake, type DbFake } from '@/test-utils/db-fake';
 import * as missionsDao from '../../missions/dao';
 import { createMissionWatcher } from '../watch';
-import { createWakeScheduler, type Wake } from '../scheduler';
+import { createWakeScheduler, type Wake, type WakeScheduler } from '../scheduler';
 import { createSupervisor, type SupervisorDeps } from '../supervisor';
+import { rememberMemory, listMemories } from '../memory';
 
 let fake: DbFake;
 beforeEach(() => {
@@ -84,10 +85,16 @@ describe('mission-loop e2e — decompose → dispatch → review → done (stub 
     const dispatchedSessions: string[] = [];
     let nextSession = 0;
 
+    // P2 T7 — forward-declared so runTurn's scripted "complete_mission" write
+    // below can enqueue the postmortem wake the same way rpc-router.ts's
+    // late-bound `enqueue` dep does (missionScheduler is a `let` constructed
+    // AFTER createSupervisor there too — see rpc-router.ts's comment).
+    let scheduler: WakeScheduler | undefined = undefined;
+
     // The scripted "brain" — a stand-in for a real claude turn. Never spawns
     // anything real; only ever calls missionsDao writes, exactly as the real
     // mission tools (add_mission_task/dispatch_task/move_mission_task/
-    // complete_mission) would on the model's behalf.
+    // complete_mission/remember) would on the model's behalf.
     const runTurn: SupervisorDeps['runTurn'] = async (input) => {
       runTurnCalls.push({ conversationId: input.conversationId, prompt: input.prompt });
       expect(input.origin).toBe('autonomous');
@@ -121,7 +128,26 @@ describe('mission-loop e2e — decompose → dispatch → review → done (stub 
           // mirrors complete_mission's two writes exactly.
           missionsDao.setMissionReport(mission.id, 'All tasks complete.');
           missionsDao.setMissionStatus(mission.id, 'done');
+          // What rpc-router's postmortem-enqueue hook does on a successful
+          // complete_mission tool-trace (P2 T7) — mirrors the
+          // decompose-enqueue hook comment above; this e2e drives the hook
+          // manually since there's no real tool-tracer/rpc-router wired
+          // into this unit-level e2e.
+          scheduler?.enqueue('postmortem', mission.id);
         }
+        return { turnId: `turn-${runTurnCalls.length}` };
+      }
+
+      if (input.prompt.includes('Write ONE postmortem memory')) {
+        // P2 T7 — the scripted brain's postmortem turn: mirrors what a real
+        // model turn would do on a postmortem directive (buildPostmortemDirective's
+        // own closing instruction) — call remember() exactly once, then stop.
+        const mission = missionsDao.listMissions().find((m) => m.status === 'done')!;
+        rememberMemory({
+          kind: 'postmortem',
+          title: mission.title,
+          body: 'Worked: parallel task dispatch. Failed: nothing. Next time: same approach.',
+        });
         return { turnId: `turn-${runTurnCalls.length}` };
       }
 
@@ -129,10 +155,19 @@ describe('mission-loop e2e — decompose → dispatch → review → done (stub 
     };
 
     const readPane = vi.fn().mockReturnValue('stub pane output — the task finished successfully');
-    const supervisor = createSupervisor({ runTurn, readPane, kvGet: kv.kvGet, kvSet: kv.kvSet });
+    const supervisor = createSupervisor({
+      runTurn,
+      readPane,
+      kvGet: kv.kvGet,
+      kvSet: kv.kvSet,
+      // P2 T7 — supervisor's own enqueue dep (used for the MAX_ATTEMPTS
+      // "blocker postmortem" path — not exercised by this happy-path test,
+      // but wired for parity with the live rpc-router.ts wiring).
+      enqueue: (kind, missionId) => scheduler?.enqueue(kind, missionId),
+    });
 
     const onDropped = vi.fn();
-    const scheduler = createWakeScheduler({
+    scheduler = createWakeScheduler({
       runWake: (wake: Wake) => supervisor.runWake(wake),
       kvGet: kv.kvGet,
       kvSet: kv.kvSet,
@@ -189,9 +224,19 @@ describe('mission-loop e2e — decompose → dispatch → review → done (stub 
     expect(finalMission?.status).toBe('done');
     expect(finalMission?.report).toBe('All tasks complete.');
 
-    // ---- the loop spent exactly 3 scripted turns: 1 decompose + 2 reviews ----
-    expect(runTurnCalls).toHaveLength(3);
-    expect(scheduler.wakesSpentToday()).toBe(3);
+    // ---- P2 T7: mission completion enqueued a postmortem wake (the scripted
+    // brain called scheduler?.enqueue('postmortem', ...) from inside the
+    // completing review turn above) — flush once more to drain it. ----
+    await flush();
+
+    // ---- one extra scripted turn distills the run into a durable memory ----
+    expect(runTurnCalls).toHaveLength(4); // 1 decompose + 2 reviews + 1 postmortem
+    const postmortems = listMemories({ kind: 'postmortem' });
+    expect(postmortems).toHaveLength(1);
+    expect(postmortems[0].title).toBe(mission.title);
+
+    // ---- the loop spent exactly 4 scripted turns total ----
+    expect(scheduler?.wakesSpentToday()).toBe(4);
     expect(onDropped).not.toHaveBeenCalled(); // autonomy was enabled + under budget the whole drive
 
     // ---- the event log shows the full trail, deterministically, DAO-only ----

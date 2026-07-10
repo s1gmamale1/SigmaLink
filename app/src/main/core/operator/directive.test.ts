@@ -4,7 +4,7 @@
 // wake, so what they contain (and what they cap) is the whole contract.
 
 import { describe, it, expect } from 'vitest';
-import { buildDecomposeDirective, buildReviewDirective, MAX_EXCERPT_CHARS } from './directive';
+import { buildDecomposeDirective, buildReviewDirective, buildPostmortemDirective, MAX_EXCERPT_CHARS } from './directive';
 import { MAX_ATTEMPTS } from '../missions/state';
 import type { Mission, MissionTask } from '../../../shared/types';
 
@@ -190,5 +190,55 @@ describe('buildReviewDirective — extraContext (P2 T6)', () => {
     const directive = buildReviewDirective(mission, task, 'output', '## Operator memory\n- [fact] X: Y');
     expect(directive).toContain('Attempt: 3 of 3');
     expect(directive).toContain('Retries left: 0');
+  });
+});
+
+// P2 Task 7 — the postmortem directive: mission title/goal (+ report when
+// set) + a one-liner per task, closing with the single-`remember`-call
+// instruction. No extraContext slot (postmortem wakes get no memory-recall
+// splice — see supervisor.ts's runPostmortem).
+
+describe('buildPostmortemDirective', () => {
+  it('includes the mission title and goal', () => {
+    const mission = makeMission();
+    const directive = buildPostmortemDirective(mission, []);
+    expect(directive).toContain(mission.title);
+    expect(directive).toContain(mission.goal);
+  });
+
+  it('includes the mission report when set', () => {
+    const mission = makeMission({ report: 'All tasks complete.' });
+    const directive = buildPostmortemDirective(mission, []);
+    expect(directive).toContain('All tasks complete.');
+  });
+
+  it('omits any report line when the mission has no report', () => {
+    const mission = makeMission({ report: null });
+    const directive = buildPostmortemDirective(mission, []);
+    expect(directive).not.toContain('Report:');
+  });
+
+  it('renders one line per task as "<title> · <status> · attempt <N>"', () => {
+    const mission = makeMission();
+    const tasks = [
+      makeTask({ id: 't1', title: 'Wire the export button', status: 'done', attempt: 1 }),
+      makeTask({ id: 't2', title: 'Add tests', status: 'blocked', attempt: 3 }),
+    ];
+    const directive = buildPostmortemDirective(mission, tasks);
+    expect(directive).toContain('Wire the export button · done · attempt 1');
+    expect(directive).toContain('Add tests · blocked · attempt 3');
+  });
+
+  it('handles zero tasks without throwing (empty task list)', () => {
+    const mission = makeMission();
+    expect(() => buildPostmortemDirective(mission, [])).not.toThrow();
+  });
+
+  it('closes with the single-remember-call instruction naming the mission title and kind "postmortem"', () => {
+    const mission = makeMission({ title: 'Ship the widget' });
+    const directive = buildPostmortemDirective(mission, []);
+    expect(directive).toContain(
+      'Write ONE postmortem memory: call remember(kind: "postmortem", title: "Ship the widget", body: what worked / what failed / what to do differently next time). Then stop — do not call any other tool.',
+    );
   });
 });

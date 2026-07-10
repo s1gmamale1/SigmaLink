@@ -68,3 +68,26 @@ export function buildReviewDirective(
   ].join('\n');
   return appendContext(base, extraContext);
 }
+
+// P2 Task 7 — the postmortem directive: fired after a mission completes (or
+// a task auto-blocks at MAX_ATTEMPTS — see supervisor.ts's runReview), this
+// is the ONLY point Jorvis is explicitly told to write a memory. The closing
+// line hard-caps the brain to a SINGLE `remember` call, then a stop — a
+// postmortem wake can never spiral into an unbounded string of tool calls.
+// No extraContext slot here (unlike decompose/review): postmortem wakes get
+// no memory-recall splice, deliberately kept lean (D4 / plan Task 7).
+export function buildPostmortemDirective(mission: Mission, tasks: MissionTask[]): string {
+  const lines = [`Mission: ${mission.title}`, `Goal: ${mission.goal}`];
+  if (mission.report) {
+    lines.push(`Report: ${mission.report}`);
+  }
+  lines.push('', 'Tasks:');
+  for (const task of tasks) {
+    lines.push(`- ${task.title} · ${task.status} · attempt ${task.attempt}`);
+  }
+  lines.push(
+    '',
+    `Write ONE postmortem memory: call remember(kind: "postmortem", title: "${mission.title}", body: what worked / what failed / what to do differently next time). Then stop — do not call any other tool.`,
+  );
+  return lines.join('\n');
+}

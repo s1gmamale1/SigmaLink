@@ -52,15 +52,29 @@
 // either function) can never throw into — and kill — a wake. Interactive
 // chat does NOT get this auto-injection; it uses the `recall` tool on
 // demand (D4) — this module only runs for supervisor-driven wakes.
-
+//
+// P2 Task 7 — the postmortem wake: the learning loop's other end. A
+// `runPostmortem` wake loads the mission (+ its tasks), builds a directive
+// via `./directive`'s `buildPostmortemDirective`, and runs a turn exactly
+// like decompose/review — same conversation pinning, same gates/budget, NO
+// scheduler special-casing. It deliberately skips the memory-recall splice
+// above (kept lean — see directive.ts's header). `SupervisorDeps.enqueue` is
+// OPTIONAL and only used by `runReview`'s MAX_ATTEMPTS block path: once a
+// task auto-blocks, this module asks the scheduler to also queue a
+// postmortem wake for that mission (a "blocker postmortem" — the mission
+// didn't finish, but there's still a lesson to distill). The normal
+// mission-completion postmortem is enqueued externally by rpc-router.ts off
+// a successful `complete_mission` tool-trace (mirrors its `create_mission` →
+// decompose hook) — this module has no opinion on mission completion, only
+// on a task hitting its retry cap.
 import * as missionsDao from '../missions/dao';
 import { createConversation, getConversation } from '../assistant/conversations';
-import { buildDecomposeDirective, buildReviewDirective } from './directive';
+import { buildDecomposeDirective, buildReviewDirective, buildPostmortemDirective } from './directive';
 import { buildMemoryContext } from './context';
 import { recallMemories } from './memory';
 import { MAX_ATTEMPTS } from '../missions/state';
 import { JORVIS_GLOBAL_WORKSPACE_ID, KV_MISSION_CONVERSATION_PREFIX } from './global';
-import type { Wake } from './scheduler';
+import type { Wake, WakeKind } from './scheduler';
 import type { Mission } from '../../../shared/types';
 
 export { MAX_ATTEMPTS };
@@ -78,6 +92,12 @@ export interface SupervisorDeps {
   kvGet: (key: string) => string | null;
   /** KV-durable mission→conversation pinning (P2 T5, D1). Best-effort write. */
   kvSet: (key: string, value: string) => void;
+  /** P2 T7 — late-bound scheduler enqueue, used ONLY by runReview's
+   *  MAX_ATTEMPTS block path to queue a "blocker postmortem". Optional: no
+   *  legitimate caller lacks it in production (rpc-router.ts always wires
+   *  it), but every EXISTING test's baseDeps() must keep working unmodified,
+   *  and a missing dep must never crash a wake — always called via `?.`. */
+  enqueue?: (kind: WakeKind, missionId: string) => void;
 }
 
 export interface Supervisor {
@@ -137,6 +157,11 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
         'task_max_attempts',
         JSON.stringify({ attempt: task.attempt, maxAttempts: MAX_ATTEMPTS }),
       );
+      // P2 T7 — blocker postmortem: the task ran out of retries, but the
+      // mission itself is still open (never reaches complete_mission on this
+      // path) — this is the ONLY other trigger for a postmortem wake besides
+      // rpc-router's complete_mission hook. Optional dep, best-effort.
+      deps.enqueue?.('postmortem', task.missionId);
       return;
     }
 
@@ -156,9 +181,22 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
     await runTurn({ conversationId, prompt, origin: 'autonomous' });
   }
 
+  async function runPostmortem(wake: Wake): Promise<void> {
+    const mission = missionsDao.getMission(wake.missionId);
+    if (!mission) return; // deleted/racing mission — nothing to distill
+    const tasks = missionsDao.listTasks(mission.id);
+    const conversationId = ensureMissionConversation(mission);
+    // No memory-recall splice here (unlike decompose/review) — kept lean,
+    // see directive.ts's header on buildPostmortemDirective.
+    const prompt = buildPostmortemDirective(mission, tasks);
+    await runTurn({ conversationId, prompt, origin: 'autonomous' });
+  }
+
   async function runWake(wake: Wake): Promise<void> {
     if (wake.kind === 'decompose') {
       await runDecompose(wake);
+    } else if (wake.kind === 'postmortem') {
+      await runPostmortem(wake);
     } else {
       await runReview(wake);
     }

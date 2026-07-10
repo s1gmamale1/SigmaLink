@@ -16,7 +16,13 @@
 // no business knowing that KV key, and the same DI shape already wires
 // `ControlMcpHost.isFrozen` in `rpc-router.ts` (`() => isControlFrozen(controlKv)`).
 
-export type WakeKind = 'decompose' | 'review';
+// P2 Task 7 — 'postmortem' is the third wake kind: fired after a mission
+// completes (or a task auto-blocks at MAX_ATTEMPTS) so the brain distills
+// the run into a durable memory (see supervisor.ts's runPostmortem +
+// directive.ts's buildPostmortemDirective). It rides these exact same four
+// gates — no scheduler special-casing — a postmortem wake is just another
+// entry in the queue.
+export type WakeKind = 'decompose' | 'review' | 'postmortem';
 
 export interface Wake {
   kind: WakeKind;
