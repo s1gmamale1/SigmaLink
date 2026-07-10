@@ -77,6 +77,22 @@ export const EXTERNAL_ESCALATE_TOOLS: ReadonlySet<string> = new Set([
   'propose_amendment',
 ]);
 
+/**
+ * P3 Task 4 (D2) — `submit_task`/`check_task`/`get_report` are DELIBERATELY
+ * ABSENT from this set. They are the external mission plane — the sanctioned
+ * door an external Hermes/OpenClaw agent uses (ADR-011, two-plane design)
+ * instead of the raw board tools above. `submit_task` is FREE for external
+ * origin: safety lives downstream in the autonomy gates the decompose wake
+ * it queues must clear (default-OFF `missions.autonomy.enabled` flag, daily
+ * budget, quiet hours, kill-switch) and in the DANGEROUS_REMOTE escalation
+ * layer any dispatch_task/prompt_agent call the resulting wake makes must
+ * still clear — not at this door. `check_task`/`get_report` are free reads
+ * (perception, like `mission_board`). The raw board-mutation tools directly
+ * above (create_mission/add_mission_task/move_mission_task/complete_mission/
+ * dispatch_task) KEEP their escalate classification for external origin —
+ * this plane is the door, not the board.
+ */
+
 /** Tools whose danger depends on the TARGET pane's provider (agent vs shell). */
 export const PROVIDER_GATED_TOOLS: ReadonlySet<string> = new Set([
   'prompt_agent',

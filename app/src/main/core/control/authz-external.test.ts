@@ -23,6 +23,20 @@ describe('classifyExternal', () => {
     }
   });
 
+  // P3 Task 4 (D2) — the external mission plane is the sanctioned door: free
+  // for external origin, unlike the raw board-mutation tools it sits beside.
+  it('submit_task/check_task/get_report are free for external origin (D2 — the mission plane is the door)', () => {
+    for (const id of ['submit_task', 'check_task', 'get_report']) {
+      expect(classifyExternal({ toolId: id, targetProvider: null, killSwitch: false }), id).toBe('free');
+    }
+  });
+
+  it('kill-switch still denies the mission plane (no free tool bypasses the kill-switch)', () => {
+    for (const id of ['submit_task', 'check_task', 'get_report']) {
+      expect(classifyExternal({ toolId: id, targetProvider: null, killSwitch: true }), id).toBe('deny');
+    }
+  });
+
   it('close_pane / close_workspace / browser_navigate / kill_swarm / open_url / stop_pane escalate', () => {
     for (const id of ['close_pane', 'close_workspace', 'browser_navigate', 'kill_swarm', 'open_url', 'stop_pane']) {
       expect(classifyExternal({ toolId: id, targetProvider: null, killSwitch: false }), id).toBe('escalate');
@@ -104,6 +118,12 @@ describe('classifyExternal', () => {
     mission_board: 'free',
     // Phase 20 P1b — dispatch_task launches a real pane; escalate.
     dispatch_task: 'escalate',
+    // P3 Task 4 (D2) — external mission plane. Free for external origin —
+    // the sanctioned door; safety lives in the autonomy gates + downstream
+    // DANGEROUS_REMOTE escalation, not here.
+    submit_task: 'free',
+    check_task: 'free',
+    get_report: 'free',
     // P2 Task 3 — operator-private durable memory; all four escalate,
     // including the read (recall) — conservative by design (D5).
     remember: 'escalate',
@@ -156,6 +176,8 @@ describe('classifyExternal', () => {
     'create_mission', 'add_mission_task', 'mission_board', 'move_mission_task', 'complete_mission',
     // Phase 20 P1b — dispatch_task is externally discoverable too; escalates.
     'dispatch_task',
+    // P3 Task 4 (D2) — external mission plane; externally discoverable + free.
+    'submit_task', 'check_task', 'get_report',
     // P2 Task 3 — memory tools are externally discoverable too; all escalate.
     'remember', 'recall', 'update_memory', 'forget',
     // P2 Task 8 — propose_amendment is externally discoverable too; escalates.

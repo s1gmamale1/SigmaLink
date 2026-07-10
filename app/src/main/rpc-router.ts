@@ -2734,6 +2734,13 @@ async function buildRouter() {
     },
     // Task 4 — non-blocking escalation store (external origin).
     pendingEscalations: pendingEscalationsStore,
+    // P3 Task 4 — submit_task's decompose-enqueue, late-bound exactly like
+    // missionSupervisor's own `enqueue` dep a few lines below: `missionScheduler`
+    // is a forward-declared `let` (top of this function) constructed AFTER this
+    // very call, so this arrow closes over the binding and reads it lazily once
+    // wiring completes below — same pattern as the create_mission/complete_mission
+    // tool-trace hooks above.
+    enqueueMissionWake: (kind, missionId) => missionScheduler?.enqueue(kind, missionId),
   });
   const assistantCtl = assistantBundle.controller;
   // P1b Task 5 — wire the mission-autonomy loop live: watcher → scheduler →
