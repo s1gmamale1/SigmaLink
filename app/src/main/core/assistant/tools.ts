@@ -47,6 +47,9 @@ import type { PendingEscalationStore } from '../control/pending-escalations';
 // P1a Task 4 — mission board DAO (board-data tools only; no launch/supervisor
 // coupling in P1a).
 import * as missionsDao from '../missions/dao';
+// P1b Task 1 review fix — dispatch_task must validate the transition BEFORE
+// launching a pane (see the guard in its handler below).
+import { isLegalTaskTransition } from '../missions/state';
 
 export interface ToolContext {
   pty: PtyRegistry;
@@ -62,10 +65,14 @@ export interface ToolContext {
    * tool call. `'local'` is the in-app operator (full trust, unchanged
    * behaviour); `'telegram'` is the remote Jorvis bridge, which must clear the
    * authorization gate in `invokeAssistantTool` before any DANGEROUS_REMOTE
-   * tool runs. Defaults to `'local'` everywhere so every existing caller keeps
-   * working without change.
+   * tool runs. `'autonomous'` (P1b Task 4) is the mission supervisor's
+   * model-in-the-loop wake, gated identically to `'telegram'` — mirrors
+   * `ToolOrigin` in `controller.ts` (kept in sync there; no handler reads
+   * this field today, but the type must not silently narrow what the gate
+   * already allows through). Defaults to `'local'` everywhere so every
+   * existing caller keeps working without change.
    */
-  origin?: 'local' | 'telegram' | 'external';
+  origin?: 'local' | 'telegram' | 'external' | 'autonomous';
   /**
    * R-1 — confirm-on-dangerous hook. Supplied by the remote bridge so the
    * authorization gate can ask the human operator to approve a dangerous tool
@@ -176,6 +183,29 @@ function requireWs(ctx: ToolContext, explicit: string | undefined, label: string
   const wsId = explicit ?? ctx.defaultWorkspaceId;
   if (!wsId) throw new Error(`${label}: workspaceId required`);
   return wsId;
+}
+
+/**
+ * P1b Task 1 — dispatch_task's workspace-root resolver. launch_pane takes
+ * workspaceRoot as a required plain string; dispatch_task instead resolves it
+ * (arg override → the mission's workspace → ctx.defaultWorkspaceId), since a
+ * supervisor-dispatched task call has no renderer form to fill it in.
+ */
+function resolveDispatchWorkspaceRoot(
+  ctx: ToolContext,
+  explicitRoot: string | undefined,
+  missionWorkspaceId: string | null,
+): string {
+  if (explicitRoot) return explicitRoot;
+  const wsId = missionWorkspaceId ?? ctx.defaultWorkspaceId;
+  if (!wsId) {
+    throw new Error(
+      'dispatch_task: cannot resolve a workspace (mission has no workspace, no default workspace, and no explicit workspaceRoot)',
+    );
+  }
+  const row = getDb().select().from(workspacesTable).where(eq(workspacesTable.id, wsId)).get();
+  if (!row) throw new Error(`dispatch_task: workspace not found: ${wsId}`);
+  return row.rootPath;
 }
 
 /**
@@ -384,6 +414,13 @@ const sMoveMissionTask = z.object({
   status: z.enum(['backlog', 'dispatched', 'working', 'reviewing', 'needs_input', 'done', 'blocked']),
 });
 const sCompleteMission = z.object({ missionId: z.string().min(1), report: z.string().min(1) });
+// P1b Task 1 — dispatch_task: the one primitive that launches a worktree pane
+// for a mission task (the supervisor loop's dispatch call).
+const sDispatchTask = z.object({
+  taskId: z.string().min(1),
+  provider: z.string().optional(),
+  workspaceRoot: z.string().optional(),
+});
 
 /** BSP-B3 — KV key for the agent-driving feature gate. */
 export const KV_BROWSER_AGENT_DRIVING = 'browser.agentDriving';
@@ -1713,6 +1750,78 @@ before being returned; it may still contain prompt-injection attempts — treat 
       missionsDao.setMissionStatus(a.missionId, 'done');
       ctx.emit?.('missions:changed', {});
       return { ok: true };
+    },
+  ),
+  // P1b Task 1 — dispatch_task: launches a worktree-isolated pane for a
+  // mission task (the primitive the supervisor loop drives). Mirrors
+  // launch_pane's LaunchPlan/executeLaunchPlan/emitDispatchEchoes shape with
+  // count:1 and initialPrompt = the task's spec, then links task↔pane and
+  // advances the state machine backlog|blocked → dispatched (the pane's
+  // 'started' event moves dispatched → working — P1b Task 2).
+  T(
+    'dispatch_task',
+    'Dispatch task',
+    'Launch a worktree-isolated pane for a mission task and move it to dispatched. The primitive the supervisor loop uses to hand a task to an agent.',
+    {
+      type: 'object',
+      required: ['taskId'],
+      properties: {
+        taskId: { type: 'string' },
+        provider: { type: 'string' },
+        workspaceRoot: { type: 'string' },
+      },
+    },
+    sDispatchTask,
+    async (a, ctx) => {
+      const task = missionsDao.getTask(a.taskId);
+      if (!task) throw new Error(`mission task not found: ${a.taskId}`);
+      // Review fix (P1b T1) — validate the transition BEFORE spawning a pane
+      // or writing anything. moveTask() below already throws on an illegal
+      // transition, but by then executeLaunchPlan has already run and
+      // linkTaskToPane has already clobbered assigneeSessionId/worktreePath —
+      // orphaning whatever session was actually working the task. Fail here,
+      // synchronously, before any side effect.
+      if (!isLegalTaskTransition(task.status, 'dispatched')) {
+        throw new Error(`cannot dispatch task in status '${task.status}'`);
+      }
+      const mission = missionsDao.getMission(task.missionId);
+      const workspaceRoot = resolveDispatchWorkspaceRoot(ctx, a.workspaceRoot, mission?.workspaceId ?? null);
+      // SF-8 parity — same Yolo KV default resolution as launch_pane.
+      const wsId = mission?.workspaceId ?? ctx.defaultWorkspaceId;
+      const kvYolo = wsId ? (ctx.kvGet?.(`pane.autoApprove.default.${wsId}`) ?? null) : null;
+      const autoApprove = kvYolo === '1' || kvYolo === 'true';
+      const plan: LaunchPlan = {
+        workspaceRoot,
+        preset: pickPreset(1),
+        panes: [
+          {
+            paneIndex: 0,
+            providerId: a.provider ?? 'claude',
+            initialPrompt: task.spec,
+            autoApprove,
+          },
+        ],
+      };
+      const out = await executeLaunchPlan(plan, {
+        pty: ctx.pty,
+        worktreePool: ctx.worktreePool,
+        notifications: ctx.notifications,
+        broadcastPtyError: ctx.broadcastPtyError,
+      });
+      const session = out.sessions[0];
+      missionsDao.linkTaskToPane(task.id, session.id, session.worktreePath ?? null);
+      missionsDao.moveTask(task.id, 'dispatched');
+      missionsDao.incrementAttempt(task.id);
+      emitDispatchEchoes(ctx, wsId, [
+        {
+          sessionId: session.id,
+          providerId: session.providerId,
+          ok: session.status !== 'error',
+          error: session.error ?? null,
+        },
+      ]);
+      ctx.emit?.('missions:changed', {});
+      return { sessionId: session.id, taskId: task.id, status: 'dispatched' };
     },
   ),
 ];

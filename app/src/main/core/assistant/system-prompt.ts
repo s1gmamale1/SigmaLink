@@ -107,8 +107,7 @@ Escalation tools (external-control non-blocking approval flow):
                       status:'needs_approval', then re-issue the original tool call
                       once the status is 'approved'.
 
-Mission board tools (board data only — dispatching a task to a worktree pane
-is a separate, not-yet-available capability):
+Mission board tools:
   create_mission      { title, goal, workspaceId? }
                       Create a mission on the board (starts in draft).
   add_mission_task    { missionId, title, spec? }
@@ -122,6 +121,9 @@ is a separate, not-yet-available capability):
                       an illegal transition.
   complete_mission    { missionId, report }
                       Mark a mission done and attach its final report.
+  dispatch_task       { taskId, provider?, workspaceRoot? }
+                      Launch a worktree-isolated pane for a task and move it
+                      to dispatched. The supervisor loop's hand-off primitive.
 `;
 // PROMPT-INJECTION RESIDUAL: browser_snapshot returns raw page text which may
 // contain crafted instructions targeting the model (e.g. "IGNORE PREVIOUS

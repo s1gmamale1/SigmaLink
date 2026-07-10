@@ -72,7 +72,7 @@ function nextEventTs(): number {
   return lastEventTs;
 }
 
-function appendEvent(
+export function appendEvent(
   missionId: string,
   taskId: string | null,
   kind: string,
@@ -253,6 +253,48 @@ export function updateTask(
     .where(eq(missionTasks.id, id))
     .run();
   return merged;
+}
+
+// P1b Task 1 — dispatch_task link helpers. linkTaskToPane/incrementAttempt
+// are the two writes dispatch_task makes after executeLaunchPlan returns a
+// session; listTasksForSession is the watcher's reverse lookup (P1b Task 2+);
+// listActiveMissions is the supervisor loop's poll target.
+
+export function linkTaskToPane(
+  taskId: string,
+  sessionId: string,
+  worktreePath: string | null,
+): MissionTask {
+  const task = getTask(taskId);
+  if (!task) throw new Error(`mission task not found: ${taskId}`);
+  getDb()
+    .update(missionTasks)
+    .set({ assigneeSessionId: sessionId, worktreePath, updatedAt: Date.now() })
+    .where(eq(missionTasks.id, taskId))
+    .run();
+  appendEvent(task.missionId, taskId, 'task_dispatched', JSON.stringify({ sessionId, worktreePath }));
+  return getTask(taskId)!;
+}
+
+export function incrementAttempt(taskId: string): number {
+  const task = getTask(taskId);
+  if (!task) throw new Error(`mission task not found: ${taskId}`);
+  const next = task.attempt + 1;
+  getDb().update(missionTasks).set({ attempt: next, updatedAt: Date.now() }).where(eq(missionTasks.id, taskId)).run();
+  return next;
+}
+
+export function listTasksForSession(sessionId: string): MissionTask[] {
+  return getDb()
+    .select()
+    .from(missionTasks)
+    .where(eq(missionTasks.assigneeSessionId, sessionId))
+    .all()
+    .map(rowToTask);
+}
+
+export function listActiveMissions(): Mission[] {
+  return listMissions({ status: 'active' });
 }
 
 export function listEvents(missionId: string, limit = 200): MissionEvent[] {

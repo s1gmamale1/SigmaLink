@@ -117,6 +117,9 @@ import { TasksManager } from './core/tasks/manager';
 import { buildTasksController } from './core/tasks/controller';
 import { buildKvController } from './core/db/kv-controller';
 import * as missionsDao from './core/missions/dao';
+import { createMissionWatcher, type MissionWatcher } from './core/operator/watch';
+import { createWakeScheduler, type WakeScheduler } from './core/operator/scheduler';
+import { createSupervisor } from './core/operator/supervisor';
 import { buildAssistantController } from './core/assistant/controller';
 import { McpHostSigma, type ToolInvoker } from './core/assistant/mcp-host-sigma';
 import { ControlMcpHost, type ExternalToolInvoker } from './core/control/control-mcp-host';
@@ -911,6 +914,16 @@ async function buildRouter() {
   });
   let controlBearer: string | null = null;
   let resolvedExternalInvoker: ExternalToolInvoker | null = null;
+  // P1b Task 5 — forward-declared the same way as resolvedExternalInvoker
+  // above: PtyRegistry's onPaneEvent/onCliExited sinks (wired a few lines
+  // below) and the assistant emit wrapper's decompose-enqueue hook (wired
+  // much further down, once the assistant controller exists) both close
+  // over these bindings. They're assigned once the watcher/scheduler are
+  // actually constructed after assistantCtl is built; every closure below
+  // reads the CURRENT value at call time, and every real call happens well
+  // after boot finishes, so the null window is never observed.
+  let missionWatcher: MissionWatcher | null = null;
+  let missionScheduler: WakeScheduler | null = null;
   const controlMcpHost = new ControlMcpHost({
     socketPath: controlSocketPath(app.getPath('userData')),
     getToken: () => controlBearer,
@@ -1008,6 +1021,18 @@ async function buildRouter() {
         } catch {
           /* notifications fan-out is best-effort */
         }
+        // P1b Task 5 — deterministic mission-task watcher. `output-spike` has
+        // no counterpart in the watcher's PaneLikeEvent kind union (it only
+        // cares about started/exited/error/idle) so it's the one kind never
+        // forwarded. A throw here (illegal transition, DAO error, a
+        // throwing DI'd enqueue) must never break this pane-event pipeline.
+        if (event.kind !== 'output-spike') {
+          try {
+            missionWatcher?.onPaneEvent({ sessionId: event.sessionId, kind: event.kind, exitCode: event.exitCode });
+          } catch {
+            /* mission-autonomy watcher is best-effort from this sink */
+          }
+        }
       },
       // v1.6.0 Phase 2 — CLI-exit detection in shell-first mode.
       // Fires when the sentinel is detected in the PTY data stream (CLI exited,
@@ -1041,6 +1066,16 @@ async function buildRouter() {
         // done, so drop its bell/idle detection state; the bare shell's output
         // must not produce a false "agent needs you" idle-fire.
         attentionDetector.forget(sessionId);
+        // P1b Task 5 — shell-first mode's terminal signal for a mission task
+        // (the shell/pane itself never "exits" here, only the CLI inside it
+        // does) — see watch.ts's header comment for why 'cli-exited' is a
+        // distinct kind from PaneEventSink's 'exited'. Same never-throw
+        // contract as the onPaneEvent sink above.
+        try {
+          missionWatcher?.onPaneEvent({ sessionId, kind: 'cli-exited', exitCode });
+        } catch {
+          /* mission-autonomy watcher is best-effort from this sink */
+        }
       },
       // v1.9-scrollback — DEFAULT-OFF. The sink is ALWAYS wired; the KV flag
       // is re-read inside on every exit, so BOTH runtime toggle-ON and
@@ -2586,6 +2621,33 @@ async function buildRouter() {
           /* notifications fan-out is best-effort */
         }
       }
+      // P1b Task 5 — decompose-enqueue hook. No tool in tools.ts ever moves a
+      // mission `draft` → `active` (create_mission always creates `draft`;
+      // checked — there is no "activate" tool), so the simplest observable
+      // trigger that needs ZERO tools.ts edits is this same tool-trace
+      // stream already wired for notifications above. A successful
+      // create_mission trace's `result` carries `{missionId, status}`
+      // (tools.ts's handler return value, after ToolTracer.safeSerialize) —
+      // enqueue a decompose wake for it. The scheduler's own gates
+      // (disabled/frozen/quiet-hours/budget) decide whether that wake ever
+      // actually spends a model turn; with autonomy off (migration 0040's
+      // seeded default) this is a zero-cost queue push that gets dropped.
+      if (
+        event === 'assistant:tool-trace' &&
+        payload &&
+        typeof payload === 'object' &&
+        (payload as { name?: string }).name === 'create_mission' &&
+        (payload as { ok?: boolean }).ok === true
+      ) {
+        const missionId = (payload as { result?: { missionId?: string } }).result?.missionId;
+        if (missionId) {
+          try {
+            missionScheduler?.enqueue('decompose', missionId);
+          } catch {
+            /* autonomy enqueue is best-effort — must never break the trace stream */
+          }
+        }
+      }
       // R-1 — fan `assistant:state` deltas out to the Telegram bridge so a
       // remote operator sees the same streamed reply. Best-effort + isolated
       // from the renderer broadcast above.
@@ -2632,13 +2694,68 @@ async function buildRouter() {
     pendingEscalations: pendingEscalationsStore,
   });
   const assistantCtl = assistantBundle.controller;
+  // P1b Task 5 — wire the mission-autonomy loop live: watcher → scheduler →
+  // supervisor → assistant.send. Autonomy stays inert end-to-end until an
+  // operator flips `missions.autonomy.enabled` to '1' (migration 0040 seeds
+  // it '0') — the scheduler's own checkGates() re-reads that key on every
+  // drain, and the watcher's isEnabled() short-circuits before touching the
+  // DAO at all, so a disabled install spends zero DB writes and zero model
+  // turns on pane events.
+  const missionSupervisor = createSupervisor({
+    // assistant.send requires a non-empty workspaceId on EVERY call (it's
+    // read both to (re-)create a missing conversation AND to anchor the
+    // turn's .mcp.json root — controller.ts uses it unconditionally). Resolve
+    // it off the conversation row the supervisor itself already created via
+    // ensureMissionConversation, which always carries a real workspaceId (the
+    // mission's own, or the supervisor's GLOBAL_WORKSPACE_ID sentinel) — so
+    // this is a lookup, not a guess. The literal fallback below only matters
+    // if that row were ever missing (it can't be, in the supervisor's own
+    // call order); it duplicates supervisor.ts's private sentinel string.
+    runTurn: async (input) => {
+      const conv = getConversation(input.conversationId);
+      return (
+        assistantCtl as {
+          send: (i: {
+            workspaceId: string;
+            conversationId?: string;
+            prompt: string;
+            origin?: 'local' | 'telegram' | 'autonomous';
+          }) => Promise<{ turnId: string }>;
+        }
+      ).send({
+        workspaceId: conv?.workspaceId ?? 'jorvis-missions-global',
+        conversationId: input.conversationId,
+        prompt: input.prompt,
+        origin: 'autonomous',
+      });
+    },
+    readPane: (sessionId) => pty.snapshot(sessionId),
+  });
+  missionScheduler = createWakeScheduler({
+    runWake: (wake) => missionSupervisor.runWake(wake),
+    kvGet: controlKv.get,
+    kvSet: controlKv.set,
+    now: () => Date.now(),
+    isFrozen: () => isControlFrozen(controlKv),
+  });
+  missionWatcher = createMissionWatcher({
+    enqueue: missionScheduler.enqueue,
+    isEnabled: () => controlKv.get('missions.autonomy.enabled') === '1',
+  });
   // BUG-V1.1.2-01 — Late-bind the bridge's tool invoker now that the
   // controller has been constructed. The bridge already listens (or will
   // start listening below); any incoming `tools.invoke` calls that race
   // ahead receive `invoker not wired` and the CLI retries on the next
   // turn — but in practice the CLI doesn't dial in until a user prompt
   // lands, by which point the bridge + invoker are fully wired.
-  resolvedToolInvoker = assistantBundle.invokeTool;
+  // P1b Task 4b (security fix) — the Jorvis-host socket carries no origin
+  // (mcp-host-sigma.ts's `ToolInvoker` type is `{conversationId?, name,
+  // args}` only — the child process has no way to know it). Wiring the
+  // plain `invokeTool` here let origin silently default to 'local', so the
+  // DANGEROUS_REMOTE gate never fired for MCP-executed tool calls on a
+  // telegram- or autonomous-origin turn. `invokeToolForConversation`
+  // resolves origin off the live turn for the conversation instead.
+  resolvedToolInvoker = assistantBundle.invokeToolForConversation;
   // External Control MCP uses the SAME invoker but as the origin+confirmDangerous-
   // aware signature (assistantBundle.invokeTool accepts origin/confirmDangerous).
   resolvedExternalInvoker = assistantBundle.invokeTool as unknown as ExternalToolInvoker;

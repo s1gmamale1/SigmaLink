@@ -130,14 +130,26 @@ interface ActiveTurn {
   conversationId: string;
   turnId: string;
   cancelled: boolean;
+  /**
+   * P1b Task 4b — the turn's provenance + confirm hook, captured at `send()`
+   * time. `invokeToolForConversation` reads these off the live turn so a
+   * tool call arriving over the MCP-host socket (which carries no origin —
+   * see mcp-host-sigma.ts's `ToolInvoker` type) is gated exactly like the
+   * stdout `dispatchTool` path instead of silently defaulting to `'local'`.
+   */
+  origin: ToolOrigin;
+  confirmDangerous?: ConfirmDangerous;
 }
 
 /**
  * R-1 (Jorvis Telegram remote) — provenance of a turn / tool call.
  * `'local'` (default) = in-app operator, full trust. `'telegram'` = remote
  * bridge, gated through `confirmDangerous` for DANGEROUS_REMOTE tools.
+ * `'autonomous'` (P1b Task 4) = the mission supervisor's model-in-the-loop
+ * wake — an unattended turn, so it shares telegram's DANGEROUS_REMOTE gate
+ * rather than local's full trust.
  */
-export type ToolOrigin = 'local' | 'telegram' | 'external';
+export type ToolOrigin = 'local' | 'telegram' | 'external' | 'autonomous';
 
 /**
  * R-1 — confirm-on-dangerous callback (cross-lane contract). Resolve `true` to
@@ -172,6 +184,28 @@ export interface AssistantController {
     confirmDangerous?: ConfirmDangerous;
     /** Task 4 — label of the external client (used to key one-shot grants). */
     clientLabel?: string;
+  }) => Promise<{ ok: boolean; result: unknown; error?: string }>;
+  /**
+   * P1b Task 4b (security fix) — the invoker wired to `McpHostSigma`'s
+   * `resolveInvoker()`. The Claude CLI executes its registered MCP tools
+   * over the unix socket, which only ever carries `{conversationId, name,
+   * args}` — no origin (the child process has no way to know it). Calling
+   * the plain `invokeTool` above from that path let `origin` default to
+   * `'local'`, so the DANGEROUS_REMOTE gate never fired for a telegram- or
+   * autonomous-origin turn's MCP-executed tool calls.
+   *
+   * This resolves origin (+ confirmDangerous) by looking up the LIVE turn
+   * for `input.conversationId` — the P0.1 concurrent-turn guard guarantees
+   * at most one live turn per conversation, so that lookup is unambiguous —
+   * and re-dispatches through the same gated `invokeAssistantTool` path.
+   * No live turn for the conversationId (direct RPC, tests, a straggler
+   * socket call after the turn finished) falls back to `origin:'local'`,
+   * preserving today's full-trust behaviour for that non-turn path.
+   */
+  invokeToolForConversation: (input: {
+    conversationId?: string;
+    name: string;
+    args: Record<string, unknown>;
   }) => Promise<{ ok: boolean; result: unknown; error?: string }>;
 }
 
@@ -240,14 +274,16 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
       recordTrace({ ...traceBase, args: input?.args ?? {}, ok: false, result: null, error: err });
       return { ok: false, result: null, error: err };
     }
-    // R-1 (Jorvis Telegram remote) — authorization gate. Remote-origin calls to
-    // DANGEROUS_REMOTE tools (`prompt_agent`, which writes raw bytes into a live
-    // PTY; `close_pane`, which kills a pane) require explicit human
-    // confirmation. Local-origin calls
-    // are NOT gated — in-app operator behaviour is unchanged. Free + contained
-    // tools always pass through here (containment is enforced inside the tool
-    // handlers themselves, for every origin).
-    if (origin === 'telegram' && DANGEROUS_REMOTE.has(tool.id)) {
+    // R-1 (Jorvis Telegram remote) — authorization gate. Remote/unattended-origin
+    // calls to DANGEROUS_REMOTE tools (`prompt_agent`, which writes raw bytes into
+    // a live PTY; `close_pane`, which kills a pane) require explicit human
+    // confirmation. Local-origin calls are NOT gated — in-app operator behaviour
+    // is unchanged. Free + contained tools always pass through here (containment
+    // is enforced inside the tool handlers themselves, for every origin).
+    // P1b Task 4 — `'autonomous'` (the mission supervisor's model-in-the-loop
+    // wake) shares this exact branch: it is unattended just like telegram, so a
+    // DANGEROUS_REMOTE call it makes needs the same human confirmation.
+    if ((origin === 'telegram' || origin === 'autonomous') && DANGEROUS_REMOTE.has(tool.id)) {
       const args = input?.args ?? {};
       let approved = false;
       try {
@@ -420,6 +456,28 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
     }
   };
 
+  /**
+   * P1b Task 4b (security fix) — see the `AssistantController` interface
+   * doc comment. Resolves origin + confirmDangerous from the live turn for
+   * `input.conversationId` (P0.1 guarantees at most one), then dispatches
+   * through the same gated `invokeAssistantTool` every other path uses.
+   */
+  const invokeToolForConversation = async (input: {
+    conversationId?: string;
+    name: string;
+    args: Record<string, unknown>;
+  }): Promise<{ ok: boolean; result: unknown; error?: string }> => {
+    const liveTurnId = input.conversationId ? liveTurnByConversation.get(input.conversationId) : undefined;
+    const turn = liveTurnId ? activeTurns.get(liveTurnId) : undefined;
+    return invokeAssistantTool({
+      conversationId: input.conversationId,
+      name: input.name,
+      args: input.args,
+      origin: turn?.origin ?? 'local',
+      confirmDangerous: turn?.confirmDangerous,
+    });
+  };
+
   const controller = defineController({
     send: async (input: {
       workspaceId: string;
@@ -430,7 +488,9 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
        * R-1 (Jorvis Telegram remote) — who started this turn. `'local'`
        * (default) is the in-app operator; `'telegram'` is the remote bridge,
        * whose DANGEROUS_REMOTE tool calls are gated through `confirmDangerous`.
-       * Every existing caller omits this and keeps full-trust local behaviour.
+       * P1b Task 4 — `'autonomous'` is the mission supervisor's model-in-the-loop
+       * wake, gated identically to `'telegram'`. Every existing caller omits
+       * this and keeps full-trust local behaviour.
        */
       origin?: ToolOrigin;
       /**
@@ -445,7 +505,8 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
       if (typeof input?.prompt !== 'string') {
         throw new Error('assistant.send: prompt required');
       }
-      const origin: ToolOrigin = input.origin === 'telegram' ? 'telegram' : 'local';
+      const origin: ToolOrigin =
+        input.origin === 'telegram' ? 'telegram' : input.origin === 'autonomous' ? 'autonomous' : 'local';
       const confirmDangerous = input.confirmDangerous;
       let conversationId = input.conversationId ?? null;
       if (conversationId && !getConversation(conversationId)) conversationId = null;
@@ -467,7 +528,10 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
       // spawn. Everything from here to the async IIFE is synchronous except the
       // scan, and a sync throw releases the slot in the catch below.
       const turnId = randomUUID();
-      const turn: ActiveTurn = { conversationId, turnId, cancelled: false };
+      // P1b Task 4b — carry origin + confirmDangerous onto the turn record so
+      // invokeToolForConversation (the MCP-host socket path) can resolve them
+      // by conversationId instead of defaulting to 'local'.
+      const turn: ActiveTurn = { conversationId, turnId, cancelled: false, origin, confirmDangerous };
       activeTurns.set(turnId, turn);
       liveTurnByConversation.set(conversationId, turnId);
       try {
@@ -917,7 +981,7 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
       return matches;
     },
   });
-  return { controller, invokeTool: invokeAssistantTool };
+  return { controller, invokeTool: invokeAssistantTool, invokeToolForConversation };
 }
 
 /**
