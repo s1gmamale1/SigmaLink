@@ -922,6 +922,30 @@ async function buildRouter() {
   const controlEscalator = new ExternalEscalator({
     notify: (req) => broadcast('control:escalation', req),
     timeoutMs: 60_000,
+    // P3 T5 (D4) — phone-first escalation: prefer the operator's Telegram
+    // over the renderer prompt when the bridge is live (ExternalEscalator's
+    // own `confirm()` already tries this dep FIRST, falling through to
+    // `notify` only when it's absent — see escalation.ts). `telegramBridge`
+    // is a forward-declared `let` (assigned once the bridge is constructed
+    // further down this function, ~line 3107) — this closure late-binds and
+    // reads the CURRENT value at call time, exactly like every other
+    // `telegramBridge?.` reference in this file (push hooks, supervisor
+    // notify); the real call always happens well after boot finishes, so the
+    // null window before assignment is never observed. No bridge yet / bridge
+    // down → `Promise.resolve(false)` (fail-closed, matches confirmViaTelegram's
+    // own bridge-stopped drop).
+    telegramConfirm: (summary) => telegramBridge?.confirmViaTelegram(summary, 60_000) ?? Promise.resolve(false),
+    // `ExternalEscalator`'s `audit` dep takes a standalone
+    // `{ts,kind,toolName,clientLabel}` sink (escalation.ts:22-23). No such
+    // sink exists anywhere else in this codebase to wire it to — the only
+    // audit log in scope is TelegramBridge's own PRIVATE JSONL log (write
+    // side is `private logAudit`, never exposed), and every escalation
+    // outcome already lands there implicitly via confirmViaTelegram's own
+    // 'confirm-approved'/'confirm-denied'/'confirm-timeout'/'drop' entries
+    // when the telegram path is taken. Standing up a SECOND, disconnected
+    // audit instance just for the no-channel/renderer-prompt branches is out
+    // of this task's surgical scope (P3 T5 brief's own escape hatch) —
+    // left unwired, deliberately, not missed.
   });
   let controlBearer: string | null = null;
   let resolvedExternalInvoker: ExternalToolInvoker | null = null;
@@ -2843,6 +2867,12 @@ async function buildRouter() {
             conversationId?: string;
             prompt: string;
             origin?: 'local' | 'telegram' | 'autonomous';
+            // P3 T5 (D4) — autonomous-wake DANGEROUS_REMOTE gate. Matches
+            // controller.ts's exported `ConfirmDangerous` signature exactly
+            // ((toolName, summary) => Promise<boolean>) — verified against
+            // controller.ts:167 and the gate at controller.ts:295-301, which
+            // already treats 'autonomous' identically to 'telegram'.
+            confirmDangerous?: (toolName: string, summary: string) => Promise<boolean>;
           }) => Promise<{ turnId: string }>;
         }
       ).send({
@@ -2850,6 +2880,17 @@ async function buildRouter() {
         conversationId: input.conversationId,
         prompt: input.prompt,
         origin: 'autonomous',
+        // SupervisorDeps.runTurn's own input shape (supervisor.ts) carries no
+        // confirmDangerous field — the hook rides THIS closure, not the
+        // supervisor (supervisor.ts needs zero changes; verified). Same
+        // forward-declared-`telegramBridge` late-binding as the
+        // ExternalEscalator site above and every other `telegramBridge?.`
+        // reference in this file; 120s budget (vs. the external plane's 60s)
+        // — an autonomous wake has no impatient human on the other end of an
+        // MCP call waiting on the response.
+        confirmDangerous: (toolName, summary) =>
+          telegramBridge?.confirmViaTelegram(`autonomous wake wants ${toolName}: ${summary}`, 120_000) ??
+          Promise.resolve(false),
       });
     },
     readPane: (sessionId) => pty.snapshot(sessionId),

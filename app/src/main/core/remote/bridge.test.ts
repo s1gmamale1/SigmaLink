@@ -441,6 +441,143 @@ describe('TelegramBridge — confirmDangerous', () => {
   });
 });
 
+// ── confirmViaTelegram (P3 T5 / D4) ─────────────────────────────────────────────
+
+describe('TelegramBridge — confirmViaTelegram', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('returns false and audits drop when the bridge is not running', async () => {
+    const kv = makeKv({
+      'remote.telegram.enabled': '1',
+      'remote.telegram.allowlist': JSON.stringify([42]),
+      [KV_TELEGRAM_OPERATOR_CHAT]: '42',
+    });
+    const { bridge, client } = makeBridge({ kv });
+    // Never started — bridge stays 'inert'.
+    const ok = await bridge.confirmViaTelegram('summary', 1000);
+    expect(ok).toBe(false);
+    expect(client._confirms).toHaveLength(0);
+    const tail = bridge.auditTail(10);
+    expect(tail.some((e) => e.kind === 'drop' && e.detail === 'confirm-bridge-stopped')).toBe(true);
+  });
+
+  it('returns false and audits drop when the operator chat id is unset', async () => {
+    const kv = makeKv({
+      'remote.telegram.enabled': '1',
+      'remote.telegram.allowlist': JSON.stringify([42]),
+    });
+    const { bridge } = makeBridge({ kv });
+    await bridge.start();
+    const ok = await bridge.confirmViaTelegram('summary', 1000);
+    expect(ok).toBe(false);
+    const tail = bridge.auditTail(10);
+    expect(tail.some((e) => e.kind === 'drop' && e.detail === 'confirm-no-operator-chat')).toBe(true);
+  });
+
+  it('returns false and audits drop when the captured chat was revoked from the allowlist', async () => {
+    const kv = makeKv({
+      'remote.telegram.enabled': '1',
+      'remote.telegram.allowlist': JSON.stringify([42]),
+      [KV_TELEGRAM_OPERATOR_CHAT]: '42',
+    });
+    const { bridge, client } = makeBridge({ kv });
+    await bridge.start();
+    kv.set(KV_TELEGRAM_ALLOWLIST, JSON.stringify([]));
+    const ok = await bridge.confirmViaTelegram('summary', 1000);
+    expect(ok).toBe(false);
+    expect(client._confirms).toHaveLength(0);
+    const tail = bridge.auditTail(10);
+    expect(
+      tail.some((e) => e.kind === 'drop' && e.detail === 'confirm-chat-not-allowlisted' && e.chatId === 42),
+    ).toBe(true);
+  });
+
+  it('sends to the OPERATOR chat (not activeChatId) and resolves true on an approve callback', async () => {
+    const kv = makeKv({
+      'remote.telegram.enabled': '1',
+      'remote.telegram.allowlist': JSON.stringify([42, 77]),
+      [KV_TELEGRAM_OPERATOR_CHAT]: '77',
+    });
+    const { bridge, client } = makeBridge({ kv });
+    await bridge.start();
+    // A different chat becomes "active" (mid-conversation) — every allowlisted
+    // inbound message auto-recaptures the operator chat (D1), so re-pin it to
+    // 77 explicitly afterward (e.g. an operator's earlier /subscribe) to
+    // prove confirmViaTelegram targets the DURABLE operator chat, not
+    // activeChatId, when the two have diverged.
+    await client._handlers!.onMessage({ chatId: 42, text: 'hi' });
+    kv.set(KV_TELEGRAM_OPERATOR_CHAT, '77');
+
+    const p = bridge.confirmViaTelegram('deploy prod?', 5000);
+    await Promise.resolve();
+    expect(client._confirms).toHaveLength(1);
+    expect(client._confirms[0].chatId).toBe(77);
+    const { messageId } = client._confirms[0];
+
+    client._handlers!.onCallback({ chatId: 77, data: 'confirm', messageId });
+    await expect(p).resolves.toBe(true);
+  });
+
+  it('resolves false on a deny callback', async () => {
+    const kv = makeKv({
+      'remote.telegram.enabled': '1',
+      'remote.telegram.allowlist': JSON.stringify([77]),
+      [KV_TELEGRAM_OPERATOR_CHAT]: '77',
+    });
+    const { bridge, client } = makeBridge({ kv });
+    await bridge.start();
+    const p = bridge.confirmViaTelegram('deploy prod?', 5000);
+    await Promise.resolve();
+    const { messageId } = client._confirms[0];
+    client._handlers!.onCallback({ chatId: 77, data: 'cancel', messageId });
+    await expect(p).resolves.toBe(false);
+  });
+
+  it('resolves false on timeout using the CALLER-supplied timeoutMs', async () => {
+    const kv = makeKv({
+      'remote.telegram.enabled': '1',
+      'remote.telegram.allowlist': JSON.stringify([77]),
+      [KV_TELEGRAM_OPERATOR_CHAT]: '77',
+    });
+    const { bridge, client } = makeBridge({ kv });
+    await bridge.start();
+    const p = bridge.confirmViaTelegram('deploy prod?', 120_000);
+    await Promise.resolve();
+    // Shorter than the caller-supplied timeout — must still be pending.
+    vi.advanceTimersByTime(60_001);
+    expect(client._confirms).toHaveLength(1);
+    vi.advanceTimersByTime(60_000);
+    await expect(p).resolves.toBe(false);
+    const tail = bridge.auditTail(20);
+    expect(tail.some((e) => e.kind === 'confirm-timeout')).toBe(true);
+  });
+
+  it('two concurrent confirmViaTelegram calls never cross-resolve', async () => {
+    const kv = makeKv({
+      'remote.telegram.enabled': '1',
+      'remote.telegram.allowlist': JSON.stringify([77]),
+      [KV_TELEGRAM_OPERATOR_CHAT]: '77',
+    });
+    const { bridge, client } = makeBridge({ kv });
+    await bridge.start();
+    const p1 = bridge.confirmViaTelegram('op A', 5000);
+    await Promise.resolve();
+    const p2 = bridge.confirmViaTelegram('op B', 5000);
+    await Promise.resolve();
+    expect(client._confirms).toHaveLength(2);
+    const [c1, c2] = client._confirms;
+    expect(c1.messageId).not.toBe(c2.messageId);
+
+    // Approve only the SECOND request's message.
+    client._handlers!.onCallback({ chatId: 77, data: 'confirm', messageId: c2.messageId });
+    await expect(p2).resolves.toBe(true);
+    // The first is still pending — times out independently to false.
+    vi.advanceTimersByTime(5001);
+    await expect(p1).resolves.toBe(false);
+  });
+});
+
 // ── outbound relay ────────────────────────────────────────────────────────────────
 
 describe('TelegramBridge — relay', () => {

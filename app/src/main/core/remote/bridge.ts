@@ -28,6 +28,13 @@
 //   confirmDangerous(toolName, summary) → client.sendConfirm(chatId, summary),
 //   register a pending entry resolved by an inline callback ('confirm'/'cancel');
 //   60s timeout → resolve(false) + audit.
+//
+// P3 T5 — confirmViaTelegram(summary, timeoutMs) shares that exact machinery
+// (see awaitConfirmReply) but always targets the durable OPERATOR chat
+// (KV_TELEGRAM_OPERATOR_CHAT) instead of the current chat — the door for the
+// external mission plane's ExternalEscalator and autonomous DANGEROUS_REMOTE
+// wakes, both of which have no in-flight chat to reply into. No operator
+// chat / bridge stopped / chat off the allowlist → immediate false.
 
 import { EventEmitter } from 'node:events';
 import { createTelegramClient, type TelegramClient } from './telegram-client';
@@ -654,6 +661,29 @@ export class TelegramBridge extends EventEmitter {
     toolName: string,
     summary: string,
   ): Promise<boolean> {
+    return this.awaitConfirmReply(chatId, summary, CONFIRM_TIMEOUT_MS, toolName);
+  }
+
+  /**
+   * P3 T5 — shared pending-confirm machinery, extracted verbatim out of the
+   * original `confirmDangerous` body (unchanged behaviour) so BOTH the
+   * telegram-origin DANGEROUS_REMOTE gate (`confirmDangerous` above, mid-
+   * conversation) and the phone-first escalation gate (`confirmViaTelegram`
+   * below, external/autonomous) share ONE choke point: send the inline
+   * approve/deny keyboard, register the resulting `sendConfirm` messageId in
+   * `this.pending`, and resolve on the matching `handleCallback` or the
+   * timeout. Telegram's own per-message id IS the concurrent-confirm
+   * disambiguator (`this.pending` is keyed by it) — callback_data itself is
+   * only ever the fixed 'confirm'/'cancel' string (see telegram-client.ts's
+   * sendConfirm), but each confirm gets its own message, so two overlapping
+   * confirms (same or different chat) can never cross-resolve.
+   */
+  private async awaitConfirmReply(
+    chatId: number,
+    summary: string,
+    timeoutMs: number,
+    auditDetail: string,
+  ): Promise<boolean> {
     if (!this.client) return false;
     let messageId: number;
     try {
@@ -667,11 +697,47 @@ export class TelegramBridge extends EventEmitter {
     return new Promise<boolean>((resolve) => {
       const timer = setTimeout(() => {
         this.pending.delete(messageId);
-        this.logAudit('confirm-timeout', chatId, toolName);
+        this.logAudit('confirm-timeout', chatId, auditDetail);
         resolve(false);
-      }, CONFIRM_TIMEOUT_MS);
+      }, timeoutMs);
       this.pending.set(messageId, { resolve, timer, chatId });
     });
+  }
+
+  /**
+   * P3 T5 (D4) — phone-first escalation confirm for the external mission
+   * plane (`ExternalEscalator`'s `telegramConfirm` dep) and autonomous
+   * DANGEROUS_REMOTE wakes (`assistant.send`'s `confirmDangerous`, origin:
+   * 'autonomous'). Unlike `confirmDangerous` above — which replies into the
+   * CURRENT mid-conversation chat — this always targets the durable OPERATOR
+   * chat (`KV_TELEGRAM_OPERATOR_CHAT`): an external client or an autonomous
+   * wake has no in-flight chat to answer into. Fail-closed, never throws:
+   * bridge not running, operator chat unset, or the captured chat fell off
+   * the allowlist since capture → immediate false (audited `drop`), same
+   * shape as `pushToOperator`. Resolves true ONLY on an approve callback
+   * from that allowlisted chat within `timeoutMs`; reuses `awaitConfirmReply`
+   * (see its doc comment for the concurrent-confirm disambiguation).
+   */
+  async confirmViaTelegram(summary: string, timeoutMs: number): Promise<boolean> {
+    if (!this.isRunning() || !this.client) {
+      this.logAudit('drop', null, 'confirm-bridge-stopped');
+      return false;
+    }
+
+    const chatIdRaw = this.deps.kv.get(KV_TELEGRAM_OPERATOR_CHAT);
+    if (!chatIdRaw) {
+      this.logAudit('drop', null, 'confirm-no-operator-chat');
+      return false;
+    }
+    const chatId = Number(chatIdRaw);
+
+    const allowlist = parseAllowlist(this.deps.kv.get(KV_TELEGRAM_ALLOWLIST));
+    if (!allowlist.includes(chatId)) {
+      this.logAudit('drop', chatId, 'confirm-chat-not-allowlisted');
+      return false;
+    }
+
+    return this.awaitConfirmReply(chatId, summary, timeoutMs, 'external-escalation');
   }
 
   private handleCallback(messageId: number, data: string, chatId: number): void {
