@@ -3148,6 +3148,54 @@ async function buildRouter() {
     notifier: notificationsManager,
     rufloCall: (tool, args) => rufloProxy.call(tool, args),
     auditDir: path.join(app.getPath('userData'), 'remote-audit'),
+    // P3 Task 2 — the /mission /status /tasks /approve /deny /panes
+    // /workspaces cockpit closures. Thin DAO/scheduler/store adapters so the
+    // bridge stays decoupled; every failure surfaces as the command's own
+    // error reply (the bridge wraps the dispatcher in try/catch).
+    missions: {
+      createAndStart: (goal: string) => {
+        const mission = missionsDao.createMission({
+          title: goal.slice(0, 60),
+          goal,
+          origin: 'telegram',
+        });
+        missionsDao.setMissionStatus(mission.id, 'active');
+        broadcast('missions:changed', {});
+        return mission.id;
+      },
+      enqueueDecompose: (missionId: string) => missionScheduler?.enqueue('decompose', missionId),
+      autonomyEnabled: () => controlKv.get('missions.autonomy.enabled') === '1',
+      boardRead: () =>
+        missionsDao
+          .listActiveMissions()
+          .map((mission) => ({ mission, tasks: missionsDao.listTasks(mission.id) })),
+      listPanes: () =>
+        pty.list().map((s) => `${s.providerId} · ${s.id.slice(0, 8)} · ${s.alive ? 'live' : 'dead'} · ${s.cwd}`),
+      listWorkspaces: () => {
+        try {
+          const rows = getRawDb()
+            .prepare('SELECT name, root_path FROM workspaces ORDER BY created_at ASC')
+            .all() as Array<{ name: string; root_path: string | null }>;
+          return rows.map((r) => `${r.name} — ${r.root_path ?? '(no root)'}`);
+        } catch {
+          return [];
+        }
+      },
+      decideAmendment: (id: string, approved: boolean) => {
+        try {
+          amendmentsDao.decideAmendment(id, approved, 'telegram /approve|/deny');
+          broadcast('jorvis:amendments-changed', {});
+          return 'decided';
+        } catch {
+          return 'not-found';
+        }
+      },
+      resolveEscalation: (id: string, approved: boolean) => {
+        if (pendingEscalationsStore.checkEscalation(id) !== 'pending') return 'not-found';
+        pendingEscalationsStore.resolveEscalation(id, approved);
+        return 'resolved';
+      },
+    },
   });
   const telegramCtl = buildTelegramController({
     bridge: telegramBridge,
