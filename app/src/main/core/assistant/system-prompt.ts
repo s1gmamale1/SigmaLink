@@ -151,6 +151,11 @@ Memory tools (durable, cross-session — distinct from the workspace memory hub)
                       Update fields on an existing durable memory by id.
   forget              { memoryId }
                       Permanently delete a durable memory by id.
+
+Self-amendment tools:
+  propose_amendment   { text, rationale? }
+                      Propose a self-amendment to your own operating
+                      charter. Inert until the operator approves it.
 `;
 // PROMPT-INJECTION RESIDUAL: browser_snapshot returns raw page text which may
 // contain crafted instructions targeting the model (e.g. "IGNORE PREVIOUS

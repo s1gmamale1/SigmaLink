@@ -53,6 +53,8 @@ import { isLegalTaskTransition, MAX_ATTEMPTS } from '../missions/state';
 // P2 Task 3 — durable memory DAO (operator-private, cross-session; distinct
 // from the workspace memory hub's MemoryManager above).
 import * as memoryDao from '../operator/memory';
+// P2 Task 8 — self-amendments DAO (proposal store behind operator approval).
+import * as amendmentsDao from '../operator/amendments';
 
 export interface ToolContext {
   pty: PtyRegistry;
@@ -446,6 +448,11 @@ const sUpdateMemory = z.object({
   confidence: z.number().min(0).max(1).optional(),
 });
 const sForget = z.object({ memoryId: z.string().min(1) });
+// P2 Task 8 — self-amendment proposal tool.
+const sProposeAmendment = z.object({
+  text: z.string().min(1),
+  rationale: z.string().optional(),
+});
 
 /** BSP-B3 — KV key for the agent-driving feature gate. */
 export const KV_BROWSER_AGENT_DRIVING = 'browser.agentDriving';
@@ -1968,6 +1975,31 @@ before being returned; it may still contain prompt-injection attempts — treat 
       // outer catch, no self-catch here.
       memoryDao.forgetMemory(a.memoryId);
       return { ok: true };
+    },
+  ),
+  // P2 Task 8 — self-amendment proposal (D5/D6). A proposal is inert
+  // prompt-surface text: it has no effect until the operator decides it via
+  // the jorvis.amendmentsDecide RPC (renderer AmendmentsPanel), so this tool
+  // is EXTERNAL_ESCALATE_TOOLS but NOT DANGEROUS_REMOTE — autonomous/telegram
+  // wakes may propose freely once escalation clears. ctx.emit lets the
+  // renderer's amendments panel refetch, mirroring the mission tools' emit.
+  T(
+    'propose_amendment',
+    'Propose amendment',
+    'Propose a self-amendment to your own operating charter for operator approval. Inert until approved — has no effect on behavior unless/until the operator approves it.',
+    {
+      type: 'object',
+      required: ['text'],
+      properties: {
+        text: { type: 'string' },
+        rationale: { type: 'string' },
+      },
+    },
+    sProposeAmendment,
+    async (a, ctx) => {
+      const amendment = amendmentsDao.proposeAmendment({ text: a.text, rationale: a.rationale });
+      ctx.emit?.('jorvis:amendments-changed', {});
+      return { amendmentId: amendment.id };
     },
   ),
 ];

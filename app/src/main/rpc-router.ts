@@ -117,6 +117,8 @@ import { TasksManager } from './core/tasks/manager';
 import { buildTasksController } from './core/tasks/controller';
 import { buildKvController } from './core/db/kv-controller';
 import * as missionsDao from './core/missions/dao';
+// P2 Task 8 — self-amendments DAO (jorvis.amendmentsList/amendmentsDecide RPC).
+import * as amendmentsDao from './core/operator/amendments';
 import { createMissionWatcher, type MissionWatcher } from './core/operator/watch';
 import { createWakeScheduler, type WakeScheduler } from './core/operator/scheduler';
 import { createSupervisor } from './core/operator/supervisor';
@@ -2587,6 +2589,22 @@ async function buildRouter() {
     events: async (input: { missionId: string; limit?: number }) =>
       missionsDao.listEvents(input.missionId, input.limit),
   });
+  // P2 Task 8 — self-amendments RPC. `amendmentsList` is a pure DAO
+  // passthrough (mirrors missionsCtl.list); `amendmentsDecide` is a REAL
+  // mutation the renderer's AmendmentsPanel calls directly (unlike
+  // missions.*, which is tool-mediated only) — it broadcasts
+  // `jorvis:amendments-changed` itself, the same channel the
+  // propose_amendment tool's `ctx.emit` already uses, so the panel refetches
+  // regardless of which path changed the data.
+  const jorvisCtl = defineController({
+    amendmentsList: async (input?: { status?: 'proposed' | 'approved' | 'denied' }) =>
+      amendmentsDao.listAmendments(input?.status),
+    amendmentsDecide: async (input: { amendmentId: string; approved: boolean; reason?: string }) => {
+      const decided = amendmentsDao.decideAmendment(input.amendmentId, input.approved, input.reason);
+      broadcast('jorvis:amendments-changed', {});
+      return decided;
+    },
+  });
   // R-1 — Telegram bridge taps `assistant:state` here so a remote operator
   // sees the same streamed reply. The assistant `emit` wrapper below fans out
   // to this set; the bridge subscribes/unsubscribes on start()/stop().
@@ -3100,6 +3118,7 @@ async function buildRouter() {
     tasks: tasksCtl,
     kv: kvCtl,
     missions: missionsCtl,
+    jorvis: jorvisCtl,
     assistant: assistantCtl,
     design: designCtl,
     voice: voiceCtl,

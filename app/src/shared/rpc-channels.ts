@@ -239,6 +239,11 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   'missions.list',
   'missions.get',
   'missions.events',
+  // Self-amendments (P2 Task 8) — operator approve/deny surface over the
+  // amendments DAO (Task 8). `amendmentsDecide` is a real renderer-callable
+  // mutation, unlike missions.* above.
+  'jorvis.amendmentsList',
+  'jorvis.amendmentsDecide',
   // V3-W12-017 — Sigma Assistant (W13 fills bodies)
   'assistant.send',
   'assistant.list',
@@ -442,6 +447,12 @@ export const EVENTS: ReadonlySet<string> = new Set<string>([
   // add_mission_task, move_mission_task, complete_mission) already emits this
   // via `ctx.emit`; the renderer's (Task 6) Missions room refetches on receipt.
   'missions:changed',
+  // P2 Task 8 — self-amendments. Emitted by BOTH the propose_amendment tool's
+  // `ctx.emit` AND the `jorvis.amendmentsDecide` RPC's own broadcast; the
+  // renderer's AmendmentsPanel refetches on receipt (same pattern as
+  // `missions:changed` above). WITHOUT this allowlist entry the preload's
+  // eventOn silently no-ops the subscription (feedback_rpc_channel_four_mirror_sites).
+  'jorvis:amendments-changed',
   // V3-W12-017 — Operator Console + Bridge + Design + Voice events
   'swarm:counters',
   'swarm:ledger',

@@ -45,7 +45,7 @@ describe('classifyExternal', () => {
     // Task 6c: open_url escalates (weaker SSRF/agentDriving guard than browser_navigate but still navigates).
     // Task 6d: stop_pane escalates (kills a pane's process — operator must approve; "recoverable" is not
     //          sufficient justification for a remote agent to kill a human's running pane unprompted).
-    expect([...EXTERNAL_ESCALATE_TOOLS].sort()).toEqual(['add_mission_task', 'browser_navigate', 'close_pane', 'close_workspace', 'complete_mission', 'create_mission', 'dispatch_task', 'forget', 'kill_swarm', 'move_mission_task', 'open_url', 'recall', 'remember', 'stop_pane', 'update_memory']);
+    expect([...EXTERNAL_ESCALATE_TOOLS].sort()).toEqual(['add_mission_task', 'browser_navigate', 'close_pane', 'close_workspace', 'complete_mission', 'create_mission', 'dispatch_task', 'forget', 'kill_swarm', 'move_mission_task', 'open_url', 'propose_amendment', 'recall', 'remember', 'stop_pane', 'update_memory']);
     expect([...PROVIDER_GATED_TOOLS].sort()).toEqual(['prompt_agent', 'send_keys']);
     expect([...AGENT_PROVIDERS].sort()).toEqual(['claude', 'codex', 'gemini', 'kimi', 'opencode']);
   });
@@ -110,6 +110,10 @@ describe('classifyExternal', () => {
     recall: 'escalate',
     update_memory: 'escalate',
     forget: 'escalate',
+    // P2 Task 8 — propose_amendment is a prompt-surface proposal, inert
+    // until operator-approved; conservative-escalate like its memory
+    // siblings above.
+    propose_amendment: 'escalate',
   };
 
   it('every externally-exposed catalogue tool has a pinned, intended verdict', () => {
@@ -154,6 +158,8 @@ describe('classifyExternal', () => {
     'dispatch_task',
     // P2 Task 3 — memory tools are externally discoverable too; all escalate.
     'remember', 'recall', 'update_memory', 'forget',
+    // P2 Task 8 — propose_amendment is externally discoverable too; escalates.
+    'propose_amendment',
   ]);
 
   it('isExternallyListed filters catalogue to the pinned external-safe set (fail-closed guard)', () => {

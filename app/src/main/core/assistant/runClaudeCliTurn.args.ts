@@ -8,12 +8,17 @@
 // P2 Task 5 — defaultSystemPromptForWorkspace now threads the operator's
 // charter through every real turn (D2/D3 — charter is default-ON, not a
 // safety gate) and switches to a portfolio listing for the
-// JORVIS_GLOBAL_WORKSPACE_ID sentinel (D1). `amendments` stays an
-// undefined seam here — core/operator/amendments.ts (the DAO) doesn't
-// exist until Task 8, which wires `listAmendments('approved')` into this
-// same call site. Everything below is fail-soft: a throwing charter load
-// (or a DB miss) degrades to the legacy inline persona / placeholder
-// workspace fields, never blocks a turn.
+// JORVIS_GLOBAL_WORKSPACE_ID sentinel (D1).
+//
+// P2 Task 8 — the T5-deferred `amendments` seam is now wired:
+// `listAmendments('approved')` (core/operator/amendments.ts) feeds
+// buildJorvisSystemPrompt's `amendments` field alongside charter, on BOTH
+// the portfolio and single-workspace paths. system-prompt.ts's
+// `appendApprovedAmendments` (Task 4) already filters to approved-only and
+// appends after the persona block — this call site just supplies the rows.
+// Everything below is fail-soft: a throwing charter load, a throwing
+// amendments load, or a DB miss degrades to the legacy inline persona /
+// placeholder workspace fields / no amendments block, never blocks a turn.
 
 import { eq } from 'drizzle-orm';
 import { getDb, getRawDb } from '../db/client';
@@ -23,8 +28,10 @@ import { buildJorvisSystemPrompt } from './system-prompt';
 import { writeJorvisHostMcpConfig } from './mcp-host-sigma';
 import * as conversationsDao from './conversations';
 import { loadJorvisCharter } from '../operator/charter';
+import { listAmendments } from '../operator/amendments';
 import { JORVIS_GLOBAL_WORKSPACE_ID } from '../operator/global';
 import type { CliTurnDeps } from './runClaudeCliTurn';
+import type { JorvisAmendment } from '../../../shared/types';
 
 // ---------------------------------------------------------------------------
 // System-prompt helpers
@@ -56,8 +63,20 @@ function loadCharterFailSoft(): string | undefined {
   }
 }
 
+// P2 Task 8 — a broken/missing amendments table must never block a turn;
+// undefined means buildJorvisSystemPrompt's appendApprovedAmendments call
+// sees an empty list and leaves the persona block unchanged.
+function loadApprovedAmendmentsFailSoft(): JorvisAmendment[] | undefined {
+  try {
+    return listAmendments('approved');
+  } catch {
+    return undefined;
+  }
+}
+
 function defaultSystemPromptForWorkspace(workspaceId: string): string {
   const charter = loadCharterFailSoft();
+  const amendments = loadApprovedAmendmentsFailSoft();
 
   if (workspaceId === JORVIS_GLOBAL_WORKSPACE_ID) {
     let portfolio: Array<{ name: string; root: string }> = [];
@@ -70,7 +89,13 @@ function defaultSystemPromptForWorkspace(workspaceId: string): string {
     } catch {
       /* DB miss is non-fatal — the portfolio just renders empty */
     }
-    return buildJorvisSystemPrompt({ workspaceName: 'Portfolio', workspaceRoot: '', charter, portfolio });
+    return buildJorvisSystemPrompt({
+      workspaceName: 'Portfolio',
+      workspaceRoot: '',
+      charter,
+      portfolio,
+      amendments,
+    });
   }
 
   let workspaceName = 'workspace';
@@ -88,7 +113,7 @@ function defaultSystemPromptForWorkspace(workspaceId: string): string {
   } catch {
     /* DB miss is non-fatal — prompt still works with placeholders */
   }
-  return buildJorvisSystemPrompt({ workspaceName, workspaceRoot, charter });
+  return buildJorvisSystemPrompt({ workspaceName, workspaceRoot, charter, amendments });
 }
 
 export function resolveSystemPrompt(

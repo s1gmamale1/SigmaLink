@@ -8,9 +8,12 @@
 // DB-mocked via the createDbFake() pattern (mirrors supervisor.test.ts /
 // tools.missions.test.ts).
 //
-// D5/Task 8 note: `amendments` stays an undefined seam at this task — the
-// amendments DAO (core/operator/amendments.ts) doesn't exist yet. Task 8
-// wires `listAmendments('approved')` into this same call site.
+// P2 Task 8 — the `amendments` seam is now wired: defaultSystemPromptForWorkspace
+// loads `listAmendments('approved')` (core/operator/amendments.ts) fail-soft
+// and passes it through to buildJorvisSystemPrompt alongside charter, on
+// both the single-workspace and portfolio (global-scope) paths. The tests
+// below prove a newly-approved amendment shows up in the NEXT turn's prompt
+// (and that a merely-proposed one does not).
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
@@ -25,6 +28,7 @@ import { getDb, getRawDb } from '../db/client';
 import { createDbFake, seedWorkspace, type DbFake } from '@/test-utils/db-fake';
 import { resolveSystemPrompt } from './runClaudeCliTurn.args';
 import { JORVIS_GLOBAL_WORKSPACE_ID } from '../operator/global';
+import * as amendmentsDao from '../operator/amendments';
 
 let fake: DbFake;
 beforeEach(() => {
@@ -44,10 +48,36 @@ describe('resolveSystemPrompt — default wiring (P2 Task 5)', () => {
     expect(prompt).not.toContain('You are Sigma Assistant, the in-app intelligence');
   });
 
-  it('single-workspace turn never renders an amendments heading — Task 8 wires the seam, not this task', () => {
+  it('single-workspace turn never renders an amendments heading when none are approved', () => {
     const ws = seedWorkspace(fake, { name: 'SigmaLink', rootPath: '/Users/x/SigmaLink' });
     const prompt = resolveSystemPrompt(ws.id as string);
     expect(prompt).not.toContain('Approved amendments');
+  });
+
+  it('a newly-approved amendment appears in the NEXT turn\'s prompt (P2 Task 8)', () => {
+    const ws = seedWorkspace(fake, { name: 'SigmaLink', rootPath: '/Users/x/SigmaLink' });
+    const proposed = amendmentsDao.proposeAmendment({ text: 'Always ship receipts.' });
+    amendmentsDao.decideAmendment(proposed.id, true);
+    const prompt = resolveSystemPrompt(ws.id as string);
+    expect(prompt).toContain('Approved amendments');
+    expect(prompt).toContain('Always ship receipts.');
+  });
+
+  it('a proposed-but-not-yet-approved amendment does NOT appear in the prompt', () => {
+    const ws = seedWorkspace(fake, { name: 'SigmaLink', rootPath: '/Users/x/SigmaLink' });
+    amendmentsDao.proposeAmendment({ text: 'Not yet approved.' });
+    const prompt = resolveSystemPrompt(ws.id as string);
+    expect(prompt).not.toContain('Approved amendments');
+    expect(prompt).not.toContain('Not yet approved.');
+  });
+
+  it('a global-scope (portfolio) turn also renders an approved amendment', () => {
+    seedWorkspace(fake, { name: 'SigmaLink', rootPath: '/Users/x/SigmaLink' });
+    const proposed = amendmentsDao.proposeAmendment({ text: 'Portfolio-wide rule.' });
+    amendmentsDao.decideAmendment(proposed.id, true);
+    const prompt = resolveSystemPrompt(JORVIS_GLOBAL_WORKSPACE_ID);
+    expect(prompt).toContain('Approved amendments');
+    expect(prompt).toContain('Portfolio-wide rule.');
   });
 
   it('global-scope turn (workspaceId === JORVIS_GLOBAL_WORKSPACE_ID) lists every workspace as a portfolio', () => {

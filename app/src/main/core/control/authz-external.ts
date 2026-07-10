@@ -69,6 +69,12 @@ export const EXTERNAL_ESCALATE_TOOLS: ReadonlySet<string> = new Set([
   'recall',
   'update_memory',
   'forget',
+  // P2 Task 8 — propose_amendment writes a 'proposed' row that is inert
+  // prompt-surface text until the operator decides it (jorvis.amendmentsDecide
+  // RPC / AmendmentsPanel) — same conservative treatment as the memory tools:
+  // a prompt-surface proposal, escalate for external origin even though the
+  // proposal itself can never change behavior unapproved.
+  'propose_amendment',
 ]);
 
 /** Tools whose danger depends on the TARGET pane's provider (agent vs shell). */

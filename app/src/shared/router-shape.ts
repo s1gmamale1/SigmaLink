@@ -49,6 +49,8 @@ import type {
   Mission,
   MissionTask,
   MissionEvent,
+  JorvisAmendment,
+  JorvisAmendmentStatus,
 } from './types';
 import type { AgentRuntimeProfileId } from './runtime-profiles';
 import type { PlanCapsule } from './plan-capsule';
@@ -752,6 +754,23 @@ export interface AppRouter {
       events: MissionEvent[];
     }>;
     events: (input: { missionId: string; limit?: number }) => Promise<MissionEvent[]>;
+  };
+  /**
+   * Self-amendments (P2 Task 8, D5/D6) — the operator's approve/deny surface
+   * for proposals the `propose_amendment` tool writes. `amendmentsDecide` is
+   * a REAL mutation callable directly by the renderer's AmendmentsPanel (not
+   * tool-mediated, unlike missions.* above) — it broadcasts
+   * `jorvis:amendments-changed` on every call, same channel the
+   * propose_amendment tool's `ctx.emit` already uses. `decideAmendment` is
+   * idempotent-guarded server-side: deciding an already-decided row throws.
+   */
+  jorvis: {
+    amendmentsList: (input?: { status?: JorvisAmendmentStatus }) => Promise<JorvisAmendment[]>;
+    amendmentsDecide: (input: {
+      amendmentId: string;
+      approved: boolean;
+      reason?: string;
+    }) => Promise<JorvisAmendment>;
   };
   // ────────────────────────────────────────────────────────────────────────
   // V3-W12-017 — placeholder shapes. Bodies are filled in W13/W14/W15:
