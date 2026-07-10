@@ -119,6 +119,8 @@ import { buildKvController } from './core/db/kv-controller';
 import * as missionsDao from './core/missions/dao';
 // P2 Task 8 — self-amendments DAO (jorvis.amendmentsList/amendmentsDecide RPC).
 import * as amendmentsDao from './core/operator/amendments';
+// P3 Task 6 — pure daily-brief digest (pushed to the operator's phone).
+import { buildDailyBrief } from './core/operator/brief';
 import { createMissionWatcher, type MissionWatcher } from './core/operator/watch';
 import { createWakeScheduler, type WakeScheduler } from './core/operator/scheduler';
 import { createSupervisor } from './core/operator/supervisor';
@@ -1379,6 +1381,40 @@ async function buildRouter() {
   };
   armDailySummary();
 
+  // P3 Task 6 — Jorvis daily brief to the operator's phone. Second
+  // DailyScheduler, same arm/re-arm/fire-time-gate discipline as the
+  // notifications summary above. `telegramBridge`/`missionScheduler` are
+  // forward-declared lets assigned later in this function — the onFire
+  // closure reads them at fire time, long after assignment; an unassigned or
+  // stopped bridge degrades to pushToOperator's own audited no-op.
+  const briefScheduler = new DailyScheduler({
+    onFire: () => {
+      if (readKv('jorvis.brief.enabled') !== '1') return;
+      try {
+        const brief = buildDailyBrief({
+          listActiveMissions: () => missionsDao.listActiveMissions(),
+          listTasks: (missionId) => missionsDao.listTasks(missionId),
+          listRecentEvents: (missionId, limit) => missionsDao.listEvents(missionId, limit),
+          listPendingAmendments: () => amendmentsDao.listAmendments('proposed'),
+          wakesSpentToday: () => missionScheduler?.wakesSpentToday() ?? 0,
+          dailyBudget: () => Number(readKv('missions.autonomy.dailyBudget')) || 40,
+          now: () => Date.now(),
+        });
+        void telegramBridge?.pushToOperator(brief);
+      } catch {
+        /* a failed brief build must not break the scheduler's re-arm */
+      }
+    },
+  });
+  const armDailyBrief = (): void => {
+    if (readKv('jorvis.brief.enabled') === '1') {
+      briefScheduler.schedule(readKv('jorvis.brief.time') ?? '09:00');
+    } else {
+      briefScheduler.cancel();
+    }
+  };
+  armDailyBrief();
+
   sharedDeps = {
     pty,
     worktreePool,
@@ -2612,6 +2648,11 @@ async function buildRouter() {
     onSet: (key) => {
       if (key === KV_DAILY_SUMMARY_ENABLED || key === KV_DAILY_SUMMARY_TIME) {
         armDailySummary();
+      }
+      // P3 Task 6 — same live re-arm for the Jorvis brief keys (an
+      // enable/re-time via Settings must not be dead until app restart).
+      if (key === 'jorvis.brief.enabled' || key === 'jorvis.brief.time') {
+        armDailyBrief();
       }
     },
   });
