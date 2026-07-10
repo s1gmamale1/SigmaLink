@@ -4,7 +4,7 @@ SigmaLink is an Electron desktop workspace for launching and coordinating live C
 
 This ROADMAP is the single source of truth for what to build next.
 
-> **Release status (2026-07-07).** Phases 1–18 have all SHIPPED (permanent record in CHANGELOG + master memory + Ruflo); Phase 17 (theme families) shipped in **v2.9.1** (`fa96ef2`, 2026-07-05, #212–#221, all platforms green). Released through **v2.9.1**. The doc is the ephemeral *next-up* whiteboard, not an archive. **Current arc: the Jorvis Persistent Operator (Phases 19–22)** — spec `app/docs/superpowers/specs/2026-07-07-jorvis-persistent-operator-design.md`, grounded by the 2026-07-07 five-lane recon (findings in [WISHLIST.md](WISHLIST.md)).
+> **Release status (2026-07-10).** Phases 1–22 have all SHIPPED (permanent record in CHANGELOG + master memory + Ruflo); released through **v2.9.1** — everything after `fa96ef2` (Phases 19–22, #222–#230) is merged to main but **unreleased**, riding the next tag. The doc is the ephemeral *next-up* whiteboard, not an archive. **The Jorvis Persistent Operator arc (Phases 19–22) is COMPLETE** — spec `app/docs/superpowers/specs/2026-07-07-jorvis-persistent-operator-design.md`; P0 #222 · P1a #224 · P1b #225 · P1c+P2 #229 · P3 #230, each opus-gate-reviewed GREEN. Owed before enabling autonomy for real use: the live token smoke (real mission drive + Telegram round-trip on the operator's device).
 
 ---
 
@@ -46,7 +46,7 @@ The Jorvis Persistent Operator arc (Phases 19–22, sequenced below, do in order
 
 ## Phase 20 — Jorvis P1: mission core (kanban + supervisor loop)
 
-> 🟡 **P1a (data layer) SHIPPED in PR #224 `bf103f4` (2026-07-08)** — mission tables (mig 0039) · pure state machine · DAO (guarded moveTask + rollup) · 5 board tools (+ external authz: mutations escalate, read free) · `missions.*` RPC + `missions:changed` · read-only Missions room · VALID_ROOMS compile-time exhaustiveness class-kill. Opus gates: whole-branch READY (axes 93-97) + sigma-check GREEN (~93.8), CI 6/6. Plan `app/docs/superpowers/plans/2026-07-08-jorvis-p1a-mission-board.md`. **P1b (the autonomy — `dispatch_task` pane launches, supervisor loop, wake scheduler, stub-CLI e2e) remains; the DoD below is P1b's.** Owed operator smoke: create a mission via jorvis chat → cards populate the Missions room live.
+> ✅ **SHIPPED complete (2026-07-10).** P1a data layer in PR #224 `bf103f4`; P1b autonomy in PR #225 `2da30f9` (dispatch_task worktree launches · deterministic watcher · quadruple-gated budget-capped wake scheduler · supervisor with origin `autonomous` fail-closed on DANGEROUS_REMOTE · stub-CLI e2e, sigma-check GREEN 91); P1c retry loop in PR #229 `679b906` (reviewing→dispatched + `revisedSpec` + MAX_ATTEMPTS live and unlaunderable by autonomous turns; human recoveries fresh-grant). Autonomy ships default-OFF (`missions.autonomy.enabled='0'`). Unreleased — rides the next tag.
 
 **Goal.** The operator hands Jorvis a natural-language goal; Jorvis decomposes it onto a kanban board, dispatches worktree-isolated panes, and drives them to done/blocked without per-step human involvement.
 
@@ -72,6 +72,8 @@ The Jorvis Persistent Operator arc (Phases 19–22, sequenced below, do in order
 
 ## Phase 21 — Jorvis P2: persistent identity (memory · charter · self-evolution)
 
+> ✅ **SHIPPED in PR #229 `679b906` (2026-07-10)** — `jorvis_memory` (FTS5, mig 0041) + DAO + `remember`/`recall`/`update_memory`/`forget` tools (`forget` DANGEROUS_REMOTE) · Sigma-Profile `jorvis` render vendored as the base persona (gated KV-override sink: absolute+prose-ext+size-cap, fail-soft) · portfolio prompt for global turns · KV-durable global/mission conversations · wake-time memory context (char-budgeted, fail-soft) · postmortem wakes · self-amendments behind operator approval (store/tool/RPC/panel). Opus gate GREEN (axes 92-95). Cross-repo: Sigma-Profile `feat/jorvis-target` adds the render target (local, unpushed). Unreleased.
+
 **Goal.** Jorvis remembers across sessions and projects, operates under the Sigma-Profile charter, and grows competence via postmortems + playbooks — with prompt amendments only behind operator approval.
 
 **Deliverables.**
@@ -93,6 +95,8 @@ The Jorvis Persistent Operator arc (Phases 19–22, sequenced below, do in order
 **Definition of done.** App restart → Jorvis recalls a fact + a playbook from before; a repeated mission demonstrably consults the prior postmortem; persona verifiably = the Sigma-Profile render; an amendment takes effect only after approval and is auditable; full local gate + CI green.
 
 ## Phase 22 — Jorvis P3: channels (Telegram cockpit + external mission plane)
+
+> ✅ **SHIPPED in PR #230 `90d74a1` (2026-07-10)** — Telegram cockpit (`/mission /status /tasks /approve /deny /panes /workspaces /subscribe`, allowlist-gated) · durable-operator-chat `pushToOperator` (proactive done/blocked/amendment/escalation pushes, all through the scrub choke point) · external mission plane `submit_task`/`check_task`/`get_report` absorbing SigmaControl (origin host-forced; safety = the autonomy gates; ids randomUUID) · phone-first `confirmViaTelegram` for external + autonomous dangerous ops (summaries scrubbed+escaped, timeout→deny) · daily brief. Opus gate GREEN after a NOT-READY round (5 hostile-input blockers found + fixed + test-pinned). Sigma-Control bridge bump NOT needed (it maps the live tool catalogue). Unreleased.
 
 **Goal.** The operator runs multi-project missions entirely from Telegram (with proactive reports pushed to them), and external Hermes/OpenClaw agents submit natural-language orders that Jorvis executes and reports on — absorbing SigmaControl.
 
