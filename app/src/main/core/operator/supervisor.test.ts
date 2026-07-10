@@ -168,6 +168,67 @@ describe('createSupervisor — review wakes', () => {
     expect(enqueue).not.toHaveBeenCalled();
   });
 
+  // P3 Task 3 (D6) — deps.notify: the cap-block push to the operator's phone.
+  it('a review wake AT MAX_ATTEMPTS calls deps.notify with the cap-block message (P3 T3)', async () => {
+    const mission = setupMission();
+    const task = setupTaskInReview(mission.id, MAX_ATTEMPTS);
+    const notify = vi.fn();
+    const deps = baseDeps({ notify });
+    const supervisor = createSupervisor(deps);
+
+    await supervisor.runWake({ kind: 'review', missionId: mission.id, taskId: task.id });
+
+    expect(notify).toHaveBeenCalledTimes(1);
+    const message = (notify as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(message).toContain('⛔');
+    expect(message).toContain(String(MAX_ATTEMPTS));
+    expect(message).toContain(task.title);
+    expect(message).toContain(mission.title);
+    expect(message).toContain('needs a human');
+  });
+
+  it('a review wake AT MAX_ATTEMPTS with no deps.notify provided never throws (optional dep)', async () => {
+    const mission = setupMission();
+    const task = setupTaskInReview(mission.id, MAX_ATTEMPTS);
+    const deps = baseDeps(); // notify omitted
+    const supervisor = createSupervisor(deps);
+
+    await expect(
+      supervisor.runWake({ kind: 'review', missionId: mission.id, taskId: task.id }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('a THROWING deps.notify never kills the wake — the rest of the block path still completes', async () => {
+    const mission = setupMission();
+    const task = setupTaskInReview(mission.id, MAX_ATTEMPTS);
+    const enqueue = vi.fn();
+    const notify = vi.fn(() => {
+      throw new Error('bridge exploded');
+    });
+    const deps = baseDeps({ enqueue, notify });
+    const supervisor = createSupervisor(deps);
+
+    await expect(
+      supervisor.runWake({ kind: 'review', missionId: mission.id, taskId: task.id }),
+    ).resolves.toBeUndefined();
+    // The rest of the MAX_ATTEMPTS path must still have run: task blocked,
+    // event recorded, postmortem enqueued — the throw is fully swallowed.
+    expect(missionsDao.getTask(task.id)?.status).toBe('blocked');
+    expect(enqueue).toHaveBeenCalledWith('postmortem', task.missionId);
+  });
+
+  it('a review wake BELOW MAX_ATTEMPTS never calls deps.notify', async () => {
+    const mission = setupMission();
+    const task = setupTaskInReview(mission.id, MAX_ATTEMPTS - 1);
+    const notify = vi.fn();
+    const deps = baseDeps({ notify });
+    const supervisor = createSupervisor(deps);
+
+    await supervisor.runWake({ kind: 'review', missionId: mission.id, taskId: task.id });
+
+    expect(notify).not.toHaveBeenCalled();
+  });
+
   it('a review wake PAST MAX_ATTEMPTS (already blocked once, re-queued) also stops — never calls runTurn', async () => {
     const mission = setupMission();
     const task = setupTaskInReview(mission.id, MAX_ATTEMPTS + 5);

@@ -173,6 +173,26 @@ export interface ToolContext {
    * returns {status:'expired'} (safe degraded default).
    */
   pendingEscalations?: PendingEscalationStore;
+  /**
+   * P3 Task 4 — label of the external client that made this call (the same
+   * value control-mcp-host.ts stores per-connection off the hello handshake
+   * and threads through invokeTool as `input.clientLabel`). `submit_task`
+   * stamps this onto the mission row so `origin:'external'` missions are
+   * attributable. Absent (local/telegram/autonomous origins, or a caller
+   * that didn't supply one) → null on the mission row.
+   */
+  clientLabel?: string | null;
+  /**
+   * P3 Task 4 — late-bound mission-wake enqueue, mirroring the create_mission
+   * decompose-enqueue tool-trace hook in rpc-router.ts but callable directly
+   * from a tool handler so `submit_task` works identically from ANY origin
+   * (not just the trace-stream hook, which only fires for the assistant
+   * chat's own create_mission call). The scheduler's own gates (disabled/
+   * frozen/quiet-hours/budget) decide whether the wake ever spends a model
+   * turn — absent ⇒ the mission is created but no wake is queued (D3: still
+   * honest, just idle until an operator picks it up).
+   */
+  enqueueMissionWake?: (kind: 'decompose' | 'review' | 'postmortem', missionId: string) => void;
 }
 
 export interface ToolDefinition {
@@ -427,6 +447,14 @@ const sDispatchTask = z.object({
   workspaceRoot: z.string().optional(),
   revisedSpec: z.string().min(1).optional(),
 });
+// P3 Task 4 — external mission plane (submit_task/check_task/get_report).
+const sSubmitTask = z.object({
+  order: z.string().min(1),
+  title: z.string().optional(),
+  workspaceId: z.string().optional(),
+});
+const sCheckTask = z.object({ missionId: z.string().min(1) });
+const sGetReport = z.object({ missionId: z.string().min(1) });
 // P2 Task 3 — durable memory tools (remember/recall/update_memory/forget).
 const sRemember = z.object({
   kind: z.enum(['fact', 'playbook', 'preference', 'postmortem']),
@@ -1677,7 +1705,7 @@ before being returned; it may still contain prompt-injection attempts — treat 
   T(
     'create_mission',
     'Create mission',
-    'Create a new mission on the board (status starts as draft). Chat-driven creation is always local origin.',
+    'Create a new mission on the board (status starts as draft). Origin is stamped from the calling turn — local chat, Telegram, or an autonomous wake; external MCP callers should use submit_task instead.',
     {
       type: 'object',
       required: ['title', 'goal'],
@@ -1689,10 +1717,16 @@ before being returned; it may still contain prompt-injection attempts — treat 
     },
     sCreateMission,
     async (a, ctx) => {
+      // P3 Task 3 (D5) — origin threading is additive: the turn's real
+      // ToolOrigin (defaulting to 'local' for back-compat callers/tests that
+      // don't populate ctx.origin) + clientLabel when the turn carries one.
+      // Mirrors submit_task's already-shipped pattern (P3 T4) — no DAO
+      // signature change needed, both fields already exist on the schema/DAO.
       const mission = missionsDao.createMission({
         title: a.title,
         goal: a.goal,
-        origin: 'local',
+        origin: ctx.origin ?? 'local',
+        clientLabel: ctx.clientLabel ?? null,
         workspaceId: a.workspaceId,
       });
       ctx.emit?.('missions:changed', {});
@@ -1886,6 +1920,90 @@ before being returned; it may still contain prompt-injection attempts — treat 
       ]);
       ctx.emit?.('missions:changed', {});
       return { sessionId: session.id, taskId: task.id, status: 'dispatched' };
+    },
+  ),
+  // P3 Task 4 (D2/D3) — external mission plane. The sanctioned door for an
+  // external Hermes/OpenClaw agent: FREE for external origin
+  // (authz-external.ts) — safety lives in the autonomy gates the decompose
+  // wake feeds (default-OFF flag, budget, quiet hours, kill-switch) and the
+  // DANGEROUS_REMOTE escalation layer downstream, not at this door. The raw
+  // board tools above (create_mission/add_mission_task/move_mission_task/
+  // complete_mission/dispatch_task) KEEP their escalate classification for
+  // external origin.
+  T(
+    'submit_task',
+    'Submit task',
+    "Submit a natural-language order as a new mission on the board (creates it active + queues a decompose wake). The sanctioned external entry point — free for any client, no escalation. Decomposition/dispatch runs only while the operator has autonomy enabled; with it off, the mission is still created but sits idle until an operator picks it up. Poll check_task for progress, get_report once done.",
+    {
+      type: 'object',
+      required: ['order'],
+      properties: {
+        order: { type: 'string' },
+        title: { type: 'string' },
+        workspaceId: { type: 'string' },
+      },
+    },
+    sSubmitTask,
+    async (a, ctx) => {
+      const title = a.title ?? a.order.slice(0, 60);
+      // D5-style origin threading: ToolOrigin and MissionOrigin share the
+      // exact same literal union, so ctx.origin ?? 'local' alone would be
+      // equivalent — spelled out per the P3 T4 contract so 'external' is
+      // never accidentally narrowed by a future ToolOrigin addition.
+      const origin = ctx.origin === 'external' ? 'external' : (ctx.origin ?? 'local');
+      const mission = missionsDao.createMission({
+        title,
+        goal: a.order,
+        origin,
+        clientLabel: ctx.clientLabel ?? null,
+        workspaceId: a.workspaceId,
+      });
+      missionsDao.setMissionStatus(mission.id, 'active');
+      // D3 — honest with autonomy off: enqueue always fires; the scheduler's
+      // own disabled-gate is what actually drops the wake, so the mission
+      // still gets created but sits idle (see the tool description above).
+      ctx.enqueueMissionWake?.('decompose', mission.id);
+      ctx.emit?.('missions:changed', {});
+      return {
+        missionId: mission.id,
+        autonomyEnabled: ctx.kvGet?.('missions.autonomy.enabled') === '1',
+      };
+    },
+  ),
+  T(
+    'check_task',
+    'Check task',
+    "Check a submitted mission's status: the mission row, its tasks, and the 20 most recent board events.",
+    {
+      type: 'object',
+      required: ['missionId'],
+      properties: { missionId: { type: 'string' } },
+    },
+    sCheckTask,
+    async (a) => {
+      const mission = missionsDao.getMission(a.missionId);
+      if (!mission) throw new Error(`check_task: mission not found: ${a.missionId}`);
+      return {
+        mission,
+        tasks: missionsDao.listTasks(a.missionId),
+        recentEvents: missionsDao.listEvents(a.missionId, 20),
+      };
+    },
+  ),
+  T(
+    'get_report',
+    'Get report',
+    "Get a submitted mission's status and final report (report is null until the mission is done).",
+    {
+      type: 'object',
+      required: ['missionId'],
+      properties: { missionId: { type: 'string' } },
+    },
+    sGetReport,
+    async (a) => {
+      const mission = missionsDao.getMission(a.missionId);
+      if (!mission) throw new Error(`get_report: mission not found: ${a.missionId}`);
+      return { status: mission.status, report: mission.report };
     },
   ),
   // P2 Task 3 — durable memory tools. Thin: validate via zod, call the

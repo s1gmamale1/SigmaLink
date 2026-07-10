@@ -28,11 +28,19 @@
 //   confirmDangerous(toolName, summary) → client.sendConfirm(chatId, summary),
 //   register a pending entry resolved by an inline callback ('confirm'/'cancel');
 //   60s timeout → resolve(false) + audit.
+//
+// P3 T5 — confirmViaTelegram(summary, timeoutMs) shares that exact machinery
+// (see awaitConfirmReply) but always targets the durable OPERATOR chat
+// (KV_TELEGRAM_OPERATOR_CHAT) instead of the current chat — the door for the
+// external mission plane's ExternalEscalator and autonomous DANGEROUS_REMOTE
+// wakes, both of which have no in-flight chat to reply into. No operator
+// chat / bridge stopped / chat off the allowlist → immediate false.
 
 import { EventEmitter } from 'node:events';
 import { createTelegramClient, type TelegramClient } from './telegram-client';
 import { createSafetyLayer, type SafetyLayer } from './safety';
 import { createAuditLog, type AuditEntry, type AuditKind, type AuditLog } from './audit';
+import { formatBoardSummary, formatTasks, type MissionBoardRow } from './board-format';
 
 // ── constants ────────────────────────────────────────────────────────────────
 
@@ -40,6 +48,9 @@ import { createAuditLog, type AuditEntry, type AuditKind, type AuditLog } from '
 export const KV_TELEGRAM_ENABLED = 'remote.telegram.enabled';
 export const KV_TELEGRAM_IDLE_LOCK_MIN = 'remote.telegram.idleLockMinutes';
 export const KV_TELEGRAM_ALLOWLIST = 'remote.telegram.allowlist';
+/** P3 D1 — durable operator chat id, auto-captured on every allowlisted
+ *  inbound contact (last-writer-wins); the target of pushToOperator(). */
+export const KV_TELEGRAM_OPERATOR_CHAT = 'remote.telegram.operatorChatId';
 export const KV_VOICE_ACTIVE_WORKSPACE = 'voice.activeWorkspaceId';
 /** CredentialStore key for the bot token. */
 export const CRED_TELEGRAM_TOKEN = 'remote.telegram.botToken';
@@ -60,6 +71,20 @@ const CONFIRM_TIMEOUT_MS = 60_000;
 const MAX_RELAY_CHARS = 8192;
 /** Default idle-lock window when unset (minutes). */
 const DEFAULT_IDLE_LOCK_MIN = 30;
+/** P3 T2 — mission-cockpit command tokens, dispatched via runMissionCommand().
+ *  Matched against the lowercased leading token (splitCommand's `cmd`), so
+ *  each of these may carry a case-preserved argument tail. */
+const MISSION_COMMANDS = new Set([
+  '/mission',
+  '/status',
+  '/tasks',
+  '/approve',
+  '/deny',
+  '/panes',
+  '/workspaces',
+]);
+/** Fixed fail-soft reply for every mission command when `deps.missions` is unset. */
+const MISSIONS_NOT_WIRED = 'mission commands are not wired on this build';
 
 // ── public types ─────────────────────────────────────────────────────────────
 
@@ -103,6 +128,36 @@ export interface BridgeNotifier {
   }): unknown;
 }
 
+/**
+ * P3 T2 — mission-cockpit closures injected from rpc-router. Optional so the
+ * bridge stays usable (and every test above this section keeps working)
+ * without a mission board wired up; when absent every mission command
+ * replies a fixed fail-soft message instead of throwing. Keeps the bridge
+ * DAO-decoupled: it never imports missionsDao directly.
+ */
+export interface MissionsBridgeDeps {
+  /** Create a mission (title = first 60 chars of goal) + set it active. Returns the new mission id. */
+  createAndStart(goal: string): string;
+  /** Enqueue the mission's decompose wake. Called unconditionally — the
+   *  autonomy-disabled gate is responsible for dropping the wake itself. */
+  enqueueDecompose(missionId: string): void;
+  /** Whether autonomous wakes currently run (the `/mission` reply text only — never gates the enqueue). */
+  autonomyEnabled(): boolean;
+  /** Full board snapshot (all missions + their tasks) for `/status` and `/tasks`. */
+  boardRead(): MissionBoardRow[];
+  /** One-line-per-pane summaries for `/panes`. */
+  listPanes(): string[];
+  /** One-line-per-workspace summaries for `/workspaces`. */
+  listWorkspaces(): string[];
+  /** Try to decide a pending amendment. 'not-found' when the id isn't a pending amendment. */
+  decideAmendment(id: string, approved: boolean): 'decided' | 'not-found';
+  /** Try to resolve a pending escalation. Null when the id isn't a pending
+   *  escalation; on success returns the escalation's summary so the reply can
+   *  echo WHAT was just approved (review I3 — informed consent, not a blind
+   *  id-grant). */
+  resolveEscalation(id: string, approved: boolean): { summary: string } | null;
+}
+
 export interface TelegramBridgeDeps {
   kv: KvLike;
   credentials: CredentialStoreLike;
@@ -117,6 +172,10 @@ export interface TelegramBridgeDeps {
   rufloCall?: (tool: string, args: Record<string, unknown>) => Promise<unknown>;
   /** Directory for the append-only audit JSONL (created if absent). */
   auditDir: string;
+  /** P3 T2 — optional mission-cockpit closures. Undefined → every mission
+   *  command (`/mission /status /tasks /approve /deny /panes /workspaces`)
+   *  fail-softs to a fixed "not wired" reply instead of throwing. */
+  missions?: MissionsBridgeDeps;
   /** Test seams — default to the real factories + global fetch + Date.now. */
   now?: () => number;
   fetchImpl?: typeof fetch;
@@ -163,6 +222,18 @@ export function chunkText(text: string, maxChars: number = TELEGRAM_MAX_CHARS): 
     out.push(text.slice(i, i + maxChars));
   }
   return out;
+}
+
+/**
+ * Split a raw inbound message into a lowercased command token + its
+ * (case-preserved) argument tail — `/mission Ship it` → `{cmd:'/mission',
+ * arg:'Ship it'}`. A bare command (no space) yields an empty arg.
+ */
+function splitCommand(raw: string): { cmd: string; arg: string } {
+  const trimmed = raw.trim();
+  const spaceIdx = trimmed.indexOf(' ');
+  if (spaceIdx === -1) return { cmd: trimmed.toLowerCase(), arg: '' };
+  return { cmd: trimmed.slice(0, spaceIdx).toLowerCase(), arg: trimmed.slice(spaceIdx + 1).trim() };
 }
 
 /** Parse the persisted allowlist (JSON array of numbers). Tolerant of junk. */
@@ -386,13 +457,37 @@ export class TelegramBridge extends EventEmitter {
   private async handleMessage(chatId: number, text: string): Promise<void> {
     if (!this.safety || !this.client) return;
 
-    const command = text.trim().toLowerCase();
+    // P3 D1 — capture the durable operator chat id on EVERY allowlisted
+    // contact (last-writer-wins), BEFORE command routing so it rides both
+    // control commands and normal prompts alike. Non-allowlisted senders are
+    // never captured (their drop is handled below by the existing gates —
+    // this never confirms allowlist membership either way).
+    const captureAllowlist = parseAllowlist(this.deps.kv.get(KV_TELEGRAM_ALLOWLIST));
+    if (captureAllowlist.includes(chatId)) {
+      this.deps.kv.set(KV_TELEGRAM_OPERATOR_CHAT, String(chatId));
+    }
 
-    // Control commands (/lock /unlock /status /new) are gated by ALLOWLIST
-    // ONLY — they must bypass the lock gate so an allowlisted operator can
-    // /unlock after a lock (a lock-gated /unlock could never get through). A
-    // non-allowlisted sender is still dropped silently.
-    if (command === '/lock' || command === '/unlock' || command === '/status' || command === '/new') {
+    const trimmedText = text.trim();
+    const command = trimmedText.toLowerCase();
+    // P3 T2 — mission-cockpit commands take a (case-preserved) argument tail;
+    // `cmd` is the lowercased leading token, matched against MISSION_COMMANDS
+    // below. `/status` moved from the plain bridge-health reply to the
+    // mission-board summary (see MISSION_COMMANDS + runMissionCommand()).
+    const { cmd, arg } = splitCommand(trimmedText);
+
+    // Control commands (/lock /unlock /new /subscribe /unsubscribe) plus the
+    // P3 T2 mission-cockpit commands are gated by ALLOWLIST ONLY — they must
+    // bypass the lock gate so an allowlisted operator can /unlock after a
+    // lock (a lock-gated /unlock could never get through). A non-allowlisted
+    // sender is still dropped silently.
+    if (
+      command === '/lock' ||
+      command === '/unlock' ||
+      command === '/new' ||
+      command === '/subscribe' ||
+      command === '/unsubscribe' ||
+      MISSION_COMMANDS.has(cmd)
+    ) {
       const allowlist = parseAllowlist(this.deps.kv.get(KV_TELEGRAM_ALLOWLIST));
       if (!allowlist.includes(chatId)) {
         this.logAudit('inbound-dropped', chatId, 'dropped: not-allowlisted (command)');
@@ -421,12 +516,19 @@ export class TelegramBridge extends EventEmitter {
             await this.reply(chatId, `Sigma hit an error: ${message}`);
           }
         }
+      } else if (command === '/subscribe') {
+        // Explicit opt-in — redundant with the auto-capture above (this chat
+        // is already allowlisted-and-captured) but kept deliberate/independent
+        // so the intent is discoverable and doesn't rely solely on the
+        // implicit last-writer-wins capture.
+        this.deps.kv.set(KV_TELEGRAM_OPERATOR_CHAT, String(chatId));
+        await this.reply(chatId, '📬 Subscribed — reports will land here.');
+      } else if (command === '/unsubscribe') {
+        this.deps.kv.set(KV_TELEGRAM_OPERATOR_CHAT, '');
+        await this.reply(chatId, '🔕 Unsubscribed — no more reports here.');
       } else {
-        const locked = this.isLocked();
-        await this.reply(
-          chatId,
-          `Status: ${this.isRunning() ? 'running' : 'stopped'}${locked ? ' (locked)' : ''}.`,
-        );
+        // MISSION_COMMANDS.has(cmd) — the only other way into this block.
+        await this.runMissionCommand(chatId, cmd, arg);
       }
       return;
     }
@@ -470,6 +572,95 @@ export class TelegramBridge extends EventEmitter {
     }
   }
 
+  // ── mission cockpit commands (P3 T2) ─────────────────────────────────────────
+
+  /**
+   * `/mission /status /tasks /approve /deny /panes /workspaces` — thin
+   * dispatch over the injected `missions` closures. `deps.missions` unset →
+   * fixed fail-soft reply for every one of these, never a throw. A closure
+   * that itself throws is caught the same way `assistant.send` is above.
+   */
+  private async runMissionCommand(chatId: number, cmd: string, arg: string): Promise<void> {
+    const missions = this.deps.missions;
+    if (!missions) {
+      await this.reply(chatId, MISSIONS_NOT_WIRED);
+      return;
+    }
+    try {
+      switch (cmd) {
+        case '/mission': {
+          if (!arg) {
+            await this.reply(chatId, 'usage: /mission <goal>');
+            return;
+          }
+          const id = missions.createAndStart(arg);
+          // Enqueue regardless of the autonomy flag — the scheduler's
+          // disabled gate drops the wake itself (with an audited reason);
+          // this reply is just the honest reflection of that outcome.
+          missions.enqueueDecompose(id);
+          await this.reply(
+            chatId,
+            missions.autonomyEnabled()
+              ? `mission ${id} created — decompose queued`
+              : `mission ${id} created — parked (autonomy disabled)`,
+          );
+          return;
+        }
+        case '/status': {
+          // /status was the bridge-health command before the P3 cockpit
+          // repurposed it for the board — keep the one health fact a board
+          // summary can't carry (any reply already proves the bridge is
+          // alive): whether the assistant lane is locked.
+          const lockPrefix = this.isLocked() ? '🔒 Jorvis is locked (/unlock to resume)\n\n' : '';
+          await this.reply(chatId, lockPrefix + formatBoardSummary(missions.boardRead()));
+          return;
+        }
+        case '/tasks': {
+          await this.reply(chatId, formatTasks(missions.boardRead(), arg || undefined));
+          return;
+        }
+        case '/approve':
+        case '/deny': {
+          const approved = cmd === '/approve';
+          if (!arg) {
+            await this.reply(chatId, `usage: ${cmd} <id>`);
+            return;
+          }
+          if (missions.decideAmendment(arg, approved) === 'decided') {
+            await this.reply(chatId, `amendment ${arg} ${approved ? 'approved' : 'denied'}`);
+            return;
+          }
+          const resolved = missions.resolveEscalation(arg, approved);
+          if (resolved) {
+            await this.reply(
+              chatId,
+              `escalation ${arg} ${approved ? 'approved' : 'denied'}: ${resolved.summary.slice(0, 200)}`,
+            );
+            return;
+          }
+          await this.reply(chatId, `nothing pending with id ${arg}`);
+          return;
+        }
+        case '/panes': {
+          const panes = missions.listPanes();
+          await this.reply(chatId, panes.length ? panes.join('\n') : 'no live panes');
+          return;
+        }
+        case '/workspaces': {
+          const workspaces = missions.listWorkspaces();
+          await this.reply(chatId, workspaces.length ? workspaces.join('\n') : 'no workspaces');
+          return;
+        }
+        default:
+          return;
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logAudit('dispatch-error', chatId, message);
+      await this.reply(chatId, `Sigma hit an error: ${message}`);
+    }
+  }
+
   // ── dangerous-tool confirmation ──────────────────────────────────────────────
 
   private async confirmDangerous(
@@ -477,10 +668,46 @@ export class TelegramBridge extends EventEmitter {
     toolName: string,
     summary: string,
   ): Promise<boolean> {
+    return this.awaitConfirmReply(chatId, summary, CONFIRM_TIMEOUT_MS, toolName);
+  }
+
+  /**
+   * P3 T5 — shared pending-confirm machinery, extracted verbatim out of the
+   * original `confirmDangerous` body (unchanged behaviour) so BOTH the
+   * telegram-origin DANGEROUS_REMOTE gate (`confirmDangerous` above, mid-
+   * conversation) and the phone-first escalation gate (`confirmViaTelegram`
+   * below, external/autonomous) share ONE choke point: send the inline
+   * approve/deny keyboard, register the resulting `sendConfirm` messageId in
+   * `this.pending`, and resolve on the matching `handleCallback` or the
+   * timeout. Telegram's own per-message id IS the concurrent-confirm
+   * disambiguator (`this.pending` is keyed by it) — callback_data itself is
+   * only ever the fixed 'confirm'/'cancel' string (see telegram-client.ts's
+   * sendConfirm), but each confirm gets its own message, so two overlapping
+   * confirms (same or different chat) can never cross-resolve.
+   */
+  private async awaitConfirmReply(
+    chatId: number,
+    summary: string,
+    timeoutMs: number,
+    auditDetail: string,
+  ): Promise<boolean> {
     if (!this.client) return false;
     let messageId: number;
     try {
-      const sent = await this.client.sendConfirm(chatId, summary);
+      // Review I1 — the confirm summary interpolates RAW tool-arg values (a
+      // prompt-injected brain or an external client controls them) and
+      // sendConfirm renders parse_mode:'HTML'. Scrub + escape like every
+      // other outbound byte, or the one human-in-the-loop control can be
+      // styled/obscured (or 400-bricked) by the very action it is gating.
+      let scrubbed = summary;
+      if (this.safety) {
+        try {
+          scrubbed = await this.safety.scrubOutbound(summary);
+        } catch {
+          scrubbed = summary;
+        }
+      }
+      const sent = await this.client.sendConfirm(chatId, escapeHtml(scrubbed));
       messageId = sent.messageId;
     } catch (err) {
       this.logAudit('confirm-error', chatId, err instanceof Error ? err.message : String(err));
@@ -490,11 +717,47 @@ export class TelegramBridge extends EventEmitter {
     return new Promise<boolean>((resolve) => {
       const timer = setTimeout(() => {
         this.pending.delete(messageId);
-        this.logAudit('confirm-timeout', chatId, toolName);
+        this.logAudit('confirm-timeout', chatId, auditDetail);
         resolve(false);
-      }, CONFIRM_TIMEOUT_MS);
+      }, timeoutMs);
       this.pending.set(messageId, { resolve, timer, chatId });
     });
+  }
+
+  /**
+   * P3 T5 (D4) — phone-first escalation confirm for the external mission
+   * plane (`ExternalEscalator`'s `telegramConfirm` dep) and autonomous
+   * DANGEROUS_REMOTE wakes (`assistant.send`'s `confirmDangerous`, origin:
+   * 'autonomous'). Unlike `confirmDangerous` above — which replies into the
+   * CURRENT mid-conversation chat — this always targets the durable OPERATOR
+   * chat (`KV_TELEGRAM_OPERATOR_CHAT`): an external client or an autonomous
+   * wake has no in-flight chat to answer into. Fail-closed, never throws:
+   * bridge not running, operator chat unset, or the captured chat fell off
+   * the allowlist since capture → immediate false (audited `drop`), same
+   * shape as `pushToOperator`. Resolves true ONLY on an approve callback
+   * from that allowlisted chat within `timeoutMs`; reuses `awaitConfirmReply`
+   * (see its doc comment for the concurrent-confirm disambiguation).
+   */
+  async confirmViaTelegram(summary: string, timeoutMs: number): Promise<boolean> {
+    if (!this.isRunning() || !this.client) {
+      this.logAudit('drop', null, 'confirm-bridge-stopped');
+      return false;
+    }
+
+    const chatIdRaw = this.deps.kv.get(KV_TELEGRAM_OPERATOR_CHAT);
+    if (!chatIdRaw) {
+      this.logAudit('drop', null, 'confirm-no-operator-chat');
+      return false;
+    }
+    const chatId = Number(chatIdRaw);
+
+    const allowlist = parseAllowlist(this.deps.kv.get(KV_TELEGRAM_ALLOWLIST));
+    if (!allowlist.includes(chatId)) {
+      this.logAudit('drop', chatId, 'confirm-chat-not-allowlisted');
+      return false;
+    }
+
+    return this.awaitConfirmReply(chatId, summary, timeoutMs, 'external-escalation');
   }
 
   private handleCallback(messageId: number, data: string, chatId: number): void {
@@ -573,25 +836,27 @@ export class TelegramBridge extends EventEmitter {
     const buffered = this.relayBuffer;
     this.relayBuffer = '';
     if (!this.client || !this.safety || chatId === null || !buffered) return;
-    let scrubbed: string;
-    try {
-      scrubbed = await this.safety.scrubOutbound(buffered);
-    } catch {
-      scrubbed = buffered;
-    }
-    const safe = escapeHtml(scrubbed);
-    for (const chunk of chunkText(safe)) {
-      try {
-        await this.client.sendMessage(chatId, chunk, { parseMode: 'HTML' });
-      } catch (err) {
-        this.logAudit('relay-error', chatId, err instanceof Error ? err.message : String(err));
-        break;
-      }
-    }
+    await this.sendScrubbed(chatId, buffered, 'relay-error');
   }
 
   /** Plain operator reply (lock/unlock/status etc.). Scrubbed + escaped. */
   private async reply(chatId: number, text: string): Promise<void> {
+    if (!this.client) return;
+    await this.sendScrubbed(chatId, text, 'reply-error');
+  }
+
+  /**
+   * Shared outbound choke point — every byte leaving the bridge (relay flush,
+   * plain replies, and pushToOperator) goes through here: scrub → escapeHtml
+   * → chunk(4096) → client.sendMessage per chunk, parseMode HTML. A send
+   * failure on any chunk is audited under `errorKind` and stops the
+   * remaining chunks (matches the prior flushRelay behavior).
+   */
+  private async sendScrubbed(
+    chatId: number,
+    text: string,
+    errorKind: AuditKind = 'relay-error',
+  ): Promise<void> {
     if (!this.client) return;
     let scrubbed = text;
     if (this.safety) {
@@ -601,11 +866,51 @@ export class TelegramBridge extends EventEmitter {
         scrubbed = text;
       }
     }
-    try {
-      await this.client.sendMessage(chatId, escapeHtml(scrubbed), { parseMode: 'HTML' });
-    } catch (err) {
-      this.logAudit('reply-error', chatId, err instanceof Error ? err.message : String(err));
+    const safe = escapeHtml(scrubbed);
+    for (const chunk of chunkText(safe)) {
+      try {
+        await this.client.sendMessage(chatId, chunk, { parseMode: 'HTML' });
+      } catch (err) {
+        this.logAudit(errorKind, chatId, err instanceof Error ? err.message : String(err));
+        break;
+      }
     }
+  }
+
+  /**
+   * P3 D1 — proactive push to the durable operator chat. Kills the
+   * incidental-`activeChatId` hole: a caller (rpc-router push hooks, the
+   * daily-brief scheduler) can notify the operator's phone without an
+   * in-flight conversation.
+   *
+   * Fail-soft by design (returns false, never throws): bridge not running →
+   * audited drop; chat id unset/empty → audited drop; captured chat no
+   * longer allowlisted (operator revoked it without clearing the capture) →
+   * audited drop. Otherwise sends via the same scrub/escape/chunk pipeline
+   * `flushRelay`/`reply` use and audits kind 'push'.
+   */
+  async pushToOperator(text: string): Promise<boolean> {
+    if (!this.isRunning() || !this.client) {
+      this.logAudit('drop', null, 'push-bridge-stopped');
+      return false;
+    }
+
+    const chatIdRaw = this.deps.kv.get(KV_TELEGRAM_OPERATOR_CHAT);
+    if (!chatIdRaw) {
+      this.logAudit('drop', null, 'push-no-operator-chat');
+      return false;
+    }
+    const chatId = Number(chatIdRaw);
+
+    const allowlist = parseAllowlist(this.deps.kv.get(KV_TELEGRAM_ALLOWLIST));
+    if (!allowlist.includes(chatId)) {
+      this.logAudit('drop', chatId, 'push-chat-not-allowlisted');
+      return false;
+    }
+
+    await this.sendScrubbed(chatId, text, 'relay-error');
+    this.logAudit('push', chatId, 'pushed to operator');
+    return true;
   }
 
   // ── workspace resolution (mirrors the voice path) ────────────────────────────

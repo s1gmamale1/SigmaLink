@@ -119,10 +119,20 @@ import { buildKvController } from './core/db/kv-controller';
 import * as missionsDao from './core/missions/dao';
 // P2 Task 8 — self-amendments DAO (jorvis.amendmentsList/amendmentsDecide RPC).
 import * as amendmentsDao from './core/operator/amendments';
+// P3 Task 6 — pure daily-brief digest (pushed to the operator's phone).
+import { buildDailyBrief } from './core/operator/brief';
 import { createMissionWatcher, type MissionWatcher } from './core/operator/watch';
 import { createWakeScheduler, type WakeScheduler } from './core/operator/scheduler';
 import { createSupervisor } from './core/operator/supervisor';
 import { JORVIS_GLOBAL_WORKSPACE_ID } from './core/operator/global';
+// P3 Task 3 (D6) — pure push-text builders for the proactive Telegram
+// pushes wired below (complete_mission / move_mission_task blocked /
+// propose_amendment trace hooks + the supervisor's notify dep).
+import {
+  formatAmendmentProposedPush,
+  formatMissionDonePush,
+  formatTaskBlockedPush,
+} from './core/operator/push-format';
 import { buildAssistantController } from './core/assistant/controller';
 import { McpHostSigma, type ToolInvoker } from './core/assistant/mcp-host-sigma';
 import { ControlMcpHost, type ExternalToolInvoker } from './core/control/control-mcp-host';
@@ -733,8 +743,24 @@ async function buildRouter() {
   const viewportShadow = createViewportShadow();
   // Task 4 — non-blocking escalation store. Created here (before appStateProvider)
   // so appStateProvider.snapshot can list pending escalations in get_app_state.
+  // P3 review I3 — random ids: the default `pesc-<seq>` ids are enumerable,
+  // and telegram /approve resolves by bare id — a guessed id would blind-grant
+  // a pending external dangerous call. randomUUID kills the enumeration.
+  // P3 review I2 — the store's notify is ALSO the phone door: the external
+  // gate takes this non-blocking path (never the blocking escalator), so
+  // without this push an external escalation is renderer-only and the
+  // "phone-first" story is a lie. telegramBridge is the forward-declared let
+  // above — assigned later, read at notify time; fail-soft void+catch.
   const pendingEscalationsStore = new PendingEscalationStore({
-    notify: (req) => broadcast('control:escalation', req),
+    genId: () => randomUUID(),
+    notify: (req) => {
+      broadcast('control:escalation', req);
+      void telegramBridge
+        ?.pushToOperator(
+          `🔐 external escalation (${req.clientLabel}): ${req.toolName} — ${req.summary}\n/approve ${req.id} or /deny ${req.id}`,
+        )
+        .catch(() => {});
+    },
   });
 
   // get_app_state provider — built once, passed into the assistant tool ctx.
@@ -914,6 +940,30 @@ async function buildRouter() {
   const controlEscalator = new ExternalEscalator({
     notify: (req) => broadcast('control:escalation', req),
     timeoutMs: 60_000,
+    // P3 T5 (D4) — phone-first escalation: prefer the operator's Telegram
+    // over the renderer prompt when the bridge is live (ExternalEscalator's
+    // own `confirm()` already tries this dep FIRST, falling through to
+    // `notify` only when it's absent — see escalation.ts). `telegramBridge`
+    // is a forward-declared `let` (assigned once the bridge is constructed
+    // further down this function, ~line 3107) — this closure late-binds and
+    // reads the CURRENT value at call time, exactly like every other
+    // `telegramBridge?.` reference in this file (push hooks, supervisor
+    // notify); the real call always happens well after boot finishes, so the
+    // null window before assignment is never observed. No bridge yet / bridge
+    // down → `Promise.resolve(false)` (fail-closed, matches confirmViaTelegram's
+    // own bridge-stopped drop).
+    telegramConfirm: (summary) => telegramBridge?.confirmViaTelegram(summary, 60_000) ?? Promise.resolve(false),
+    // `ExternalEscalator`'s `audit` dep takes a standalone
+    // `{ts,kind,toolName,clientLabel}` sink (escalation.ts:22-23). No such
+    // sink exists anywhere else in this codebase to wire it to — the only
+    // audit log in scope is TelegramBridge's own PRIVATE JSONL log (write
+    // side is `private logAudit`, never exposed), and every escalation
+    // outcome already lands there implicitly via confirmViaTelegram's own
+    // 'confirm-approved'/'confirm-denied'/'confirm-timeout'/'drop' entries
+    // when the telegram path is taken. Standing up a SECOND, disconnected
+    // audit instance just for the no-channel/renderer-prompt branches is out
+    // of this task's surgical scope (P3 T5 brief's own escape hatch) —
+    // left unwired, deliberately, not missed.
   });
   let controlBearer: string | null = null;
   let resolvedExternalInvoker: ExternalToolInvoker | null = null;
@@ -927,6 +977,14 @@ async function buildRouter() {
   // after boot finishes, so the null window is never observed.
   let missionWatcher: MissionWatcher | null = null;
   let missionScheduler: WakeScheduler | null = null;
+  // P3 Task 3 — forward-declared exactly like missionWatcher/missionScheduler
+  // above: the Telegram bridge is constructed much further down (after the
+  // assistant controller + supervisor + scheduler all exist), but the
+  // supervisor's `notify` dep and the tool-trace push hooks both need to
+  // call `pushToOperator` on it. Every closure below reads the CURRENT
+  // value at call time; the null window is never observed in practice
+  // (pushes only fire off a real wake/trace, well after boot completes).
+  let telegramBridge: TelegramBridge | null = null;
   const controlMcpHost = new ControlMcpHost({
     socketPath: controlSocketPath(app.getPath('userData')),
     getToken: () => controlBearer,
@@ -1338,6 +1396,40 @@ async function buildRouter() {
     }
   };
   armDailySummary();
+
+  // P3 Task 6 — Jorvis daily brief to the operator's phone. Second
+  // DailyScheduler, same arm/re-arm/fire-time-gate discipline as the
+  // notifications summary above. `telegramBridge`/`missionScheduler` are
+  // forward-declared lets assigned later in this function — the onFire
+  // closure reads them at fire time, long after assignment; an unassigned or
+  // stopped bridge degrades to pushToOperator's own audited no-op.
+  const briefScheduler = new DailyScheduler({
+    onFire: () => {
+      if (readKv('jorvis.brief.enabled') !== '1') return;
+      try {
+        const brief = buildDailyBrief({
+          listActiveMissions: () => missionsDao.listActiveMissions(),
+          listTasks: (missionId) => missionsDao.listTasks(missionId),
+          listRecentEvents: (missionId, limit) => missionsDao.listEvents(missionId, limit),
+          listPendingAmendments: () => amendmentsDao.listAmendments('proposed'),
+          wakesSpentToday: () => missionScheduler?.wakesSpentToday() ?? 0,
+          dailyBudget: () => Number(readKv('missions.autonomy.dailyBudget')) || 40,
+          now: () => Date.now(),
+        });
+        void telegramBridge?.pushToOperator(brief).catch(() => {});
+      } catch {
+        /* a failed brief build must not break the scheduler's re-arm */
+      }
+    },
+  });
+  const armDailyBrief = (): void => {
+    if (readKv('jorvis.brief.enabled') === '1') {
+      briefScheduler.schedule(readKv('jorvis.brief.time') ?? '09:00');
+    } else {
+      briefScheduler.cancel();
+    }
+  };
+  armDailyBrief();
 
   sharedDeps = {
     pty,
@@ -2573,6 +2665,11 @@ async function buildRouter() {
       if (key === KV_DAILY_SUMMARY_ENABLED || key === KV_DAILY_SUMMARY_TIME) {
         armDailySummary();
       }
+      // P3 Task 6 — same live re-arm for the Jorvis brief keys (an
+      // enable/re-time via Settings must not be dead until app restart).
+      if (key === 'jorvis.brief.enabled' || key === 'jorvis.brief.time') {
+        armDailyBrief();
+      }
     },
   });
   // P1a Task 5 — mission board read RPC. Pure DAO passthrough; every write
@@ -2688,6 +2785,68 @@ async function buildRouter() {
           } catch {
             /* autonomy enqueue is best-effort — must never break the trace stream */
           }
+          // P3 T3 (D6) — proactive "mission done" push to the operator's
+          // phone. Re-reads the mission for title/report (the trace payload
+          // carries neither): missionsDao.getMission is a cheap sync read,
+          // and a miss (mission deleted mid-flight) just skips the push.
+          // Fire-and-forget + `.catch()` — mirrors the supervisor's `notify`
+          // wiring above so a push failure can never break the trace stream.
+          try {
+            const doneMission = missionsDao.getMission(missionId);
+            if (doneMission) {
+              void telegramBridge
+                ?.pushToOperator(formatMissionDonePush(doneMission.title, doneMission.report))
+                .catch(() => {});
+            }
+          } catch {
+            /* push is best-effort — must never break the trace stream */
+          }
+        }
+      }
+      // P3 T3 (D6) — task-blocked push. Fires on a SUCCESSFUL
+      // move_mission_task call whose requested status is 'blocked' (args are
+      // always present on the trace payload — the tool's own required
+      // schema field, sMoveMissionTask). Mirrors the create_mission/
+      // complete_mission hooks' shape exactly.
+      if (
+        event === 'assistant:tool-trace' &&
+        payload &&
+        typeof payload === 'object' &&
+        (payload as { name?: string }).name === 'move_mission_task' &&
+        (payload as { ok?: boolean }).ok === true &&
+        (payload as { args?: { status?: string } }).args?.status === 'blocked'
+      ) {
+        const taskId = (payload as { args?: { taskId?: string } }).args?.taskId;
+        if (taskId) {
+          try {
+            void telegramBridge?.pushToOperator(formatTaskBlockedPush(taskId)).catch(() => {});
+          } catch {
+            /* push is best-effort — must never break the trace stream */
+          }
+        }
+      }
+      // P3 T3 (D6) — amendment-proposed push. Fires on a SUCCESSFUL
+      // propose_amendment call; the amendment id comes back on `result`
+      // (tools.ts's handler returns `{amendmentId}`), not `args`.
+      if (
+        event === 'assistant:tool-trace' &&
+        payload &&
+        typeof payload === 'object' &&
+        (payload as { name?: string }).name === 'propose_amendment' &&
+        (payload as { ok?: boolean }).ok === true
+      ) {
+        const amendmentId = (payload as { result?: { amendmentId?: string } }).result?.amendmentId;
+        if (amendmentId) {
+          try {
+            // Review I4 — carry the proposal text (from the trace args) so
+            // the phone approval is informed, never a blind id-grant.
+            const amendmentText = (payload as { args?: { text?: string } }).args?.text;
+            void telegramBridge
+              ?.pushToOperator(formatAmendmentProposedPush(amendmentId, amendmentText))
+              .catch(() => {});
+          } catch {
+            /* push is best-effort — must never break the trace stream */
+          }
         }
       }
       // R-1 — fan `assistant:state` deltas out to the Telegram bridge so a
@@ -2734,6 +2893,13 @@ async function buildRouter() {
     },
     // Task 4 — non-blocking escalation store (external origin).
     pendingEscalations: pendingEscalationsStore,
+    // P3 Task 4 — submit_task's decompose-enqueue, late-bound exactly like
+    // missionSupervisor's own `enqueue` dep a few lines below: `missionScheduler`
+    // is a forward-declared `let` (top of this function) constructed AFTER this
+    // very call, so this arrow closes over the binding and reads it lazily once
+    // wiring completes below — same pattern as the create_mission/complete_mission
+    // tool-trace hooks above.
+    enqueueMissionWake: (kind, missionId) => missionScheduler?.enqueue(kind, missionId),
   });
   const assistantCtl = assistantBundle.controller;
   // P1b Task 5 — wire the mission-autonomy loop live: watcher → scheduler →
@@ -2763,6 +2929,12 @@ async function buildRouter() {
             conversationId?: string;
             prompt: string;
             origin?: 'local' | 'telegram' | 'autonomous';
+            // P3 T5 (D4) — autonomous-wake DANGEROUS_REMOTE gate. Matches
+            // controller.ts's exported `ConfirmDangerous` signature exactly
+            // ((toolName, summary) => Promise<boolean>) — verified against
+            // controller.ts:167 and the gate at controller.ts:295-301, which
+            // already treats 'autonomous' identically to 'telegram'.
+            confirmDangerous?: (toolName: string, summary: string) => Promise<boolean>;
           }) => Promise<{ turnId: string }>;
         }
       ).send({
@@ -2770,6 +2942,17 @@ async function buildRouter() {
         conversationId: input.conversationId,
         prompt: input.prompt,
         origin: 'autonomous',
+        // SupervisorDeps.runTurn's own input shape (supervisor.ts) carries no
+        // confirmDangerous field — the hook rides THIS closure, not the
+        // supervisor (supervisor.ts needs zero changes; verified). Same
+        // forward-declared-`telegramBridge` late-binding as the
+        // ExternalEscalator site above and every other `telegramBridge?.`
+        // reference in this file; 120s budget (vs. the external plane's 60s)
+        // — an autonomous wake has no impatient human on the other end of an
+        // MCP call waiting on the response.
+        confirmDangerous: (toolName, summary) =>
+          telegramBridge?.confirmViaTelegram(`autonomous wake wants ${toolName}: ${summary}`, 120_000) ??
+          Promise.resolve(false),
       });
     },
     readPane: (sessionId) => pty.snapshot(sessionId),
@@ -2785,6 +2968,16 @@ async function buildRouter() {
     // few lines below, exactly like the decompose/postmortem tool-trace
     // hooks above already do. Intentional late-binding, not a bug.
     enqueue: (kind, missionId) => missionScheduler?.enqueue(kind, missionId),
+    // P3 T3 (D6) — proactive push for the MAX_ATTEMPTS cap-block, late-bound
+    // to the Telegram bridge exactly like `enqueue` is late-bound to
+    // `missionScheduler` above (`telegramBridge` is a forward-declared `let`
+    // constructed well after this call site). Fire-and-forget + `.catch()`
+    // so a rejected push promise can never become an unhandled rejection;
+    // `void` because the supervisor's `notify` contract is synchronous
+    // fire-and-forget, not something a wake awaits.
+    notify: (message) => {
+      void telegramBridge?.pushToOperator(message).catch(() => {});
+    },
   });
   missionScheduler = createWakeScheduler({
     runWake: (wake) => missionSupervisor.runWake(wake),
@@ -3011,7 +3204,10 @@ async function buildRouter() {
       }
     },
   };
-  const telegramBridge = new TelegramBridge({
+  // P3 Task 3 — assigns the forward-declared `let telegramBridge` above
+  // (not `const`): the supervisor's `notify` dep and the tool-trace push
+  // hooks were wired earlier in this function, closing over that binding.
+  telegramBridge = new TelegramBridge({
     kv: telegramKv,
     credentials: CredentialStore,
     // Assistant seam via the same CAST pattern as the voice path's
@@ -3055,6 +3251,55 @@ async function buildRouter() {
     notifier: notificationsManager,
     rufloCall: (tool, args) => rufloProxy.call(tool, args),
     auditDir: path.join(app.getPath('userData'), 'remote-audit'),
+    // P3 Task 2 — the /mission /status /tasks /approve /deny /panes
+    // /workspaces cockpit closures. Thin DAO/scheduler/store adapters so the
+    // bridge stays decoupled; every failure surfaces as the command's own
+    // error reply (the bridge wraps the dispatcher in try/catch).
+    missions: {
+      createAndStart: (goal: string) => {
+        const mission = missionsDao.createMission({
+          title: goal.slice(0, 60),
+          goal,
+          origin: 'telegram',
+        });
+        missionsDao.setMissionStatus(mission.id, 'active');
+        broadcast('missions:changed', {});
+        return mission.id;
+      },
+      enqueueDecompose: (missionId: string) => missionScheduler?.enqueue('decompose', missionId),
+      autonomyEnabled: () => controlKv.get('missions.autonomy.enabled') === '1',
+      boardRead: () =>
+        missionsDao
+          .listActiveMissions()
+          .map((mission) => ({ mission, tasks: missionsDao.listTasks(mission.id) })),
+      listPanes: () =>
+        pty.list().map((s) => `${s.providerId} · ${s.id.slice(0, 8)} · ${s.alive ? 'live' : 'dead'} · ${s.cwd}`),
+      listWorkspaces: () => {
+        try {
+          const rows = getRawDb()
+            .prepare('SELECT name, root_path FROM workspaces ORDER BY created_at ASC')
+            .all() as Array<{ name: string; root_path: string | null }>;
+          return rows.map((r) => `${r.name} — ${r.root_path ?? '(no root)'}`);
+        } catch {
+          return [];
+        }
+      },
+      decideAmendment: (id: string, approved: boolean) => {
+        try {
+          amendmentsDao.decideAmendment(id, approved, 'telegram /approve|/deny');
+          broadcast('jorvis:amendments-changed', {});
+          return 'decided';
+        } catch {
+          return 'not-found';
+        }
+      },
+      resolveEscalation: (id: string, approved: boolean) => {
+        if (pendingEscalationsStore.checkEscalation(id) !== 'pending') return null;
+        const entry = pendingEscalationsStore.listPending().find((e) => e.id === id);
+        pendingEscalationsStore.resolveEscalation(id, approved);
+        return { summary: entry?.summary ?? '(no summary recorded)' };
+      },
+    },
   });
   const telegramCtl = buildTelegramController({
     bridge: telegramBridge,

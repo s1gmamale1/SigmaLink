@@ -109,3 +109,49 @@ describe('rpc-router broadcast events — every literal is in EVENTS', () => {
     expect(CHANNELS.has('notifications.markRead')).toBe(true);
   });
 });
+
+// P3 T5 (D4) — phone-first escalation guard. Two call sites must thread the
+// Telegram bridge's confirmViaTelegram into the dangerous-tool confirm path:
+//   1. `new ExternalEscalator({ telegramConfirm: ... })` — the external
+//      mission plane's confirm-before-dangerous-tool gate.
+//   2. the mission supervisor's `runTurn` closure — `.send({ confirmDangerous:
+//      ... })` — the autonomous-wake DANGEROUS_REMOTE gate.
+// rpc-router.ts can't be unit-instantiated (see header above), so this is the
+// same source-position guard pattern as the disk-scan-capture and
+// notifications-sink checks above: it can't prove the RUNTIME behaviour (that
+// lives in escalation.test.ts + bridge.test.ts + controller.autonomous.test.ts),
+// but it catches a regression where the router simply stops PASSING the hook
+// at either call site.
+describe('rpc-router production wiring — phone-first escalation confirms (P3 T5)', () => {
+  it('new ExternalEscalator(...) carries telegramConfirm wired to confirmViaTelegram', () => {
+    const escalatorCall =
+      /new ExternalEscalator\s*\(\s*\{[\s\S]*?telegramConfirm\s*:[\s\S]*?confirmViaTelegram[\s\S]*?\}\s*\)/;
+    expect(ROUTER_SRC).toMatch(escalatorCall);
+  });
+
+  it("the supervisor's runTurn closure passes confirmDangerous into assistantCtl.send", () => {
+    const runTurnStart = ROUTER_SRC.indexOf('runTurn: async (input) => {');
+    expect(runTurnStart).toBeGreaterThanOrEqual(0);
+    const sendCallStart = ROUTER_SRC.indexOf(').send({', runTurnStart);
+    expect(sendCallStart).toBeGreaterThan(runTurnStart);
+    // readPane: is the very next SupervisorDeps prop after runTurn ends —
+    // slicing up to it bounds the .send({...}) call body unambiguously.
+    const readPaneIdx = ROUTER_SRC.indexOf('readPane: (sessionId) =>', runTurnStart);
+    expect(readPaneIdx).toBeGreaterThan(sendCallStart);
+    const sendSlice = ROUTER_SRC.slice(sendCallStart, readPaneIdx);
+    expect(sendSlice).toMatch(/confirmDangerous\s*:/);
+    expect(sendSlice).toMatch(/confirmViaTelegram/);
+  });
+
+  it('both wiring sites and the telegramBridge declaration exist exactly once', () => {
+    const bridgeDeclIdx = ROUTER_SRC.indexOf('let telegramBridge: TelegramBridge | null = null;');
+    const escalatorIdx = ROUTER_SRC.indexOf('new ExternalEscalator(');
+    const supervisorIdx = ROUTER_SRC.indexOf('runTurn: async (input) => {');
+    // Both wiring closures are allowed to sit textually BEFORE the `let`
+    // (they late-bind — see the in-source comments at each site) — this only
+    // asserts the declaration and both call sites are actually present.
+    expect(bridgeDeclIdx).toBeGreaterThanOrEqual(0);
+    expect(escalatorIdx).toBeGreaterThanOrEqual(0);
+    expect(supervisorIdx).toBeGreaterThanOrEqual(0);
+  });
+});

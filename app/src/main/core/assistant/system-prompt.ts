@@ -143,6 +143,21 @@ Mission board tools:
                       pass revisedSpec to retry a reviewed task with corrected
                       instructions.
 
+External mission plane (the sanctioned entry point for an external agent —
+free for any client, no escalation):
+  submit_task         { order, title?, workspaceId? }
+                      Submit a natural-language order as a new mission
+                      (creates it active + queues a decompose wake).
+                      Decomposition/dispatch runs only while the operator has
+                      autonomy enabled; with it off the mission is still
+                      created but sits idle until an operator picks it up.
+  check_task          { missionId }
+                      Check a submitted mission's status: mission + tasks +
+                      the 20 most recent board events.
+  get_report          { missionId }
+                      Get a submitted mission's status + final report
+                      (report is null until done).
+
 Memory tools (durable, cross-session — distinct from the workspace memory hub):
   remember            { kind, title, body, tags?, workspaceId? }
                       Store a fact/playbook/preference/postmortem that

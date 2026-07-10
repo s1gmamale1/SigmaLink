@@ -61,6 +61,46 @@ describe('mission board tools', () => {
     expect(emit).toHaveBeenCalledWith('missions:changed', {});
   });
 
+  // P3 Task 3 (D5) — origin threading: create_mission now stamps the calling
+  // turn's real ToolOrigin/clientLabel instead of hardcoding 'local'.
+  it('create_mission stamps ctx.origin onto the mission row (telegram)', async () => {
+    const ctx = makeCtx({ origin: 'telegram' });
+    const out = (await findTool('create_mission')!.handler(
+      { title: 'From Telegram', goal: 'g' },
+      ctx,
+    )) as { missionId: string };
+    expect(missionsDao.getMission(out.missionId)?.origin).toBe('telegram');
+  });
+
+  it('create_mission defaults to local origin when ctx.origin is undefined', async () => {
+    const ctx = makeCtx(); // no origin supplied
+    const out = (await findTool('create_mission')!.handler(
+      { title: 'No ctx.origin', goal: 'g' },
+      ctx,
+    )) as { missionId: string };
+    expect(missionsDao.getMission(out.missionId)?.origin).toBe('local');
+  });
+
+  it('create_mission threads ctx.clientLabel onto the mission row', async () => {
+    const ctx = makeCtx({ origin: 'external', clientLabel: 'hermes-cli' });
+    const out = (await findTool('create_mission')!.handler(
+      { title: 'From Hermes', goal: 'g' },
+      ctx,
+    )) as { missionId: string };
+    const mission = missionsDao.getMission(out.missionId);
+    expect(mission?.origin).toBe('external');
+    expect(mission?.clientLabel).toBe('hermes-cli');
+  });
+
+  it('create_mission defaults clientLabel to null when ctx.clientLabel is absent', async () => {
+    const ctx = makeCtx({ origin: 'telegram' });
+    const out = (await findTool('create_mission')!.handler(
+      { title: 'No label', goal: 'g' },
+      ctx,
+    )) as { missionId: string };
+    expect(missionsDao.getMission(out.missionId)?.clientLabel).toBeNull();
+  });
+
   it('add_mission_task appends a task in the backlog column', async () => {
     const mission = missionsDao.createMission({ title: 't', goal: 'g', origin: 'local' });
     const emit = vi.fn();

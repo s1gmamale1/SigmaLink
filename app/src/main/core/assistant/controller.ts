@@ -124,6 +124,15 @@ export interface AssistantControllerDeps {
     resume(id: string): Promise<{ ok: boolean; healed: boolean }>;
     kill(id: string): Promise<void>;
   };
+  /**
+   * P3 Task 4 — late-bound mission-wake enqueue, threaded onto ToolContext so
+   * `submit_task` can queue a decompose wake from ANY origin (mirrors the
+   * create_mission decompose-enqueue tool-trace hook in rpc-router.ts, but
+   * callable directly instead of only firing off the trace stream). Absent ⇒
+   * the tool still creates the mission, just doesn't queue a wake (D3 — still
+   * honest, the mission sits idle until an operator picks it up).
+   */
+  enqueueMissionWake?: (kind: 'decompose' | 'review' | 'postmortem', missionId: string) => void;
 }
 
 interface ActiveTurn {
@@ -420,6 +429,17 @@ export function buildAssistantController(deps: AssistantControllerDeps): Assista
         appState: deps.appState,
         swarms: deps.swarms,
         pendingEscalations: deps.pendingEscalations,
+        // P3 Task 4 — clientLabel flows from invokeTool's own input (the
+        // External Control MCP host already threads it in per-connection —
+        // see control-mcp-host.ts:196 `clientLabel: session.label`) straight
+        // onto the tool ctx so submit_task can stamp it on the mission row.
+        // invokeToolForConversation (the MCP-host socket path used by
+        // local/telegram/autonomous turns) does NOT carry a clientLabel on
+        // ActiveTurn today — that plumbing doesn't exist for those origins,
+        // so this is undefined there and submit_task falls back to null,
+        // which matches D5's existing local-origin behaviour exactly.
+        clientLabel: input?.clientLabel ?? null,
+        enqueueMissionWake: deps.enqueueMissionWake,
       });
       // P3-S7 — single persistence path: the tracer writes the `messages`
       // row with role='tool' and `toolCallId` set to the trace id; the
