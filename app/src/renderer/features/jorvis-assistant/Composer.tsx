@@ -103,7 +103,10 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(function Composer
         placeholder={placeholder ?? 'Ask Jorvis…'}
         rows={2}
         className={cn(
-          'min-h-[44px] flex-1 resize-none rounded-md border border-input bg-muted/30 px-3 py-2 text-sm shadow-xs outline-none transition placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring',
+          // min-w-0: this textarea is a flex item; without it `min-width: auto`
+          // lets it floor the composer row at content width instead of shrinking
+          // to the panel, which is how long text ends up on one runaway line.
+          'min-h-[44px] min-w-0 flex-1 resize-none rounded-md border border-input bg-muted/30 px-3 py-2 text-sm shadow-xs outline-none transition placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring',
           'disabled:cursor-not-allowed disabled:opacity-60',
         )}
         disabled={busy}
