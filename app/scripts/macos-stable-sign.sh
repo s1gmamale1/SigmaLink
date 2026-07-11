@@ -96,6 +96,12 @@ else
   WORK_DIR="$(mktemp -d -t sigmalink-sign)"
   trap 'rm -rf "$WORK_DIR"' EXIT INT TERM
 
+  # Pin the SYSTEM openssl (LibreSSL): a Homebrew openssl@3 ahead of it in
+  # PATH writes a PBES2/AES-256 .p12 that `security import` rejects with
+  # "MAC verification failed during PKCS12 import (wrong password?)".
+  OPENSSL_BIN="${OPENSSL_BIN:-/usr/bin/openssl}"
+  [[ -x "$OPENSSL_BIN" ]] || OPENSSL_BIN="openssl"
+
   # v3 extensions make the cert a valid code-signing leaf. A config file is
   # used instead of -addext for LibreSSL compatibility.
   cat > "$WORK_DIR/openssl.cnf" <<'EOF'
@@ -111,14 +117,14 @@ extendedKeyUsage = critical, codeSigning
 basicConstraints = critical, CA:false
 EOF
 
-  openssl req -x509 -newkey rsa:2048 -sha256 -days 3650 -nodes \
+  "$OPENSSL_BIN" req -x509 -newkey rsa:2048 -sha256 -days 3650 -nodes \
     -config "$WORK_DIR/openssl.cnf" \
     -keyout "$WORK_DIR/key.pem" -out "$WORK_DIR/cert.pem" 2>/dev/null
 
   # Bundle key+cert so `security import` accepts both in one shot. The
   # passphrase is transient — the .p12 is deleted with WORK_DIR on exit.
   P12_PASS="$(uuidgen)"
-  openssl pkcs12 -export -inkey "$WORK_DIR/key.pem" -in "$WORK_DIR/cert.pem" \
+  "$OPENSSL_BIN" pkcs12 -export -inkey "$WORK_DIR/key.pem" -in "$WORK_DIR/cert.pem" \
     -out "$WORK_DIR/identity.p12" -passout "pass:$P12_PASS" 2>/dev/null
 
   KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
