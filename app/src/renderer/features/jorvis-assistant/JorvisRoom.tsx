@@ -362,7 +362,15 @@ export function JorvisRoom({ variant = 'standalone', className }: Props) {
           onDelete={(id) => void onDeleteConversation(id)}
         />
       ) : null}
-      <div className={cn('flex h-full min-h-0 flex-1 flex-col', variant === 'rail' && 'px-3')}>
+      {/* min-w-0 is load-bearing, not cosmetic. This column is a flex item in the
+          row above, so its default `min-width: auto` floors it at its CONTENT's
+          min-content width. A long unbreakable token in a message (e.g. a tool
+          result's JSON) then blows the column wider than the panel — and the
+          composer, a sibling in this column, stretches with it and stops
+          wrapping. `break-words` does NOT prevent this: overflow-wrap only
+          breaks for layout, it does not shrink min-content. The vertical twin
+          (min-h-0) was already here; this is the horizontal one. */}
+      <div className={cn('flex h-full min-h-0 min-w-0 flex-1 flex-col', variant === 'rail' && 'px-3')}>
         {variant === 'standalone' ? (
           <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border bg-muted/10 px-3 text-sm">
             <Bot className="h-4 w-4 text-primary" aria-hidden />

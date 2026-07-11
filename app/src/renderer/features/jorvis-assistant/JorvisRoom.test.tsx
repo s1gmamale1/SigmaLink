@@ -178,6 +178,23 @@ describe('<JorvisRoom /> resume UI', () => {
     expect(innerColumn).toBeTruthy();
   });
 
+  // Regression: the inner column is a flex ITEM of the root flex row, so its
+  // default `min-width: auto` floors it at its CONTENT's min-content width. A
+  // long unbreakable token in a message (a tool result's JSON, a UUID) then
+  // pushed the column wider than the panel and the composer — a sibling in this
+  // column — stretched with it, so typed text ran off on one line instead of
+  // wrapping. `break-words` does NOT save you: overflow-wrap breaks for layout
+  // but does not shrink min-content. jsdom computes no layout, so this pins the
+  // class that carries the invariant; the visual fix was verified in the app.
+  it('inner column can shrink below content width (min-w-0) — composer must wrap', async () => {
+    const { container } = render(<JorvisRoom variant="rail" />);
+    const rootRow = container.querySelector('[data-jorvis-room="rail"]');
+    expect(rootRow).toBeTruthy();
+    const innerColumn = rootRow?.querySelector('.flex-1.flex-col');
+    expect(innerColumn).toBeTruthy();
+    expect(innerColumn?.className).toContain('min-w-0');
+  });
+
   it('renders a compact rail dropdown with resumable conversation rows', async () => {
     render(<JorvisRoom variant="rail" />);
 
