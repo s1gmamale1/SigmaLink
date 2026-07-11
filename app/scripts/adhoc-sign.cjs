@@ -114,13 +114,24 @@ module.exports = async function adhocSign(context) {
   // dial-out (we don't need a trusted timestamp for ad-hoc). Entitlements
   // are intentionally omitted — they only take effect with a trusted
   // identity, and including them here would invite TCC drift.
-  console.log(`[adhoc-sign] codesigning ${appPath} ad-hoc`);
+  //
+  // SIGMALINK_SIGN_IDENTITY overrides the ad-hoc "-" for local packaging on
+  // a machine that has the self-signed cert from scripts/macos-stable-sign.sh
+  // — a stable identity keeps macOS TCC grants (Screen Recording /
+  // Accessibility) valid across rebuilds, where ad-hoc pins them to one
+  // build's cdhash. CI leaves it unset → ad-hoc, unchanged.
+  const identity = process.env.SIGMALINK_SIGN_IDENTITY || '-';
+  console.log(
+    `[adhoc-sign] codesigning ${appPath} with identity ${
+      identity === '-' ? 'ad-hoc' : `"${identity}"`
+    }`,
+  );
   execFileSync(
     'codesign',
     [
       '--force',
       '--deep',
-      '--sign', '-',
+      '--sign', identity,
       '--timestamp=none',
       appPath,
     ],

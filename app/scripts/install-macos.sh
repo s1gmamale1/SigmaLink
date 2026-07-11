@@ -167,6 +167,31 @@ fi
 
 DETACH_GUARD
 
+# -- stable re-sign so TCC grants survive updates -------------------------------
+# Release DMGs are ad-hoc signed, which pins macOS TCC grants (Screen
+# Recording / Accessibility — used by Claude panes' computer use) to ONE
+# build's cdhash: every update silently invalidates them. If the local
+# stable signing identity exists (one-time setup via
+# scripts/macos-stable-sign.sh), re-sign the fresh install with it so those
+# grants persist. No identity → keep ad-hoc, identical to prior behaviour.
+SIGN_IDENTITY="SigmaLink Local Signing"
+if security find-identity -v -p codesigning 2>/dev/null | grep -qF "$SIGN_IDENTITY"; then
+  echo "→ Re-signing with '$SIGN_IDENTITY' (keeps Screen Recording/Accessibility grants)..."
+  if ! codesign --force --deep --sign "$SIGN_IDENTITY" --timestamp=none "$DEST" 2>/dev/null; then
+    sudo codesign --force --deep --sign "$SIGN_IDENTITY" --timestamp=none "$DEST" || {
+      echo "⚠ Stable re-sign failed — app stays ad-hoc signed; TCC grants will need re-granting." >&2
+    }
+  fi
+  if codesign --verify --deep --strict "$DEST" 2>/dev/null; then
+    echo "→ Stable signature verified — existing TCC grants carry over."
+  else
+    echo "⚠ Signature verification failed — run: bash app/scripts/macos-stable-sign.sh" >&2
+  fi
+else
+  echo "→ No '$SIGN_IDENTITY' identity found — keeping ad-hoc signature."
+  echo "  One-time setup so TCC grants survive updates: bash app/scripts/macos-stable-sign.sh"
+fi
+
 # -- launch -------------------------------------------------------------------
 
 echo ""
