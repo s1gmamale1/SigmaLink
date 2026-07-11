@@ -34,6 +34,22 @@ describe('JORVIS_CHARTER_DEFAULT (bundled, vendored from Sigma-Profile)', () => 
     // not be loosened.
     expect(JORVIS_CHARTER_DEFAULT).toContain('You are an **operator**');
   });
+
+  // The jorvis render was ORIGINALLY a byte-for-byte clone of the hermes
+  // (standalone-operator) target: the persona shipped with no idea it was an
+  // in-app agent. These pin the jorvis-SPECIFIC framing so a future re-sync
+  // against a generic/hermes-shaped render fails loudly instead of silently
+  // reverting Jorvis's identity.
+  it('is the JORVIS render, not the generic standalone-operator one', () => {
+    expect(JORVIS_CHARTER_DEFAULT).toContain('You are Jorvis');
+    expect(JORVIS_CHARTER_DEFAULT).not.toContain('You are an autonomous operator.');
+  });
+
+  it('carries the in-app runtime module (panes · board · event-driven wakes)', () => {
+    expect(JORVIS_CHARTER_DEFAULT).toContain('Your fleet is panes');
+    expect(JORVIS_CHARTER_DEFAULT).toContain('The board is the truth of work in flight');
+    expect(JORVIS_CHARTER_DEFAULT).toContain('You wake on events');
+  });
 });
 
 describe('loadJorvisCharter', () => {
