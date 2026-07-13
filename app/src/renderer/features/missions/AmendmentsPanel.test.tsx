@@ -13,6 +13,11 @@ import type { JorvisAmendment } from '@/shared/types';
 const mocks = vi.hoisted(() => ({
   amendmentsList: vi.fn(),
   amendmentsDecide: vi.fn(),
+  toastError: vi.fn(),
+}));
+
+vi.mock('sonner', () => ({
+  toast: { error: (...args: unknown[]) => mocks.toastError(...args) },
 }));
 
 type EventCb = (payload: unknown) => void;
@@ -116,6 +121,24 @@ describe('AmendmentsPanel', () => {
     await waitFor(() =>
       expect(mocks.amendmentsDecide).toHaveBeenCalledWith({ amendmentId: 'a1', approved: false }),
     );
+  });
+
+  // Pre-v3 fix — a rejected amendmentsDecide used to be swallowed whole (no
+  // catch, no toast, the row silently stayed): the operator had no way to
+  // tell the decision didn't take.
+  it('a rejected amendmentsDecide surfaces a toast and re-enables the buttons', async () => {
+    mocks.amendmentsList.mockResolvedValue([amendment('a1')]);
+    mocks.amendmentsDecide.mockRejectedValue(new Error('db locked'));
+    render(<AmendmentsPanel />);
+    await waitFor(() => expect(screen.getByText('Amendment a1')).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledTimes(1));
+    // finally-reset: the row's buttons must come back so the operator can retry
+    await waitFor(() => {
+      expect(
+        (screen.getByRole('button', { name: 'Approve' }) as HTMLButtonElement).disabled,
+      ).toBe(false);
+    });
   });
 
   it('each amendment row scopes its own Approve/Deny buttons', async () => {

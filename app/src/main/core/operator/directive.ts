@@ -31,16 +31,33 @@ function appendContext(base: string, extraContext: string | undefined): string {
   return extraContext ? `${base}\n\n${extraContext}` : base;
 }
 
-export function buildDecomposeDirective(mission: Mission, extraContext?: string): string {
-  const base = [
+export function buildDecomposeDirective(
+  mission: Mission,
+  extraContext?: string,
+  // Pre-v3 fix — a reconciled re-decompose (see ./reconcile) targets a
+  // mission whose earlier decompose turn may have already created tasks
+  // before dying. Blind re-decomposition would double the board, so the
+  // directive lists what already exists and pivots the instruction to
+  // "fill gaps + dispatch", not "create from scratch".
+  existingTasks?: MissionTask[],
+): string {
+  const lines = [
     `Mission: ${mission.title}`,
     `Goal: ${mission.goal}`,
     '',
     'Decompose this mission into an ordered list of small, concrete tasks:',
     '- Call add_mission_task once per task (each small enough for one agent session to finish in a single pass).',
     '- Then call dispatch_task on the first task to hand it to an agent.',
-  ].join('\n');
-  return appendContext(base, extraContext);
+  ];
+  if (existingTasks && existingTasks.length > 0) {
+    lines.push(
+      '',
+      'Tasks already on the board (do NOT create duplicates of these):',
+      ...existingTasks.map((t) => `- [${t.status}] ${t.title} (id: ${t.id})`),
+      'Only add tasks that are genuinely missing, then dispatch_task the first backlog task.',
+    );
+  }
+  return appendContext(lines.join('\n'), extraContext);
 }
 
 export function buildReviewDirective(

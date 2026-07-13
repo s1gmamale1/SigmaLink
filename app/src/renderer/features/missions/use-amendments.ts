@@ -7,6 +7,7 @@
 // panel's Approve/Deny buttons.
 
 import { useCallback, useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import { onEvent, rpc } from '@/renderer/lib/rpc';
 import type { JorvisAmendment } from '@/shared/types';
 
@@ -46,10 +47,20 @@ export function useAmendments(): UseAmendmentsReturn {
     return off;
   }, [refresh]);
 
+  // Pre-v3 fix — a rejected decide used to escape as an unhandled rejection
+  // (the panel calls this `void decide(...)`): no toast, the row silently
+  // stayed, and the operator couldn't tell the decision didn't take. Surface
+  // it like every other RPC-failure path in this feature does; the row stays
+  // in the queue (removal only happens via the success-path refetch), so the
+  // operator can simply click again.
   const decide = useCallback(async (id: string, approved: boolean): Promise<void> => {
     setDecidingId(id);
     try {
       await rpc.jorvis.amendmentsDecide({ amendmentId: id, approved });
+    } catch (err) {
+      toast.error('Failed to record the amendment decision', {
+        description: err instanceof Error ? err.message : String(err),
+      });
     } finally {
       setDecidingId(null);
     }

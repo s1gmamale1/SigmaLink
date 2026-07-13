@@ -252,12 +252,17 @@ export function JorvisRoom({ variant = 'standalone', className }: Props) {
   // above. `lastSentPromptRef` survives a failed turn untouched (the error
   // handler in useJorvisAssistantState returns before reaching the
   // standby branch that would otherwise consume it for the Ruflo
-  // pattern-store fire-and-forget), so it's still valid on click.
+  // pattern-store fire-and-forget), so it's still valid on click. The `busy`
+  // guard (and withholding the prop entirely at the render site) keeps a
+  // Retry click from racing a live turn — a second concurrent send would
+  // overwrite activeTurnIdRef and silently orphan the in-flight turn's
+  // events.
   const onRetryError = useCallback(() => {
+    if (busy) return;
     const prompt = lastSentPromptRef.current;
     if (!prompt) return;
     void sendPrompt(prompt);
-  }, [sendPrompt]);
+  }, [busy, sendPrompt]);
 
   // B3 — make sure a pending watchdog timer never fires after unmount.
   useEffect(() => clearWatchdog, [clearWatchdog]);
@@ -435,7 +440,7 @@ export function JorvisRoom({ variant = 'standalone', className }: Props) {
             streaming={streaming}
             pending={busy && streaming == null}
             conversationId={conversationId}
-            onRetry={onRetryError}
+            onRetry={busy ? undefined : onRetryError}
           />
         </div>
         <ToolCallInspector />

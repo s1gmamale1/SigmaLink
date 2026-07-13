@@ -305,6 +305,24 @@ describe('createSupervisor — decompose wakes', () => {
     ).resolves.toBeUndefined();
     expect(deps.runTurn).not.toHaveBeenCalled();
   });
+
+  // Pre-v3 fix — a reconciled re-decompose (reconcile.ts) hits a mission
+  // that may already hold tasks; the directive must carry them so the brain
+  // doesn't double the board.
+  it('a decompose wake on a mission WITH existing tasks lists them in the directive', async () => {
+    const mission = setupMission();
+    missionsDao.addTask({ missionId: mission.id, title: 'Wire the export button', spec: 's1' });
+    missionsDao.addTask({ missionId: mission.id, title: 'Add the download test', spec: 's2' });
+    const deps = baseDeps();
+    const supervisor = createSupervisor(deps);
+
+    await supervisor.runWake({ kind: 'decompose', missionId: mission.id });
+
+    const call = (deps.runTurn as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(call.prompt).toContain('Wire the export button');
+    expect(call.prompt).toContain('Add the download test');
+    expect(call.prompt).toContain('do NOT create duplicates');
+  });
 });
 
 describe('createSupervisor — postmortem wakes (P2 Task 7)', () => {

@@ -121,14 +121,18 @@ export function ChatTranscript({ messages, streaming, streamingDelta, pending, c
       ? [...messages, pendingMsg]
       : messages;
 
-  // P0.2 — Retry renders on the most recent `error` row only. Computed from
-  // `messages` (error rows are always committed, never the in-flight
-  // sentinel/pending row) so its value is stable across stream deltas.
+  // P0.2 — Retry renders ONLY when the error row is the LAST committed
+  // message: retrying is meaningful exactly while nothing has happened since
+  // the failure. "Most recent error anywhere" kept the button alive forever
+  // (messages are append-only), and a click after later successful turns
+  // re-sent whatever lastSentPromptRef held by then — a stale/duplicate send
+  // that could orphan a live turn. Computed from `messages` (error rows are
+  // always committed, never the in-flight sentinel/pending row) so its value
+  // is stable across stream deltas; the local user-row echo in sendPrompt
+  // also makes the button vanish the moment a retry is dispatched.
   const lastErrorId = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-      if (messages[i].role === 'error') return messages[i].id;
-    }
-    return null;
+    const last = messages[messages.length - 1];
+    return last && last.role === 'error' ? last.id : null;
   }, [messages]);
 
   return (

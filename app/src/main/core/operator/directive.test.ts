@@ -54,6 +54,27 @@ describe('buildDecomposeDirective', () => {
     expect(directive).toContain('add_mission_task');
     expect(directive).toContain('dispatch_task');
   });
+
+  // Pre-v3 fix — the reconciler re-enqueues decompose for a mission whose
+  // earlier decompose turn died mid-way (tasks created but never dispatched).
+  // The directive must surface those existing tasks and forbid duplicating
+  // them, or a re-decompose doubles the board.
+  it('lists existing tasks and forbids duplicating them (reconciled re-decompose)', () => {
+    const mission = makeMission();
+    const existing = [
+      makeTask({ id: 't1', title: 'Wire the export button', status: 'backlog' }),
+      makeTask({ id: 't2', title: 'Add the download test', status: 'backlog' }),
+    ];
+    const directive = buildDecomposeDirective(mission, undefined, existing);
+    expect(directive).toContain('Wire the export button');
+    expect(directive).toContain('Add the download test');
+    expect(directive).toContain('do NOT create duplicates');
+  });
+
+  it('an empty existing-task list leaves the directive byte-identical to the two-arg form', () => {
+    const mission = makeMission();
+    expect(buildDecomposeDirective(mission, undefined, [])).toBe(buildDecomposeDirective(mission));
+  });
 });
 
 describe('buildReviewDirective', () => {

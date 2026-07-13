@@ -148,7 +148,10 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
     } catch {
       extra = '';
     }
-    const prompt = buildDecomposeDirective(mission, extra);
+    // Pre-v3 fix — a reconciled re-decompose (reconcile.ts) targets a mission
+    // that may already hold tasks from a decompose turn that died mid-way;
+    // pass them so the directive forbids duplicating the board.
+    const prompt = buildDecomposeDirective(mission, extra, missionsDao.listTasks(mission.id));
     await runTurn({ conversationId, prompt, origin: 'autonomous' });
   }
 
