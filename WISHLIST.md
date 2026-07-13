@@ -30,6 +30,25 @@ _(real upgrades to build once the current system is production-grade)_
 
 _(raw ideas land here; promote to ROADMAP.md once scoped into a phase)_
 
+### PR #238 claude account-switch — parked review minors (2026-07-14)
+
+_Opus full-gate review GREEN 94/100; the 4 logged non-blockers:_
+
+- 🧹 **[panes] no single-flight guard on overlapping account switches** — `rpc-router.ts` onSwitch
+  fires a fire-and-forget restart sweep; two rapid `/login` switches (2s poll vs multi-second sweep)
+  can overlap. Traced safe (mid-flight panes skip, worst case a redundant restart) — a
+  `restartInFlight` boolean would harden it. Effort: XS. (rev-238.)
+- ℹ️ **[panes][swarm] re-homed swarm-agent claude panes lose SIGMA:: mailbox wiring + swarm-aware
+  onExit** — pre-existing boot-resume limitation faithfully mirrored (`listEligibleRows` resumes swarm
+  panes generically every boot, same generic `attachExitPersistence`); if boot-resume ever re-wires
+  swarm panes, mirror it in `restartLiveClaudePanes`. Effort: M. (rev-238.)
+- 🧹 **[test] rpc-router onSwitch glue untested** — the readKv gate → restart → broadcast IIFE has no
+  direct test (fails silent, try/catch-guarded); same class as the parked jorvis rpc-router-glue gap.
+  A switch→broadcast smoke closes it. Effort: S. (rev-238.)
+- ℹ️ **[ux][watch] account-switch auto-restart is default-ON with no prior opt-in** — intended (it IS
+  the fix), toasted, reversible via KV `claude.accountSwitch.autoRestart='0'`; revisit only if an
+  operator is surprised by a mid-generation restart. (rev-238.)
+
 ---
 
 ## 🔬 Deep review findings (2026-07-14) — claude account-switch does not propagate to running panes
