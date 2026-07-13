@@ -124,6 +124,7 @@ import { buildDailyBrief } from './core/operator/brief';
 import { createMissionWatcher, type MissionWatcher } from './core/operator/watch';
 import { createWakeScheduler, type WakeScheduler } from './core/operator/scheduler';
 import { createSupervisor } from './core/operator/supervisor';
+import { createMissionReconciler, MISSION_SWEEP_INTERVAL_MS } from './core/operator/reconcile';
 import { JORVIS_GLOBAL_WORKSPACE_ID } from './core/operator/global';
 // P3 Task 3 (D6) — pure push-text builders for the proactive Telegram
 // pushes wired below (complete_mission / move_mission_task blocked /
@@ -2990,6 +2991,25 @@ async function buildRouter() {
     enqueue: missionScheduler.enqueue,
     isEnabled: () => controlKv.get('missions.autonomy.enabled') === '1',
   });
+  // Pre-v3 fix — the reconciler: catch-up for the two liveness holes the
+  // event-driven loop can't see. (1) The scheduler DISCARDS a gate-dropped
+  // wake (quiet hours / budget / freeze), so a pane that exits at 23:00
+  // strands its task in `reviewing` forever; (2) a restart kills every
+  // dispatched CLI (PTY children), so `dispatched`/`working` tasks from the
+  // previous process never get a terminal pane event. The boot sweep handles
+  // (2) right here; the periodic sweep re-derives (1) from the durable board
+  // every 10 minutes. Every re-enqueued wake still rides ALL four scheduler
+  // gates, and the whole sweep is a no-op while autonomy is disabled.
+  const missionReconciler = createMissionReconciler({
+    enqueue: missionScheduler.enqueue,
+    isEnabled: () => controlKv.get('missions.autonomy.enabled') === '1',
+    isPaneLive: (sessionId) => pty.isLive(sessionId),
+    now: () => Date.now(),
+  });
+  missionReconciler.sweep('boot');
+  // unref() so a pending sweep tick can never hold the process open at quit;
+  // sweep() itself swallows everything, so a tick racing DB teardown is inert.
+  setInterval(() => missionReconciler.sweep('periodic'), MISSION_SWEEP_INTERVAL_MS).unref();
   // BUG-V1.1.2-01 — Late-bind the bridge's tool invoker now that the
   // controller has been constructed. The bridge already listens (or will
   // start listening below); any incoming `tools.invoke` calls that race
