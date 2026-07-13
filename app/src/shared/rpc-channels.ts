@@ -427,6 +427,12 @@ export const EVENTS: ReadonlySet<string> = new Set<string>([
   // Routed to the owning window (session-scoped). Payload:
   // { sessionId, reason: 'bell' | 'idle', ts }.
   'agent:attention',
+  // claude account-switch propagation (2026-07-14) — emitted after the
+  // ~/.claude.json watcher detects an account switch and (by default)
+  // restarts every live claude pane in place so it adopts the new account.
+  // Payload: { emailAddress, previousEmailAddress, autoRestarted, restarted,
+  // failed, skipped, workspaceIds }.
+  'claude:account-switched',
   'workspace:launched',
   'swarm:message',
   'memory:changed',

@@ -676,6 +676,12 @@ export async function executeLaunchPlan(
       // Clean exits (code 0, not earlyDeath) only receive the regular `pty:exit`.
       const startedMs = rec.startedAt;
       rec.pty.onExit(({ exitCode, signal }) => {
+        // account-switch restart (2026-07-14) — an EXPECTED kill (the restart
+        // flow is about to resume this row in place) is not a crash: skip the
+        // status write + pty:error broadcast; the restart flow owns the row
+        // state. Grep-twins: resume-launcher.attachExitPersistence,
+        // swarms/factory-spawn.
+        if (rec.expectedExit) return;
         const earlyDeath = Date.now() - startedMs < 1500;
         const isCrash = isPtyCrash(earlyDeath, exitCode, signal);
         try {
