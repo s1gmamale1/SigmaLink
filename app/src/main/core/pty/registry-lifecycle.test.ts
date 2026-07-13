@@ -230,6 +230,57 @@ describe('exit pane-event kind hardening (finding 5)', () => {
   });
 });
 
+describe('account-switch expected-exit suppression (2026-07-14)', () => {
+  function createWithPaneEvents() {
+    const fake = makeLifecyclePty();
+    vi.mocked(spawnLocalPty).mockReturnValue(fake.pty);
+    const paneEvents: Array<{ sessionId: string; kind: string }> = [];
+    const exitSink: string[] = [];
+    const registry = new PtyRegistry(
+      () => undefined,
+      (id) => exitSink.push(id),
+      { onPaneEvent: (e) => paneEvents.push({ sessionId: e.sessionId, kind: e.kind }) },
+    );
+    registry.create({ ...baseInput, sessionId: 'pane-1' });
+    paneEvents.length = 0; // drop the create-time 'started'
+    return { fake, registry, paneEvents, exitSink };
+  }
+
+  it('markExpectedExit suppresses the exit pane-event but the exit sink still fires', () => {
+    const { fake, registry, paneEvents, exitSink } = createWithPaneEvents();
+    registry.markExpectedExit('pane-1');
+    fake.fireExit(1, 15); // signal-kill shape (the restart flow's kill)
+    // pty:exit sink must still fire — the renderer needs it to re-attach.
+    expect(exitSink).toEqual(['pane-1']);
+    // …but no phantom 'error' pane event reaches jorvis/missions/notifications.
+    expect(paneEvents).toEqual([]);
+  });
+
+  it('the same exit WITHOUT the flag still reports an error pane-event (baseline)', () => {
+    const { fake, paneEvents, exitSink } = createWithPaneEvents();
+    fake.fireExit(1, 15);
+    expect(exitSink).toEqual(['pane-1']);
+    expect(paneEvents).toEqual([{ sessionId: 'pane-1', kind: 'error' }]);
+  });
+
+  it('a record re-created after the expected exit starts clean (flag dies with the record)', () => {
+    const { fake, registry } = createWithPaneEvents();
+    registry.markExpectedExit('pane-1');
+    fake.fireExit(1, 15);
+    const second = makeLifecyclePty();
+    vi.mocked(spawnLocalPty).mockReturnValue(second.pty);
+    const resumed = registry.create({ ...baseInput, sessionId: 'pane-1', isResume: true });
+    expect(resumed.expectedExit).toBeUndefined();
+  });
+
+  it('markExpectedExit on an unknown id is a no-op', () => {
+    const fake = makeLifecyclePty();
+    vi.mocked(spawnLocalPty).mockReturnValue(fake.pty);
+    const registry = new PtyRegistry(() => undefined, () => undefined);
+    expect(() => registry.markExpectedExit('nope')).not.toThrow();
+  });
+});
+
 describe('shell-first sentinel split across PTY reads (finding 4)', () => {
   function createShellFirstSession(
     cliExits: Array<{ sessionId: string; exitCode: number }>,

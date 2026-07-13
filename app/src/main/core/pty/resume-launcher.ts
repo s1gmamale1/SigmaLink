@@ -204,7 +204,10 @@ interface ResumeRow {
   autoApprove: number | null;
 }
 
-function readShowLegacy(db: Database.Database): boolean {
+// The row/spawn bookkeeping helpers below are exported for the account-switch
+// restart flow (claude-account-watch.ts), which mirrors this file's claude
+// resume branch for LIVE panes — one implementation, two consumers.
+export function readShowLegacy(db: Database.Database): boolean {
   try {
     const row = db
       .prepare('SELECT value FROM kv WHERE key = ?')
@@ -215,7 +218,7 @@ function readShowLegacy(db: Database.Database): boolean {
   }
 }
 
-function readSpawnMode(db: Database.Database): 'direct' | 'shell-first' {
+export function readSpawnMode(db: Database.Database): 'direct' | 'shell-first' {
   try {
     const row = db
       .prepare('SELECT value FROM kv WHERE key = ?')
@@ -226,7 +229,7 @@ function readSpawnMode(db: Database.Database): 'direct' | 'shell-first' {
   }
 }
 
-function writeProviderEffective(
+export function writeProviderEffective(
   db: Database.Database,
   sessionId: string,
   providerEffective: string,
@@ -249,7 +252,7 @@ function writeProviderEffective(
  * id instead of re-ghosting forever. Unlike the router's persistExternalSessionId
  * (which only writes into a NULL/empty column), this is unconditional.
  */
-function setExternalSessionId(
+export function setExternalSessionId(
   db: Database.Database,
   sessionId: string,
   value: string | null,
@@ -262,7 +265,7 @@ function setExternalSessionId(
   }
 }
 
-function markResumeFailed(
+export function markResumeFailed(
   db: Database.Database,
   sessionId: string,
   now: number,
@@ -278,7 +281,7 @@ function markResumeFailed(
   }
 }
 
-function markResumeRunning(
+export function markResumeRunning(
   db: Database.Database,
   sessionId: string,
   startedAt: number,
@@ -290,7 +293,7 @@ function markResumeRunning(
   ).run(startedAt, sessionId);
 }
 
-function attachExitPersistence(
+export function attachExitPersistence(
   db: Database.Database,
   sessionId: string,
   rec: SessionRecord,
@@ -298,6 +301,11 @@ function attachExitPersistence(
 ): void {
   const startedMs = rec.startedAt;
   rec.pty.onExit(({ exitCode, signal }) => {
+    // account-switch restart (2026-07-14) — an EXPECTED kill (the restart flow
+    // is about to resume this row in place) is not a crash: skip the status
+    // write + pty:error broadcast entirely. The restart flow owns the row
+    // state afterwards (running on success, exited/-1 on spawn failure).
+    if (rec.expectedExit) return;
     // Treat any exit within 1.5s of spawn as a launch failure, and ALSO any
     // non-zero exit code / signal as a crash — via the SHARED classifier so
     // this third exit-classification site finally matches its two siblings

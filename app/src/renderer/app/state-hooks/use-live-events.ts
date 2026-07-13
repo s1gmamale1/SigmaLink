@@ -391,6 +391,72 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
     return off;
   }, [dispatch]);
 
+  // claude account-switch propagation (2026-07-14) — main detected a
+  // ~/.claude.json account switch and (by default) already killed + resumed
+  // every live claude pane in place. Two jobs here:
+  //   1. EVERY window: refetch the touched workspaces' panes so the restarted
+  //      sessions (briefly 'exited' via pty:exit) re-upsert as running before
+  //      the exited-session GC drops them from the grid (ADD_SESSIONS is the
+  //      same idempotent upsert the dispatch-echo path uses).
+  //   2. MAIN window only (matches the notifications delta — scoped windows
+  //      would double the alert): surface the switch as a toast.
+  useEffect(() => {
+    const off = window.sigma.eventOn('claude:account-switched', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const p = raw as {
+        emailAddress?: unknown;
+        autoRestarted?: unknown;
+        restarted?: unknown;
+        failed?: unknown;
+        workspaceIds?: unknown;
+      };
+      const workspaceIds = Array.isArray(p.workspaceIds)
+        ? (p.workspaceIds.filter((id) => typeof id === 'string') as string[])
+        : [];
+      for (const wsId of workspaceIds) {
+        void (async () => {
+          try {
+            const sessions = await rpcSilent.panes.listForWorkspace(wsId);
+            if (sessions && sessions.length > 0) {
+              dispatch({ type: 'ADD_SESSIONS', sessions });
+            }
+          } catch {
+            /* best-effort — panes re-populate on next workspace reopen */
+          }
+        })();
+      }
+      if (!isMainWindow()) return;
+      const email =
+        typeof p.emailAddress === 'string' && p.emailAddress
+          ? p.emailAddress
+          : 'a different account';
+      const restarted = typeof p.restarted === 'number' ? p.restarted : 0;
+      const failed = typeof p.failed === 'number' ? p.failed : 0;
+      if (p.autoRestarted !== true) {
+        toast.warning(`Claude account switched to ${email}`, {
+          description:
+            'Auto-restart is off — running claude panes keep the previous account until restarted.',
+          duration: 8000,
+        });
+        return;
+      }
+      if (failed > 0) {
+        toast.warning(`Claude account switched to ${email}`, {
+          description: `Restarted ${restarted} claude pane(s); ${failed} failed — respawn those panes manually.`,
+          duration: 8000,
+        });
+      } else if (restarted > 0) {
+        toast.success(`Claude account switched to ${email}`, {
+          description: `Restarted ${restarted} claude pane(s) on the new account.`,
+          duration: 5000,
+        });
+      } else {
+        toast(`Claude account switched to ${email}`, { duration: 3000 });
+      }
+    });
+    return off;
+  }, [dispatch]);
+
   // Listen for swarm:message so the side-chat updates live across rooms.
   useEffect(() => {
     const off = window.sigma.eventOn('swarm:message', (raw: unknown) => {

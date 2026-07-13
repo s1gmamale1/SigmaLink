@@ -565,6 +565,12 @@ export async function spawnAgentSession(
   // launcher.ts) so non-zero exit codes and signals are surfaced as 'error'.
   const startedMs = rec.startedAt;
   rec.pty.onExit(({ exitCode, signal }) => {
+    // account-switch restart (2026-07-14) — an EXPECTED kill (restart flow is
+    // about to resume this row in place) is not a crash: skip the session +
+    // swarm-agent status writes; the restart flow owns the row state and the
+    // agent is still conceptually running. Grep-twins:
+    // resume-launcher.attachExitPersistence, workspaces/launcher.
+    if (rec.expectedExit) return;
     const earlyDeath = Date.now() - startedMs < 1500;
     const isCrash = isPtyCrash(earlyDeath, exitCode, signal);
     try {

@@ -99,9 +99,11 @@ vi.mock('../../lib/window-context', async (importOriginal) => {
 const toastMock = vi.fn() as ReturnType<typeof vi.fn> & {
   warning: ReturnType<typeof vi.fn>;
   error: ReturnType<typeof vi.fn>;
+  success: ReturnType<typeof vi.fn>;
 };
 toastMock.warning = vi.fn();
 toastMock.error = vi.fn();
+toastMock.success = vi.fn();
 vi.mock('sonner', () => ({ toast: toastMock }));
 
 // P3 — KV is read per delta (DND / quiet-hours / per-source mute). Back it with
@@ -195,6 +197,7 @@ beforeEach(() => {
   toastMock.mockReset();
   toastMock.warning.mockReset();
   toastMock.error.mockReset();
+  toastMock.success.mockReset();
 });
 
 afterEach(() => {
@@ -951,5 +954,107 @@ describe('useLiveEvents — assistant:dispatch-echo hydrates the grid in ANY roo
 
     expect(panesListSilentMock).not.toHaveBeenCalled();
     expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'ADD_SESSIONS' }));
+  });
+});
+
+// ---- claude account-switch propagation (2026-07-14) --------------------------
+//
+// Main detected a ~/.claude.json account switch and restarted every live
+// claude pane in place. The subscriber (1) refetches the touched workspaces'
+// panes in EVERY window so the briefly-'exited' sessions re-upsert as running
+// before the exited-session GC drops them, and (2) toasts MAIN-window-only.
+
+describe('useLiveEvents — claude:account-switched subscriber', () => {
+  it('refetches touched workspaces (ADD_SESSIONS) and toasts success on the main window', async () => {
+    isMainWindowMock = true;
+    const restarted = session('s1');
+    panesListSilentMock.mockResolvedValue([restarted]);
+    await renderLiveEvents(stateWith([restarted]));
+
+    await act(async () => {
+      sigma.emit('claude:account-switched', {
+        emailAddress: 'new@x.com',
+        previousEmailAddress: 'old@x.com',
+        autoRestarted: true,
+        restarted: 2,
+        failed: 0,
+        skipped: 0,
+        workspaceIds: ['a'],
+      });
+      await Promise.resolve();
+    });
+
+    expect(panesListSilentMock).toHaveBeenCalledWith('a');
+    expect(dispatch).toHaveBeenCalledWith({ type: 'ADD_SESSIONS', sessions: [restarted] });
+    expect(toastMock.success).toHaveBeenCalledTimes(1);
+    expect(String(toastMock.success.mock.calls[0][0])).toContain('new@x.com');
+    expect(toastMock.warning).not.toHaveBeenCalled();
+  });
+
+  it('a scoped (non-main) window reconciles pane state but never toasts', async () => {
+    isMainWindowMock = false;
+    panesListSilentMock.mockResolvedValue([session('s1')]);
+    await renderLiveEvents(stateWith([session('s1')]));
+
+    await act(async () => {
+      sigma.emit('claude:account-switched', {
+        emailAddress: 'new@x.com',
+        autoRestarted: true,
+        restarted: 1,
+        failed: 0,
+        skipped: 0,
+        workspaceIds: ['a'],
+      });
+      await Promise.resolve();
+    });
+
+    expect(panesListSilentMock).toHaveBeenCalledWith('a');
+    expect(toastMock.success).not.toHaveBeenCalled();
+    expect(toastMock.warning).not.toHaveBeenCalled();
+    expect(toastMock).not.toHaveBeenCalled();
+    isMainWindowMock = true;
+  });
+
+  it('autoRestarted:false → notify-only warning (panes kept the old account)', async () => {
+    isMainWindowMock = true;
+    await renderLiveEvents(stateWith([session('s1')]));
+
+    await act(async () => {
+      sigma.emit('claude:account-switched', {
+        emailAddress: 'new@x.com',
+        autoRestarted: false,
+        restarted: 0,
+        failed: 0,
+        skipped: 0,
+        workspaceIds: [],
+      });
+      await Promise.resolve();
+    });
+
+    expect(panesListSilentMock).not.toHaveBeenCalled();
+    expect(toastMock.warning).toHaveBeenCalledTimes(1);
+    expect(toastMock.success).not.toHaveBeenCalled();
+  });
+
+  it('a partial failure surfaces as a warning with the failed count', async () => {
+    isMainWindowMock = true;
+    panesListSilentMock.mockResolvedValue([session('s1')]);
+    await renderLiveEvents(stateWith([session('s1')]));
+
+    await act(async () => {
+      sigma.emit('claude:account-switched', {
+        emailAddress: 'new@x.com',
+        autoRestarted: true,
+        restarted: 1,
+        failed: 1,
+        skipped: 0,
+        workspaceIds: ['a'],
+      });
+      await Promise.resolve();
+    });
+
+    expect(toastMock.warning).toHaveBeenCalledTimes(1);
+    expect(String(toastMock.warning.mock.calls[0][1]?.description ?? '')).toContain('1 failed');
+    expect(toastMock.success).not.toHaveBeenCalled();
   });
 });

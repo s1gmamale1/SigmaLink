@@ -618,6 +618,18 @@ describe('CHANNELS vs AppRouter cross-reference (v1.5.3-B)', () => {
   });
 
   /**
+   * claude account-switch propagation (2026-07-14) — main broadcasts
+   * 'claude:account-switched' after the ~/.claude.json watcher restarts live
+   * claude panes; use-live-events subscribes for the pane refetch + toast.
+   * Without an EVENTS entry the preload's eventOn silently no-ops (the #188
+   * dead-plane class — and the source-scan guard below only covers
+   * assistant:/panes: prefixes, so this explicit pin is the guard here).
+   */
+  it('claude:account-switched is in EVENTS allowlist', () => {
+    expect(EVENTS.has('claude:account-switched')).toBe(true);
+  });
+
+  /**
    * P1a Task 5 — the 5 mission-board tools (Task 4) already `ctx.emit?.(
    * 'missions:changed', {})` on every mutating call. Without an EVENTS entry
    * the preload's eventOn silently no-ops the renderer's (Task 6) subscription

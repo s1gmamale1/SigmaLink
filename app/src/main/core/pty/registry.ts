@@ -73,6 +73,15 @@ export interface SessionRecord {
    * Optional for backwards compatibility with existing SessionRecord mocks in tests.
    */
   spawnMode?: 'direct' | 'shell-first';
+  /**
+   * account-switch restart (2026-07-14) — set via `markExpectedExit()` right
+   * before a deliberate kill-then-resume-in-place. The exit-classification
+   * closures (resume-launcher / workspaces-launcher / factory-spawn) and the
+   * registry's own onPaneEvent sink consult it to NOT report the kill as a
+   * crash / pane-error event. Lives on the record, so the flag dies with it —
+   * the respawned record starts clean.
+   */
+  expectedExit?: boolean;
 }
 
 export type DataSink = (sessionId: string, data: string) => void;
@@ -394,7 +403,11 @@ export class PtyRegistry {
         rec.exitedAt = Date.now();
       }
       this.onExit(id, exitCode, signal);
-      if (this.onPaneEvent) {
+      // account-switch restart — an expected kill-then-resume must not feed
+      // the pane-event sinks (jorvis monitor, mission watcher, notifications)
+      // a phantom 'error'; the pane comes right back under the same id. The
+      // pty:exit broadcast above still fires so the renderer re-attaches.
+      if (this.onPaneEvent && rec?.expectedExit !== true) {
         try {
           // Finding 5 — derive kind/exitCode from the exit callback args, not
           // the map record: when the record was already forgotten (an exit
@@ -504,6 +517,17 @@ export class PtyRegistry {
 
   kill(id: string): void {
     this.stop(id, { tree: true });
+  }
+
+  /**
+   * account-switch restart (2026-07-14) — flag the next exit of `id` as
+   * deliberate (kill-then-resume-in-place). Consulted by the exit
+   * classifiers + the onPaneEvent sink; see SessionRecord.expectedExit.
+   * No-op for unknown ids.
+   */
+  markExpectedExit(id: string): void {
+    const rec = this.sessions.get(id);
+    if (rec) rec.expectedExit = true;
   }
 
   processSnapshot(id: string): ProcessTreeSnapshot | null {

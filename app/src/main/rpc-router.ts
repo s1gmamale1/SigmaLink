@@ -26,6 +26,12 @@ import {
   listSessionsInCwd,
 } from './core/pty/session-disk-scanner';
 import { resumeWorkspacePanes, respawnFailedWorkspacePanes } from './core/pty/resume-launcher';
+import {
+  createClaudeAccountWatcher,
+  restartLiveClaudePanes,
+  KV_CLAUDE_ACCOUNT_AUTORESTART,
+  type ClaudeAccountWatcher,
+} from './core/pty/claude-account-watch';
 import { markPaneClosed } from './core/pty/mark-pane-closed';
 import { probeAllProviders, probeProviderById } from './core/providers/probe';
 import { summarizeTitle } from './core/providers/pane-title-summarizer';
@@ -257,6 +263,8 @@ let sigmabenchHandlers: Record<string, (...args: unknown[]) => unknown> | null =
 let designShutdown: (() => void) | null = null;
 /** PERF-1 — module ref so shutdownRouter can flush + cancel the coalescer timer. */
 let ptyDataCoalescerRef: PtyDataCoalescer | null = null;
+/** claude account-switch watcher — module ref so shutdownRouter stops the poll. */
+let claudeAccountWatcherRef: ClaudeAccountWatcher | null = null;
 /** 2026-07-02 fix B — TRUE from the moment shutdownRouter starts, so the
  *  quit-time killAll() pane exits don't persist phantom "Pane exited" warns.
  *  Reset on registerRouter for the win32 close-all-windows → reopen path
@@ -3010,6 +3018,49 @@ async function buildRouter() {
   // unref() so a pending sweep tick can never hold the process open at quit;
   // sweep() itself swallows everything, so a tick racing DB teardown is inert.
   setInterval(() => missionReconciler.sweep('periodic'), MISSION_SWEEP_INTERVAL_MS).unref();
+  // claude account-switch propagation (2026-07-14) — the claude CLI caches
+  // credentials in memory per process and (on macOS) never notices a
+  // keychain-side /login switch, so running panes keep serving the OLD
+  // account until restarted (WISHLIST "Deep review findings (2026-07-14)").
+  // Watch ~/.claude.json for the oauthAccount identity change and restart
+  // every live claude pane in place (--resume) so all panes adopt the new
+  // account. KV 'claude.accountSwitch.autoRestart' — default ON; '0' =
+  // notify-only toast (panes keep the old account until manually restarted).
+  const claudeAccountWatcher = createClaudeAccountWatcher({
+    onSwitch: (next, prev) => {
+      if (routerShuttingDown) return;
+      void (async () => {
+        const autoRestart = readKv(KV_CLAUDE_ACCOUNT_AUTORESTART) !== '0';
+        let restart = {
+          restarted: 0,
+          failed: 0,
+          skipped: 0,
+          workspaceIds: [] as string[],
+        };
+        if (autoRestart) {
+          try {
+            restart = await restartLiveClaudePanes({
+              pty,
+              broadcastPtyError: (payload) => broadcast('pty:error', payload),
+            });
+          } catch {
+            /* a failed restart sweep must never kill the watcher */
+          }
+        }
+        broadcast('claude:account-switched', {
+          emailAddress: next.emailAddress,
+          previousEmailAddress: prev.emailAddress,
+          autoRestarted: autoRestart,
+          restarted: restart.restarted,
+          failed: restart.failed,
+          skipped: restart.skipped,
+          workspaceIds: restart.workspaceIds,
+        });
+      })();
+    },
+  });
+  claudeAccountWatcher.start();
+  claudeAccountWatcherRef = claudeAccountWatcher;
   // BUG-V1.1.2-01 — Late-bind the bridge's tool invoker now that the
   // controller has been constructed. The bridge already listens (or will
   // start listening below); any incoming `tools.invoke` calls that race
@@ -3621,6 +3672,14 @@ export async function shutdownRouter(): Promise<void> {
   // (SIGTERM → onExit → onPaneEvent) are recognized as deliberate shutdown
   // and don't persist phantom "Pane exited (code 143)" warns for next boot.
   routerShuttingDown = true;
+  // account-switch watcher — stop the ~/.claude.json poll before killAll()
+  // so a quit-time stat tick can't fire a restart sweep mid-teardown.
+  try {
+    claudeAccountWatcherRef?.stop();
+  } catch {
+    /* never block shutdown */
+  }
+  claudeAccountWatcherRef = null;
   // v1.9-scrollback — DEFAULT-OFF. Persist every live session's buffer
   // snapshot BEFORE killAll() tears down the PTYs, so we capture the last
   // visible scrollback. Best-effort: errors are swallowed so shutdown is
