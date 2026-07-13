@@ -1,0 +1,66 @@
+SigmaLink v3.0.0 — 2026-07-14
+=============================
+
+SigmaLink gets a resident operator. Jorvis graduates from a chat
+assistant to a persistent operator: it keeps a mission board, spawns
+and monitors its own worktree pane fleet, reviews their output,
+retries with a hard cap, remembers across restarts, carries a real
+identity, and takes orders from your phone or from an external agent
+plane — the whole loop live-verified end-to-end from one external
+submit_task. Autonomy ships OFF by default behind four hard gates
+(enabled flag, kill-switch, quiet hours, daily wake budget), and a
+pre-tag review round closed the loop's liveness holes so overnight
+work survives quiet hours and app restarts. Also in: stable macOS
+local signing (TCC grants finally survive updates), pane click-to-
+focus, and the composer wrap fix. CI-green on macOS + Windows +
+Ubuntu.
+
+See CHANGELOG.md [3.0.0] for the itemized record.
+
+
+The Jorvis persistent operator (Phases 19-22)
+---------------------------------------------
+
+- Mission board: kanban schema, a pure lifecycle state machine as the
+  single source of truth, mission tools, RPC surface, Missions room.
+- Autonomy loop: dispatch_task spawns worktree-isolated CLI panes; a
+  watcher chains task states off pane exits; a wake scheduler gates
+  every model turn behind the quadruple cap; a supervisor frames wakes
+  as autonomous turns so the brain drives the board itself.
+- Retry with a spine: review verdicts re-dispatch with a revised spec
+  up to 3 attempts — the autonomous lane cannot launder the counter;
+  at the cap the task blocks and your phone gets pinged.
+- Persistent identity: the Sigma-Profile charter is Jorvis's system
+  prompt, rendered per-target so Jorvis knows it is Jorvis; FTS5
+  memory + wake-time recall; postmortem wakes distill every mission;
+  charter amendments stay inert until the operator approves.
+- Two command channels: a Telegram cockpit (allowlisted chat, one
+  scrub+escape choke point, dangerous ops behind a phone confirm) and
+  an external mission plane where submit_task takes orders free while
+  raw board mutations escalate with unguessable one-shot grants.
+- Pre-tag liveness hardening: a new reconciler sweep re-derives
+  dropped wakes from the durable board (boot + every 10 minutes), so
+  quiet hours, budget exhaustion, and restarts can no longer strand
+  in-flight tasks.
+
+Fixed
+-----
+
+- macOS TCC grants survive updates: stable self-signed local identity
+  replaces per-build ad-hoc cdhashes; keychain import pins system
+  openssl.
+- Clicking a pane always focuses it (release-gate race + chrome-click
+  gap deleted).
+- Jorvis composer wraps long text instead of extending on one line.
+- Stale error-row Retry could orphan a live turn; amendment
+  Approve/Deny failures were silently swallowed.
+
+Notes
+-----
+
+- Autonomy is OFF by default (missions.autonomy.enabled = '0'). Flip
+  it consciously; the kill-switch freezes everything at any time.
+- Accepted by design: submit_task is escalation-free (the two-plane
+  door) — with autonomy ON it transitively reaches code execution in
+  worktree-isolated panes, fenced by the quadruple gate; external
+  prompt_agent to agent panes rides the bearer-token trust boundary.

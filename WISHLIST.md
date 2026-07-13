@@ -156,3 +156,16 @@ _Root cause of the "granted permissions keep re-asking" issue = ad-hoc signature
 - 🧹 **[sigma-profile] `dist/jorvis/self-upgrade.md` body still says "Self-upgrade to the Sigma operator standard"** under a `# Jorvis` header — the blockquote sentence is unparameterized in `render.mjs`. Harmless (Jorvis IS a Sigma-operator specialization); align next time the renderer is touched. Effort: XS. (gate-sp2.)
 - 🧹 **[sigma-profile][test] no pin proves `renderHermes`'s default title/preamble reproduce the old hermes output byte-for-byte** — today only CI's `--check` idempotency + a human diff catch a default-string edit; a tiny hash/length assertion on `dist/hermes/system-prompt.md` would fail loudly. Effort: XS. (gate-sp2.)
 - ℹ️ **[hygiene] `git stash@{0}` in the SigmaLink repo holds another session's uncommitted `macos-stable-sign.sh` edit** (duplicates merged #234 content per gate-235's read) — inspect + drop when convenient; parked as a stash instead of discarded because it wasn't this session's work to delete.
+
+---
+
+## 📥 Parked (2026-07-14) — v3.0.0 pre-release review minors
+
+_The 3-lane pre-tag review (fa96ef2..bd2b4f9) + the #237 gate reviewer surfaced these below the fix line. All Importants were fixed in #237; these are the leftovers._
+
+- 🧪 **[test-infra][flake] `VoiceTab.test.tsx:149` "renders the regular Native diagnostics dot on darwin" is timing-flaky** — `setTimeout(r,0)` microtask race in a darwin-gated test; blocked PR #237's `lint + build (macos)` once (cleared by rerun), untouched by the diff. De-flake with `findByTestId`/waitFor instead of the raw timeout. Effort: XS–S.
+- 🧹 **[jorvis][docs] reconcile's all-backlog `decompose` re-enqueue is not deduped** (only `review` wakes are) — bounded by the daily budget and idempotent via the directive's "do NOT create duplicates" rail, but unlike the review case it isn't called out in `reconcile.ts`'s header. Doc nit. Effort: XS.
+- ℹ️ **[jorvis] boot sweep can move a `working` task to `reviewing` while its pane session resumes and re-emits `started`** (legal reviewing→working regress) — brief churn that self-heals on the next terminal event. Watch, don't fix. (gate-237.)
+- 🧹 **[jorvis] a MAX_ATTEMPTS cap-block review wake spends a budget point with zero model spend** — conservative direction, harmless; free the point if budget pressure ever matters. Effort: XS. (lane-core.)
+- 🧹 **[jorvis] draft-origin missions never auto-rollup to done** — `rollupMissionStatus` only promotes `active` missions and local `create_mission` leaves `draft` with no activate tool; submit_task/telegram missions ARE activated, so only local-chat drafts rely on an explicit `complete_mission`. Effort: S. (lane-core.)
+- 🛡️ **[telegram][defense-in-depth] strip the bot token from error messages before auditing** — `telegram-client.ts` embeds the token in the Bot-API URL; no current error path echoes it, but `bridge.ts` audits raw `err.message` to disk, so a future instrumented fetch could leak it. Scrub at the audit boundary. Effort: XS–S. (lane-sec.)

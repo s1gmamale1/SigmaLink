@@ -2,6 +2,35 @@
 
 All notable changes to SigmaLink are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once tagged releases begin.
 
+## [3.0.0] — 2026-07-14
+
+**v3.0.0 ships Jorvis as a persistent operator — a resident agent with a mission board, its own worktree pane fleet, a budget-capped autonomy loop that survives restarts and quiet hours, durable memory and identity, and two remote command channels (Telegram cockpit + external mission plane) — the whole arc live-verified end-to-end from a single external `submit_task`. Autonomy ships default-OFF behind a quadruple gate. Plus: stable macOS local signing so TCC grants survive updates, pane click-to-focus, composer wrap, and a pre-tag review round that hardened the loop's liveness.**
+
+### Added — Jorvis persistent operator (Phases 19–22)
+
+- **P0 reliability foundation (#222, #223)**: atomic busy-turn claim (check+claim in one macrotask), resilient CLI-envelope parsing with fixture-pinned unknown-subtype handling, error-row Retry, fresh-session control, per-turn watchdog self-heal, and LLM string-primitive coercion at the single tool-parse choke point (+ deferred-tools prompt rail).
+- **P1a mission board (#224)**: kanban schema (migration 0039: missions/tasks/events + triggers), a pure lifecycle state machine as the single source of truth, DAO, five mission tools (mutations escalate for external callers), RPC surface, and the Missions room UI.
+- **P1b mission autonomy (#225)**: `dispatch_task` spawns worktree-isolated CLI panes; a mission watcher chains `dispatched→working→reviewing` off pane exit events; a wake scheduler gates every model turn behind FOUR hard caps — enabled flag (migration 0040 seeds `'0'`: **default-OFF**), the control-plane kill-switch, quiet hours, and a per-day wake budget; a supervisor frames wakes as `origin:'autonomous'` turns so the brain drives the board with its own tool calls.
+- **P1c retry loop + P2 persistent identity (#229)**: review verdicts can re-dispatch with a `revisedSpec` up to `MAX_ATTEMPTS=3` — the autonomous lane is monotonic and cannot launder the counter; the Sigma-Profile charter becomes Jorvis's system prompt; `jorvis_memory` (migration 0041, FTS5) + wake-time memory recall; KV-durable mission→conversation pinning (restart-safe); postmortem wakes distill every finished/blocked mission into memory; `propose_amendment` queues charter changes that stay INERT until the operator approves.
+- **P3 channels (#230)**: Telegram cockpit — allowlisted chat id on every inbound path, all outbound through one scrub+escape choke point, dangerous tools behind a phone-confirm door, proactive pushes for cap-blocks/verdicts — and the external mission plane (ADR-011 two-plane door): `submit_task` is the free order-taking surface while raw board mutations escalate; unguessable (`randomUUID`) one-shot escalation grants; migration 0042 channels KV.
+- **Persona (#233)**: the vendored charter is rendered per-target — Jorvis now knows it is Jorvis (was a Hermes byte-clone), with the identity pinned by tests so a wrong-shaped re-sync fails loudly.
+
+### Fixed — pre-tag hardening (#237)
+
+- **Autonomy liveness**: the scheduler discards gate-dropped wakes and the watcher only sees live pane events, so a pane exiting during quiet hours — or an app restart, which kills every dispatched CLI — stranded in-flight tasks forever. A new mission reconciler re-derives lost wakes from the durable board (boot sweep + 10-minute periodic sweep, all four gates still apply), and the decompose directive lists existing tasks so a catch-up re-decompose cannot double the board.
+- **Stale Retry**: the Jorvis error-row Retry button rendered forever and had no busy-guard — a late click re-sent a stale prompt and could orphan a live turn's events. Retry now renders only while the error is the last committed message and is withheld while a turn is in flight.
+- **Silent amendment failures**: a rejected Approve/Deny RPC vanished as an unhandled rejection; it now surfaces as a toast and the row stays for retry.
+
+### Fixed
+
+- **macOS TCC grants survive updates (#232, #234)**: local builds sign with a stable self-signed identity instead of ad-hoc per-build cdhashes, so Accessibility/Screen-Recording grants stop dying on every update; the keychain import pins system openssl (Homebrew openssl@3 emits PBES2 p12s that `security import` rejects).
+- **Pane click always focuses (#226)**: deleted the check/claim race in the release gate (a mouseup gated on a re-read of live tracking state) and chrome clicks now move keyboard focus to the pane's terminal.
+- **Jorvis composer wraps (#235)**: long text extended the composer on one runaway line — the inner column was a flex item flooring at content min-width (`min-w-0`).
+
+### Security
+
+- External mission plane review (2 opus lanes, pre-tag): token-authed external calls cannot reach `DANGEROUS_REMOTE` tools without an escalation grant; escalation ids are unguessable and one-shot; every Telegram inbound checks the allowlisted chat id; outbound is scrubbed+escaped at one choke point. **Accepted by design**: `submit_task` is escalation-free (the two-plane door) — with autonomy enabled it transitively reaches code execution in worktree-isolated panes, fenced by default-OFF + daily budget + kill-switch + phone-confirm on dangerous sends; external `prompt_agent` to agent panes is free (the bearer token is the trust boundary).
+
 ## [2.9.1] — 2026-07-05
 
 **v2.9.1 kills the ghost panes — every pane death path now stamps `closed_at` and the workspace readers hide closed slots instead of un-shadowing their past — plus: minimised panes stop popping open, the 20-agent cap stops counting exited ghosts, cross-workspace session resume is guarded again, the DOM cursor follows the per-theme terminal palette, and the release rolls up the minimal-chrome shell (#215), the Aurora + Cupertino theme families (#214), and both notification fix rounds (#212, #217).**
