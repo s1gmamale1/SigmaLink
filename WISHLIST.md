@@ -6,10 +6,9 @@
 > Buckets: **Deferred by design** (consciously out of scope) and **Future enhancements**
 > (planned-later upgrades). **New ideas** is the untriaged inbox.
 >
-> **Cleared 2026-07-14** after the v3.0.0 release. The full jorvis-cycle inbox
-> (P1b/P1c review minors, pre-release parks, TCC/worktree-config findings, telegram/test-infra
-> flakes, …) is preserved verbatim in
-> [docs/03-plan/archive/WISHLIST-jorvis-cycle-v3.0.0-2026-07-14.md](docs/03-plan/archive/WISHLIST-jorvis-cycle-v3.0.0-2026-07-14.md)
+> **Cleared 2026-07-17** after the v3.0.0 cycle closed out (#238 merged). The previous inbox
+> (PR #238 review minors, the claude account-switch deep-review findings) is preserved verbatim in
+> [docs/03-plan/archive/WISHLIST-v3.0.0-cycle-2026-07-17.md](docs/03-plan/archive/WISHLIST-v3.0.0-cycle-2026-07-17.md)
 > — still-alive items get re-promoted from there when they come up.
 
 ---
@@ -30,78 +29,103 @@ _(real upgrades to build once the current system is production-grade)_
 
 _(raw ideas land here; promote to ROADMAP.md once scoped into a phase)_
 
-### PR #238 claude account-switch — parked review minors (2026-07-14)
-
-_Opus full-gate review GREEN 94/100; the 4 logged non-blockers:_
-
-- 🧹 **[panes] no single-flight guard on overlapping account switches** — `rpc-router.ts` onSwitch
-  fires a fire-and-forget restart sweep; two rapid `/login` switches (2s poll vs multi-second sweep)
-  can overlap. Traced safe (mid-flight panes skip, worst case a redundant restart) — a
-  `restartInFlight` boolean would harden it. Effort: XS. (rev-238.)
-- ℹ️ **[panes][swarm] re-homed swarm-agent claude panes lose SIGMA:: mailbox wiring + swarm-aware
-  onExit** — pre-existing boot-resume limitation faithfully mirrored (`listEligibleRows` resumes swarm
-  panes generically every boot, same generic `attachExitPersistence`); if boot-resume ever re-wires
-  swarm panes, mirror it in `restartLiveClaudePanes`. Effort: M. (rev-238.)
-- 🧹 **[test] rpc-router onSwitch glue untested** — the readKv gate → restart → broadcast IIFE has no
-  direct test (fails silent, try/catch-guarded); same class as the parked jorvis rpc-router-glue gap.
-  A switch→broadcast smoke closes it. Effort: S. (rev-238.)
-- ℹ️ **[ux][watch] account-switch auto-restart is default-ON with no prior opt-in** — intended (it IS
-  the fix), toasted, reversible via KV `claude.accountSwitch.autoRestart='0'`; revisit only if an
-  operator is surprised by a mid-generation restart. (rev-238.)
-
 ---
 
-## 🔬 Deep review findings (2026-07-14) — claude account-switch does not propagate to running panes
+## 🔬 Deep review findings (2026-07-17) — codex pane shows "Pane crashed (exit unknown)" over a LIVE terminal
 
-_3-lane read-only recon (SigmaLink codebase · installed claude CLI binary internals · upstream docs/issues)
-run on `fix/claude-account-switch-propagation`. Symptom: `/login` account switch in one pane leaves every
-other RUNNING claude pane on the OLD account until manually restarted (effectively multi-account-simultaneous)._
+_Operator report + screenshot: a codex pane (`Lyra · high` / "ruflo superpower bug", `gpt-5.6-sol xhigh`,
+cwd `~/projects/SigmaDevelopment`) renders the red **"Pane crashed (exit unknown) — Scrollback preserved
+below."** banner + Relaunch button, while the terminal underneath is visibly alive and streaming
+(`Working (3m 20s • esc to interrupt) · 1 background terminal running`, live prompt, live status line)._
 
-### Root cause (CONFIRMED, high confidence)
+### Root cause (CONFIRMED — hard receipt, not inference)
 
-**Not SigmaLink code — the claude CLI child process caches credentials per-process, and its staleness
-probe has a macOS-specific blind spot.**
+**A content scanner reports through the process-death channel. The PTY is never touched.**
 
-- SigmaLink is auth-neutral: every claude spawn (pane PTY `app/src/main/core/pty/local-pty.ts:562,751`;
-  headless Jorvis `app/src/main/core/assistant/runClaudeCliTurn.ts:283` → `spawn-cross-platform.ts:66`)
-  inherits live `process.env` untouched — zero `ANTHROPIC_*` / OAuth injection anywhere in `src/`
-  (grep-verified), no watcher on `~/.claude*`, no login-reactive respawn hook.
-- The CLI (2.1.207 binary, strings-inspected) holds creds in a **memoized in-memory getter**; its
-  re-read probe busts the memo on **`.credentials.json` file mtime change** — but on macOS the
-  **keychain** (`Claude Code-credentials`) is the authoritative store read-priority-over-file, so a
-  keychain-side account switch never trips the file-mtime probe → sibling sessions serve the old
-  account until their ~1h expiry check or process restart.
-- Upstream-known class: no propagation + refresh-token rotation races between concurrent sessions
-  (anthropics/claude-code #24317, #54443, #56339); `/login` may not even update `oauthAccount` in the
-  same session (#23906); **no supported hot-reload** of creds in a running session (open feat reqs
-  #36847, #23892). Restart is the only reliable adopt path. Bonus hazard: a stale old-account session's
-  own refresh can write old-account-derived tokens back over the new login (single shared slot, lock is
-  accessToken-equality-guarded but **not account-aware**) — prompt restarts also close this clobber window.
-- Account-identity signal for detection: `~/.claude.json` → `oauthAccount.accountUuid` / `emailAddress`
-  (verified present on-machine; ~160KB file, cheap to parse on change).
+`onCodexAuthError` (`app/src/main/rpc-router.ts:1169-1184`) reacts to a **regex match on pane output** by:
 
-### Fix (this branch)
+1. `getDb().update(agentSessions).set({ status: 'error' })` — status only; **no `exit_code`, no `exited_at`**;
+2. `broadcast('pty:error', { sessionId, exitCode: null, signal: null })` — **hardcoded `exitCode: null`**.
 
-Detect the switch in main (poll-watch `~/.claude.json` identity) → auto-restart every live claude pane
-in place with `--resume <external_session_id>` (existing ghost-heal/resume semantics) → toast the
-operator. KV escape hatch `claude.accountSwitch.autoRestart` (default ON; OFF = notify-only toast).
+…and never kills, stops, or signals the PTY. The renderer's `pty:error` contract is explicitly *"the PTY
+started then died"* (`app/src/renderer/features/command-room/PaneShell.tsx:254-264`), so:
 
-### Parked follow-ups / adjacent findings
+- `use-live-events.ts:387` coerces the non-number `exitCode` → `null` → `MARK_SESSION_ERROR`;
+- `state.reducer.ts:519` coerces `null` → `undefined` → `CrashBanner` prints **`exit unknown`**
+  (`PaneShell.tsx:775`);
+- `crashed = errored && !session.error` (`PaneShell.tsx:264`) is true (no launch-error string on this path);
+- the banner is designed to **float OVER a still-mounted `SessionTerminal`** (`PaneShell.tsx:763-765`) —
+  which is precisely why the live process keeps streaming underneath it.
 
-- **[panes][polish] quiet-window deferral for account-switch restarts** — v1 restarts every live claude
-  pane immediately (incl. mid-generation ones and the pane the operator ran `/login` in; conversation
-  resumes, in-flight turn is lost — the old-account turn is exactly what we don't want anyway). Polish:
-  defer restart until a pane has been output-quiet ~5s + detect the switcher pane via a login-success
-  scrollback sentinel (mirror `auth-error-scan.ts` pattern) and skip it. Build when the immediate-restart
-  UX annoys. Effort: S–M.
-- ⚠️ **[upstream][watch] `/login` sometimes fails to update `oauthAccount`** (anthropics/claude-code
-  #23906, open) — our detector keys on `oauthAccount` identity change, so an upstream no-op write means
-  no detection. Nothing to do on our side; re-test when upstream fixes land.
-- 🐞 **[low][security] `ptyCtl.create` accepts a renderer-supplied `env` override with zero live callers**
-  — `app/src/main/rpc-router.ts:1552-1589` forwards an IPC-reachable `env?: Record<string,string>` into
-  PTY spawn; no renderer call site populates it today (grep-verified). Latent surface — drop the field or
-  allowlist permitted keys. Effort: S.
-- ℹ️ **[machine][hygiene] both credential stores coexist on this Mac** — keychain entry (authoritative)
-  AND a 322-byte `~/.claude/.credentials.json` (CLI labels the file backend "plaintext" fallback);
-  whether they're mirror-written per login is UNVERIFIED. Only matters for detector edge cases; the
-  detector deliberately keys on `~/.claude.json` identity, not either credential store.
+**Receipt — live DB row (`~/Library/Application Support/SigmaLink/sigmalink.db`, app running, `codex --yolo`
+pid 43569 alive at the time of capture):**
+
+| id | provider | status | exit_code | exited_at |
+|---|---|---|---|---|
+| `1b5582e4-8a4c-4caf-b062-76a35fcb21a9` | **codex** | **error** | **NULL** | **NULL** |
+| every other `status='error'` row | shell / claude | error | `0` | `1784…` (set) |
+
+`status='error'` **with both `exit_code` and `exited_at` NULL** is a signature only this path can produce:
+grep-verified, the *only* other writers of `status:'error'` to `agent_sessions` are the three
+**launch-failure INSERTs** in `core/workspaces/launcher.ts:205,593,759` (each carries an `error:` string →
+routes to the *"Failed to launch"* surface, not this one), and `swarms/factory-add-agent.ts:190` writes the
+`swarm_agents` table. Every real crash goes through `pty.onExit` and writes exit metadata.
+
+### This is broken even when it is RIGHT
+
+A codex auth error **does not kill the codex process** — codex prints the error and keeps running. So the
+"crash" report is a lie *by construction*, 100% reproducible, not a race: **every** firing of this path —
+true positive or false — paints "Pane crashed" over a healthy pane and offers a Relaunch button that would
+restart a working process. The feature has no correct outcome as wired.
+
+### The trigger (false positive — HIGH confidence)
+
+`scanCodexAuthError` (`app/src/main/core/pty/auth-error-scan.ts`) regex-tests **every codex PTY data chunk**
+(`registry.ts:382`). But a codex pane's stream is **the agent's own rendered output** — its reasoning, files
+it prints, code and docs it writes — not a clean protocol channel. The patterns are generic enough to appear
+in ordinary agent work:
+
+- `/\btoken_expired\b/` — a bare JSON key; appears in any auth code/fixture the agent reads or writes.
+- `/HTTP 401|could not be refreshed|sign in again/i` — **`sign in again` is plain English.**
+
+The file header asserts these patterns *"only appear in the process's own error output"* — that assertion is
+**false by construction**: `registry.ts:382` feeds the scanner `data`, the whole PTY stream, which conflates
+the codex CLI's own stderr with the model's output. The same header records that a `\b401\b` catch-all was
+*already* removed for false-positiving on user text — same bug class, incomplete fix. The observed pane was
+doing "ruflo superpower bug" + *"Improve documentation in @filename"* — i.e. reading and writing prose.
+Introduced in **#207** (`01c3d29`, "Task 5 — codex auth-error scan").
+
+### Blast radius (beyond the cosmetic banner)
+
+- 🐞 **[high] the false `status='error'` write orphans a LIVE pane from boot-resume** —
+  `resume-launcher.ts:342-366` `listEligibleRows` resumes only `status='running'` OR
+  (`status='exited'` AND `exit_code=-1`). An auth-scanner-flagged row is **neither** → on next boot the pane
+  is silently never resumed. Effort: S (fold into the root fix).
+- ⚠️ **[medium][UNVERIFIED] pane-slot collision via the partial unique index** — `agent_sessions_ws_pane_uq`
+  is `ON (workspace_id, pane_index) WHERE pane_index IS NOT NULL AND status IN ('running','starting')`.
+  Flipping a live pane to `'error'` **drops it out of the index**, freeing its `pane_index` slot while the
+  PTY still runs → a new pane may be spawnable into the occupied slot. Follows from the index definition;
+  **not reproduced**. Verify before scoping. Effort: S to test.
+- 🧹 **[low] the flag is sticky with no recovery path** — `registry.ts:212,382,386` sets `authErrors` once per
+  session and only clears it in `forget(id)` (`registry.ts:616`, i.e. on PTY death). A re-auth mid-session
+  never clears the pane's error state; only a Relaunch does. Effort: S.
+- ℹ️ **[low] the 'error' row is GC-immune** — `state.reducer.ts:505-509` deliberately exempts `'error'` from
+  the exited-session GC (correct for real crashes), so a falsely-flagged pane lingers in the error state for
+  the life of the window.
+
+### Fix direction (not yet scoped — needs a call)
+
+The structural fix is to **stop reporting a content detection on the process-death channel**. Options:
+
+1. **Own channel (recommended)** — emit a distinct `pty:auth-error` → a *warning* chip/toast on a pane that
+   stays `running`. Never writes `status`, never offers Relaunch. Kills the whole class: an advisory can't
+   masquerade as a death.
+2. **Narrow the scanner** — anchor patterns to codex's own error framing and/or only scan when the CLI is
+   not mid-turn. Reduces false positives but does **not** fix "true positive still paints a crash".
+3. **Drop the scan** — #207's Task 5 as wired has no correct outcome; deleting it is strictly better than
+   today's behavior.
+
+(1) is the standard-first fix; (2) alone is a symptom patch. Grep the sibling `pty:error` broadcast sites
+(`rpc-router.ts:1729,1739,1785,2213,2888,3044,3127`) when touching the channel — they are the legitimate
+crash-classifier callers and must keep their real payloads. Adding a channel = 4 mirror sites
+(`shared/rpc-channels.ts:420` allowlist included) or preload silently rejects it.
