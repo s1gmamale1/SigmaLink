@@ -528,6 +528,34 @@ export function appStateReducer(state: AppState, action: Action): AppState {
         ...clearAttention(state.sessions, state.attentionSessions, state.attentionWorkspaces, action.id),
       };
     }
+    case 'MARK_SESSION_AUTH_ERROR': {
+      // codex false-crash fix 2026-07-17 — an ADVISORY, not a death: annotate
+      // the session and leave status/exitCode/exitedAt strictly alone. The
+      // pane keeps running; PaneShell shows a dismissible warning chip.
+      const sessions: AgentSession[] = state.sessions.map((s) =>
+        s.id === action.id
+          ? { ...s, authError: { kind: action.kind, atMs: action.atMs } }
+          : s,
+      );
+      return {
+        ...state,
+        sessions,
+        sessionsByWorkspace: regroupSessionsByWorkspace(state.sessionsByWorkspace, sessions),
+      };
+    }
+    case 'CLEAR_SESSION_AUTH_ERROR': {
+      const sessions: AgentSession[] = state.sessions.map((s) => {
+        if (s.id !== action.id || !s.authError) return s;
+        const next = { ...s };
+        delete next.authError;
+        return next;
+      });
+      return {
+        ...state,
+        sessions,
+        sessionsByWorkspace: regroupSessionsByWorkspace(state.sessionsByWorkspace, sessions),
+      };
+    }
     case 'REMOVE_SESSION': {
       const sessions = state.sessions.filter((s) => s.id !== action.id);
       // v1.1.10 — when the active session is removed, prefer a live (running)

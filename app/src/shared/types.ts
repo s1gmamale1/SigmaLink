@@ -63,6 +63,13 @@ export interface AgentSession {
    * Cosmetic only — does not affect spawn/resume/MCP behaviour.
    */
   name?: string | null;
+  /**
+   * codex false-crash fix 2026-07-17 — ADVISORY auth-error detection from the
+   * codex output scanner (pty:auth-error). The pane is still RUNNING; this
+   * only drives a dismissible warning chip. Renderer-state only — never
+   * persisted, never affects status/exitCode/resume.
+   */
+  authError?: { kind: string; atMs: number };
 }
 
 export interface ProviderProbe {

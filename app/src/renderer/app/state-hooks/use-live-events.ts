@@ -391,6 +391,21 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
     return off;
   }, [dispatch]);
 
+  // codex false-crash fix 2026-07-17 — ADVISORY auth-error detection. The
+  // codex output scanner fired on the pane's stream; the process is STILL
+  // ALIVE, so this must never touch the crash path (MARK_SESSION_ERROR). It
+  // only annotates the session for the dismissible warning chip.
+  useEffect(() => {
+    const off = window.sigma.eventOn('pty:auth-error', (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const p = raw as { sessionId?: unknown; kind?: unknown; atMs?: unknown };
+      if (typeof p.sessionId !== 'string' || typeof p.kind !== 'string') return;
+      const atMs = typeof p.atMs === 'number' ? p.atMs : Date.now();
+      dispatch({ type: 'MARK_SESSION_AUTH_ERROR', id: p.sessionId, kind: p.kind, atMs });
+    });
+    return off;
+  }, [dispatch]);
+
   // claude account-switch propagation (2026-07-14) — main detected a
   // ~/.claude.json account switch and (by default) already killed + resumed
   // every live claude pane in place. Two jobs here:

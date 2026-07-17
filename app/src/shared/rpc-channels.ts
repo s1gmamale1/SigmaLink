@@ -418,6 +418,12 @@ export const EVENTS: ReadonlySet<string> = new Set<string>([
   // non-zero exitCode/signal. Payload: { sessionId, exitCode, signal? }.
   // The renderer subscribes to keep crashed panes visible instead of GC-removing them.
   'pty:error',
+  // codex false-crash fix 2026-07-17 — ADVISORY auth-error detection from the
+  // codex output scanner. The pane is STILL RUNNING; the renderer shows a
+  // dismissible warning chip, never a crash surface. Payload:
+  // { sessionId, kind: 'token_expired' | 'refresh_reused' | 'unauthorized', atMs }.
+  // Exists precisely so a content detection can never ride pty:error again.
+  'pty:auth-error',
   // V3-W13-002 — emitted when the PTY data stream contains a URL (plain or
   // OSC8 hyperlink). The renderer routes the click into the in-app browser
   // when `kv['browser.captureLinks']` is on.

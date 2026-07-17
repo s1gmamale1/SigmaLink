@@ -667,3 +667,78 @@ describe('appStateReducer v1.13.2 — SET_SWARMS_LOADING', () => {
     expect(same).toBe(initialAppState);
   });
 });
+
+// ---- codex false-crash fix 2026-07-17 — auth-error ADVISORY actions ---------
+//
+// The codex auth-error content scanner used to report through the process-
+// death channel (pty:error → MARK_SESSION_ERROR), painting "Pane crashed"
+// over a LIVE terminal and orphaning the row from boot-resume. The advisory
+// actions below are its replacement: they annotate the session WITHOUT
+// touching `status`, `exitCode`, or `exitedAt` — the pane keeps running.
+
+describe('appStateReducer 2026-07-17 — MARK/CLEAR_SESSION_AUTH_ERROR (advisory)', () => {
+  it('records authError on the session and KEEPS status running (not a crash)', () => {
+    const wsA = workspace('a');
+    let s = readyState([wsA]);
+    s = appStateReducer(s, { type: 'WORKSPACE_OPEN', workspace: wsA });
+    s = appStateReducer(s, { type: 'ADD_SESSIONS', sessions: [session('s1', 'a')] });
+
+    const flagged = appStateReducer(s, {
+      type: 'MARK_SESSION_AUTH_ERROR',
+      id: 's1',
+      kind: 'token_expired',
+      atMs: 1234,
+    });
+
+    const out = flagged.sessions.find((x) => x.id === 's1');
+    expect(out?.authError).toEqual({ kind: 'token_expired', atMs: 1234 });
+    // The load-bearing assertions — an advisory must never look like a death:
+    expect(out?.status).toBe('running');
+    expect(out?.exitCode).toBeUndefined();
+    expect(out?.exitedAt).toBeUndefined();
+    expect(out?.error).toBeUndefined();
+    expect(flagged.sessionsByWorkspace.a[0]?.authError).toEqual({
+      kind: 'token_expired',
+      atMs: 1234,
+    });
+  });
+
+  it('CLEAR_SESSION_AUTH_ERROR removes the advisory (operator dismiss)', () => {
+    const wsA = workspace('a');
+    let s = readyState([wsA]);
+    s = appStateReducer(s, { type: 'WORKSPACE_OPEN', workspace: wsA });
+    s = appStateReducer(s, { type: 'ADD_SESSIONS', sessions: [session('s1', 'a')] });
+    s = appStateReducer(s, {
+      type: 'MARK_SESSION_AUTH_ERROR',
+      id: 's1',
+      kind: 'unauthorized',
+      atMs: 99,
+    });
+
+    const cleared = appStateReducer(s, { type: 'CLEAR_SESSION_AUTH_ERROR', id: 's1' });
+
+    const out = cleared.sessions.find((x) => x.id === 's1');
+    expect(out?.authError).toBeUndefined();
+    expect(out?.status).toBe('running');
+    expect(cleared.sessionsByWorkspace.a[0]?.authError).toBeUndefined();
+  });
+
+  it('does not touch sibling sessions', () => {
+    const wsA = workspace('a');
+    let s = readyState([wsA]);
+    s = appStateReducer(s, { type: 'WORKSPACE_OPEN', workspace: wsA });
+    s = appStateReducer(s, {
+      type: 'ADD_SESSIONS',
+      sessions: [session('s1', 'a'), session('s2', 'a')],
+    });
+
+    const flagged = appStateReducer(s, {
+      type: 'MARK_SESSION_AUTH_ERROR',
+      id: 's1',
+      kind: 'refresh_reused',
+      atMs: 5,
+    });
+
+    expect(flagged.sessions.find((x) => x.id === 's2')?.authError).toBeUndefined();
+  });
+});

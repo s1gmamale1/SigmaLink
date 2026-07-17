@@ -67,6 +67,9 @@ describe('isSessionRoutedEvent', () => {
     expect(isSessionRoutedEvent('pty:error')).toBe(true);
     expect(isSessionRoutedEvent('pty:link-detected')).toBe(true);
     expect(isSessionRoutedEvent('agent:attention')).toBe(true);
+    // codex false-crash fix 2026-07-17 — the advisory auth-error event carries
+    // a sessionId and must reach only the owning window, like its pty:* siblings.
+    expect(isSessionRoutedEvent('pty:auth-error')).toBe(true);
   });
   it('does not session-route workspace-routed or unrelated events', () => {
     expect(isSessionRoutedEvent('assistant:state')).toBe(false);
