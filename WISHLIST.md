@@ -129,3 +129,16 @@ The structural fix is to **stop reporting a content detection on the process-dea
 (`rpc-router.ts:1729,1739,1785,2213,2888,3044,3127`) when touching the channel — they are the legitimate
 crash-classifier callers and must keep their real payloads. Adding a channel = 4 mirror sites
 (`shared/rpc-channels.ts:420` allowlist included) or preload silently rejects it.
+
+### ✅ FIXED (2026-07-17, same branch) — option 1 built
+
+TDD'd on `fix/codex-false-crash`: dedicated **`pty:auth-error` advisory channel**
+(`{ sessionId, kind, atMs }`; EVENTS allowlist + SESSION_ROUTED_EVENTS + parity tests) →
+`MARK_SESSION_AUTH_ERROR` sets `session.authError` only — **status/exitCode/exitedAt untouched, pane stays
+`running`** → PaneShell renders a dismissible amber `AuthWarningBanner` (no Relaunch; a real crash wins the
+surface). `onCodexAuthError` no longer writes the DB or broadcasts `pty:error`; detection + the control-plane
+`authErrorSnapshot` surface are unchanged. Kills the false-crash banner AND the boot-resume orphan AND the
+slot-collision window structurally (no status flip ever happens on this path). Residual (parked, low):
+scanner patterns still generic (`sign in again` is plain English — advisory tier makes misfires cosmetic
+now); registry `authErrors` first-detection-only per session (chip is dismissible; clears on relaunch).
+Gate: tsc 0 · eslint 0 · vitest 4994/4996 (2 skipped) · build 0.

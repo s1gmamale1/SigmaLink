@@ -524,6 +524,94 @@ describe('PaneShell — v1.13.2 crash banner', () => {
 });
 
 // ---------------------------------------------------------------------------
+// 6b. codex false-crash fix 2026-07-17 — auth-error ADVISORY warning chip
+// ---------------------------------------------------------------------------
+//
+// The codex auth-error scanner used to report through pty:error, painting
+// "Pane crashed (exit unknown)" over a LIVE terminal. Its replacement is an
+// advisory: the session stays `running` with `session.authError` set, and
+// PaneShell floats a dismissible warning chip over the still-live terminal.
+// No crash surface, no Relaunch.
+describe('PaneShell — 2026-07-17 auth-error advisory chip', () => {
+  async function renderWith(
+    session: AgentSession,
+    opts: { onDismissAuthWarning?: () => void; onRelaunch?: () => void } = {},
+  ) {
+    const { PaneShell } = await import('./PaneShell');
+    return render(
+      <PaneShell
+        session={session}
+        paneIndex={0}
+        providers={[{ id: 'codex', name: 'Codex' }]}
+        workspaceRootPath="/tmp/ws-1"
+        onFocus={vi.fn()}
+        onRemove={vi.fn()}
+        onStop={vi.fn()}
+        onSplit={vi.fn()}
+        onToggleMinimise={vi.fn()}
+        isFullscreen={false}
+        onToggleFullscreen={vi.fn()}
+        onRelaunch={opts.onRelaunch}
+        onDismissAuthWarning={opts.onDismissAuthWarning}
+      />,
+    );
+  }
+
+  it('renders the warning chip over a RUNNING pane — terminal mounted, NO crash surface, NO Relaunch', async () => {
+    await renderWith(
+      makeSession({
+        status: 'running',
+        providerId: 'codex',
+        authError: { kind: 'token_expired', atMs: 1234 },
+      }),
+    );
+
+    const chip = screen.getByTestId('pane-auth-warning');
+    expect(chip.textContent).toContain('auth');
+    // The pane is alive: terminal stays, crash chrome must NOT appear.
+    expect(screen.getByTestId('terminal-main-session')).toBeTruthy();
+    expect(screen.queryByTestId('pane-crash-banner')).toBeNull();
+    expect(screen.queryByTestId('pane-relaunch-button')).toBeNull();
+    expect(screen.queryByText('Failed to launch')).toBeNull();
+  });
+
+  it('dismiss button fires onDismissAuthWarning', async () => {
+    const onDismiss = vi.fn();
+    await renderWith(
+      makeSession({
+        status: 'running',
+        providerId: 'codex',
+        authError: { kind: 'unauthorized', atMs: 1 },
+      }),
+      { onDismissAuthWarning: onDismiss },
+    );
+
+    fireEvent.click(screen.getByTestId('pane-auth-warning-dismiss'));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders no chip without authError', async () => {
+    await renderWith(makeSession({ status: 'running', providerId: 'codex' }));
+    expect(screen.queryByTestId('pane-auth-warning')).toBeNull();
+  });
+
+  it('a REAL crash wins: crash banner shows, advisory chip hides', async () => {
+    // If the pane genuinely dies after an advisory fired, the crash surface
+    // takes the pane — stacking both would be noise.
+    await renderWith(
+      makeSession({
+        status: 'error',
+        exitCode: 1,
+        providerId: 'codex',
+        authError: { kind: 'token_expired', atMs: 1 },
+      }),
+    );
+    expect(screen.getByTestId('pane-crash-banner')).toBeTruthy();
+    expect(screen.queryByTestId('pane-auth-warning')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 5. W-5 Phase 3 — skill-drop slash-command injection
 // ---------------------------------------------------------------------------
 

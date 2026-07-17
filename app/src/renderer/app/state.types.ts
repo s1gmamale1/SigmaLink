@@ -209,6 +209,13 @@ export type Action =
   // PaneShell can render the crash banner + Relaunch affordance. Dispatched
   // from the `pty:error` subscriber in use-live-events.
   | { type: 'MARK_SESSION_ERROR'; id: string; exitCode: number | null; signal?: string | null }
+  // codex false-crash fix 2026-07-17 — ADVISORY auth-error annotation from the
+  // `pty:auth-error` subscriber. Unlike MARK_SESSION_ERROR this NEVER touches
+  // status/exitCode/exitedAt (the pane is still running); it only sets
+  // `session.authError` so PaneShell renders a dismissible warning chip.
+  | { type: 'MARK_SESSION_AUTH_ERROR'; id: string; kind: string; atMs: number }
+  // Operator dismissed the warning chip (or the advisory is stale).
+  | { type: 'CLEAR_SESSION_AUTH_ERROR'; id: string }
   | { type: 'REMOVE_SESSION'; id: string }
   | { type: 'SET_SWARMS'; swarms: Swarm[] }
   // v1.13.2 — toggle the canonical swarm-loader in-flight flag (see

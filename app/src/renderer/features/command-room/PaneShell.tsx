@@ -22,7 +22,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from 'react';
 import { useAppStateSelector } from '@/renderer/app/state';
-import { ClipboardPaste, Copy, FolderOpen, GitBranch, Pencil, RotateCw, Square, SquareTerminal, Terminal as TerminalIcon, FolderGit2, LayoutPanelLeft } from 'lucide-react';
+import { AlertTriangle, ClipboardPaste, Copy, FolderOpen, GitBranch, Pencil, RotateCw, Square, SquareTerminal, Terminal as TerminalIcon, FolderGit2, LayoutPanelLeft, X } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   ContextMenu,
@@ -88,6 +88,8 @@ export function PaneShell({
   // v1.13.2 — Relaunch affordance for a crashed pane (status:'error' with a
   // numeric exitCode). When omitted the crash banner shows no Relaunch button.
   onRelaunch,
+  // codex false-crash fix 2026-07-17 — dismiss for the auth-error advisory chip.
+  onDismissAuthWarning,
 }: {
   session: AgentSession;
   paneIndex: number;
@@ -107,6 +109,13 @@ export function PaneShell({
    * and removes the crashed session. Optional — split sub-panes omit it.
    */
   onRelaunch?: () => void;
+  /**
+   * codex false-crash fix 2026-07-17 — dismiss handler for the auth-error
+   * ADVISORY chip (session.authError on a still-running pane). The parent
+   * dispatches CLEAR_SESSION_AUTH_ERROR. Optional — omitting it hides the
+   * dismiss button, never the chip.
+   */
+  onDismissAuthWarning?: () => void;
   /**
    * v1.7.1 W-5 Phase 2 — INFORMATIONAL bindings for this pane session.
    * These are purely visual chips; no behavioral activation.
@@ -542,6 +551,16 @@ export function PaneShell({
                 verified in headless Chromium). See PaneShell.test.tsx guard. */}
             <div className="flex min-h-0 min-w-0 flex-1">
               <div className="relative min-h-0 min-w-0 flex-1">
+              {/* codex false-crash fix 2026-07-17 — auth-error ADVISORY chip.
+                  Floats over the LIVE terminal in every non-crash path (fast
+                  path AND multi-tab). A real crash takes the `crashed` branch
+                  below and wins — stacking both surfaces would be noise. */}
+              {!launchFailed && !crashed && session.authError ? (
+                <AuthWarningBanner
+                  kind={session.authError.kind}
+                  onDismiss={onDismissAuthWarning}
+                />
+              ) : null}
               {launchFailed ? (
                 // ENOENT / pre-flight failure: no PTY ever started, so there is
                 // no scrollback to surface — show the launch error full-screen.
@@ -755,6 +774,52 @@ export function PaneShell({
         onOpenChange={setCreateWorktreeOpen}
         repoRoot={repoRoot}
       />
+    </div>
+  );
+}
+
+/**
+ * codex false-crash fix 2026-07-17 — auth-error ADVISORY chip. The codex
+ * output scanner matched an auth-failure signature in the pane's stream; the
+ * process is STILL ALIVE, so this is a warning, never a crash: amber (not
+ * destructive), no Relaunch, dismissible. Floats over the live terminal the
+ * same way CrashBanner floats over dead scrollback.
+ */
+function AuthWarningBanner({
+  kind,
+  onDismiss,
+}: {
+  kind: string;
+  onDismiss?: () => void;
+}) {
+  const label =
+    kind === 'token_expired'
+      ? 'auth token expired'
+      : kind === 'refresh_reused'
+        ? 'refresh token conflict'
+        : 'authorization failed';
+  return (
+    <div
+      data-testid="pane-auth-warning"
+      role="status"
+      className="absolute inset-x-0 top-0 z-20 flex items-center gap-2 border-b border-amber-500/40 bg-amber-500/15 px-3 py-1.5 text-[11px] text-amber-600 dark:text-amber-400"
+    >
+      <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
+      <span className="font-medium">Codex auth issue: {label}.</span>
+      <span className="text-amber-600/80 dark:text-amber-400/80">
+        Pane is still running — sign in again in the pane if requests fail.
+      </span>
+      {onDismiss ? (
+        <button
+          type="button"
+          data-testid="pane-auth-warning-dismiss"
+          aria-label="Dismiss auth warning"
+          onClick={onDismiss}
+          className="ml-auto inline-flex shrink-0 items-center rounded border border-amber-500/40 px-1 py-0.5 hover:bg-amber-500/20"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      ) : null}
     </div>
   );
 }

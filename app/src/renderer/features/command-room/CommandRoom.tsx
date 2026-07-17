@@ -459,6 +459,9 @@ export function CommandRoom() {
                   onRemove={() => handleRemove(session)}
                   onStop={() => handleStop(session)}
                   onRelaunch={() => void handleRelaunch(session)}
+                  onDismissAuthWarning={() =>
+                    dispatch({ type: 'CLEAR_SESSION_AUTH_ERROR', id: session.id })
+                  }
                   onSplit={(dir, providerId) => void handleSplitPane(session, dir, providerId)}
                   onToggleMinimise={() => handleToggleMinimise(session)}
                   isFullscreen={focusedPaneId === session.id}

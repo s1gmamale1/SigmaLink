@@ -588,6 +588,21 @@ describe('CHANNELS vs AppRouter cross-reference (v1.5.3-B)', () => {
   });
 
   /**
+   * codex false-crash fix 2026-07-17 — 'pty:auth-error' is the ADVISORY channel
+   * for the codex auth-error content scanner. It exists precisely so a content
+   * detection can never ride the process-death channel (pty:error) again: the
+   * pane stays RUNNING, the renderer shows a dismissible warning, no Relaunch.
+   * Must be in EVENTS (preload silently drops non-allowlisted subscriptions).
+   */
+  it('pty:auth-error is in EVENTS allowlist (advisory scanner IPC)', () => {
+    expect(EVENTS.has('pty:auth-error')).toBe(true);
+  });
+
+  it('pty:auth-error is NOT in CHANNELS (one-way event, not an RPC method)', () => {
+    expect(CHANNELS.has('pty:auth-error')).toBe(false);
+  });
+
+  /**
    * Pane-refit spec 2026-06-11 — 'window:restored' must be in EVENTS so the
    * preload's eventOn() doesn't silently return a no-op unsubscribe for it.
    * Terminal.tsx subscribes via eventOn('window:restored', ...) to force a

@@ -289,6 +289,7 @@ const SESSION_ROUTED_EVENTS = new Set([
   'pty:data',
   'pty:exit',
   'pty:error',
+  'pty:auth-error', // advisory scanner detection — owning window only
   'pty:link-detected',
   'agent:attention', // route to the owning window (detached-window safe)
 ]);
@@ -1162,22 +1163,22 @@ async function buildRouter() {
         },
         persist: (sessionId, snapshot) => persistScrollback(userData, sessionId, snapshot),
       }),
-      // Task 5 — surface codex auth errors to the renderer. The registry detects
-      // them and fires this callback; we flip the DB status to 'error' and
-      // broadcast pty:error so the pane chrome shows the same error state as a
-      // crash (PaneShell error boundary + sidebar dot).
-      onCodexAuthError: (sessionId) => {
+      // Task 5 — surface codex auth errors to the renderer.
+      //
+      // codex false-crash fix 2026-07-17 — this used to flip the DB row to
+      // status='error' and broadcast pty:error with a hardcoded exitCode:null.
+      // That reported a CONTENT detection (a regex hit on pane output) through
+      // the PROCESS-DEATH channel: the renderer painted "Pane crashed (exit
+      // unknown)" over a still-live terminal, and the false 'error' status
+      // orphaned the row from boot-resume (listEligibleRows resumes only
+      // 'running' / 'exited'+-1). A codex auth error does not kill the codex
+      // process — so the pane stays 'running' everywhere and we emit the
+      // dedicated ADVISORY event instead; the renderer shows a dismissible
+      // warning chip. Detection state for the control plane is unchanged
+      // (buildAppState reads PtyRegistry.authErrorSnapshot directly).
+      onCodexAuthError: (sessionId, err) => {
         try {
-          getDb()
-            .update(agentSessions)
-            .set({ status: 'error' })
-            .where(eq(agentSessions.id, sessionId))
-            .run();
-        } catch {
-          /* best-effort DB update */
-        }
-        try {
-          broadcast('pty:error', { sessionId, exitCode: null, signal: null });
+          broadcast('pty:auth-error', { sessionId, kind: err.kind, atMs: err.atMs });
         } catch {
           /* broadcast is best-effort */
         }

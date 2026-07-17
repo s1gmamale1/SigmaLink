@@ -284,6 +284,46 @@ describe('useLiveEvents — v1.13.2 crash vs clean-exit subscribers', () => {
       exitCode: 0,
     });
   });
+
+  // codex false-crash fix 2026-07-17 — the auth-error content scanner reports
+  // on its own ADVISORY channel now. It must annotate the session, never mark
+  // it crashed: the pane is alive.
+  it('dispatches MARK_SESSION_AUTH_ERROR on pty:auth-error (advisory — NOT a crash)', async () => {
+    await renderLiveEvents(stateWith([session('s1')]));
+    await act(async () => { await Promise.resolve(); });
+
+    await act(async () => {
+      sigma.emit('pty:auth-error', { sessionId: 's1', kind: 'token_expired', atMs: 42 });
+      await Promise.resolve();
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'MARK_SESSION_AUTH_ERROR',
+      id: 's1',
+      kind: 'token_expired',
+      atMs: 42,
+    });
+    // The advisory must never ride the crash path.
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'MARK_SESSION_ERROR' }),
+    );
+  });
+
+  it('ignores a pty:auth-error payload with no sessionId or non-string kind', async () => {
+    await renderLiveEvents(stateWith([session('s1')]));
+    await act(async () => { await Promise.resolve(); });
+    dispatch.mockClear();
+
+    await act(async () => {
+      sigma.emit('pty:auth-error', { kind: 'token_expired', atMs: 1 });
+      sigma.emit('pty:auth-error', { sessionId: 's1', kind: 7, atMs: 1 });
+      await Promise.resolve();
+    });
+
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'MARK_SESSION_AUTH_ERROR' }),
+    );
+  });
 });
 
 describe('useLiveEvents — assistant:pane-closed → REMOVE_SESSION', () => {
