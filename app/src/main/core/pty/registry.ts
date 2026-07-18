@@ -530,6 +530,20 @@ export class PtyRegistry {
     if (rec) rec.expectedExit = true;
   }
 
+  /**
+   * Quit-time twin of markExpectedExit (2026-07-18 session-persistence fix).
+   * shutdownRouter flags EVERY live session before killAll() so the quit-window
+   * SIGTERM exits skip the launcher/resume/swarm onExit status writes — without
+   * this, a pane whose process died inside the ≤2.5s waitForPidsExit hold got
+   * stamped status='error' (isPtyCrash sees signal 15) and silently dropped out
+   * of BOTH boot auto-resume (running OR exited/-1) and the respawn-fresh
+   * bucket (exited/-1). Rows now stay 'running'; the boot janitor heals them
+   * to exited/-1 — one lane for graceful quit AND force-quit.
+   */
+  markAllExpectedExit(): void {
+    for (const rec of this.sessions.values()) rec.expectedExit = true;
+  }
+
   processSnapshot(id: string): ProcessTreeSnapshot | null {
     const rec = this.sessions.get(id);
     if (!rec) return null;
