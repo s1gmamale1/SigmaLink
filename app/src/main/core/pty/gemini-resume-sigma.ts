@@ -63,7 +63,11 @@ function isSafeAbsolutePath(p: string): boolean {
   if (typeof p !== 'string' || p.length === 0) return false;
   if (!path.isAbsolute(p)) return false;
   // Disallow `..` segments anywhere in the path — defence in depth.
-  const parts = p.split(path.sep);
+  // 2026-07-03 audit follow-up: on win32 `path.sep` is `\`, but Windows APIs
+  // accept `/` too, so a `/`-separated path (`C:/foo/../bar`) never split and
+  // its `..` segments sailed through this guard. Split on both separators on
+  // win32; POSIX keeps `/` only (`\` is a legal filename char there).
+  const parts = p.split(process.platform === 'win32' ? /[\\/]/ : path.sep);
   if (parts.some((seg) => seg === '..')) return false;
   return true;
 }

@@ -5,11 +5,12 @@
 // returns null and the voice adapter transparently falls back to the
 // renderer-side Web Speech API.
 //
-// Why a relative `createRequire` rather than a workspace import? The repo's
-// `pnpm-workspace.yaml` does not register the native package as a workspace
-// member; using `createRequire(import.meta.url)` against
-// `../../../../native/voice-win/index.js` keeps the wiring local without
-// forcing a workspace migration on the install path.
+// Why a relative `createRequire` rather than a workspace import? Historical —
+// when this loader was written the native packages were not yet workspace
+// members. `pnpm-workspace.yaml` registers them since v1.4.8, but the relative
+// `createRequire(import.meta.url)` against `../../../../native/voice-win/index.js`
+// keeps working identically for dev checkouts and packaged (asar-disabled)
+// layouts, so it stays.
 //
 // Lifecycle:
 //   1. `loadNativeWin()` is called once at adapter init. Returns either the

@@ -282,6 +282,18 @@ describe('account-switch expected-exit suppression (2026-07-14)', () => {
 });
 
 describe('shell-first sentinel split across PTY reads (finding 4)', () => {
+  // Shell-first resolution is POSIX-only (win32 coerces to 'direct' — see
+  // resolveEffectiveSpawnMode). Pin a POSIX platform so these tests exercise
+  // the carry logic on Windows dev boxes too, instead of silently arming
+  // nothing and failing (they previously only passed on macOS/Linux hosts).
+  const originalPlatform = process.platform;
+  beforeEach(() => {
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+  });
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+  });
+
   function createShellFirstSession(
     cliExits: Array<{ sessionId: string; exitCode: number }>,
     forwarded: string[],
@@ -358,5 +370,38 @@ describe('shell-first sentinel split across PTY reads (finding 4)', () => {
     expect(forwarded[0]).not.toContain(SENTINEL_PREFIX);
     expect(forwarded[0]).toContain('visible');
     expect(forwarded[0]).toContain('prompt');
+  });
+});
+
+describe('forget() teardown is tree-aware on win32 (2026-07-03 audit A2)', () => {
+  const originalPlatform = process.platform;
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+  });
+
+  it('win32: forget() on a live record routes the kill through stopProcessTree, then drops the handle', () => {
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+    const h = makeLifecyclePty();
+    vi.mocked(spawnLocalPty).mockReturnValue(h.pty);
+    const registry = new PtyRegistry(() => undefined, () => undefined);
+    registry.create({ ...baseInput, sessionId: 'pane-w32-forget' });
+
+    registry.forget('pane-w32-forget');
+
+    expect(processTreeMock.stopProcessTree).toHaveBeenCalledWith(FAKE_PID, expect.any(Number));
+    expect(h.pty.killCalls).toBe(1); // handle release still happens after the tree kill
+  });
+
+  it('non-win32: forget() keeps the pty.kill() + SIGKILL fallback path (no tree call — macOS semantics unchanged)', () => {
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+    const h = makeLifecyclePty();
+    vi.mocked(spawnLocalPty).mockReturnValue(h.pty);
+    const registry = new PtyRegistry(() => undefined, () => undefined);
+    registry.create({ ...baseInput, sessionId: 'pane-posix-forget' });
+
+    registry.forget('pane-posix-forget');
+
+    expect(processTreeMock.stopProcessTree).not.toHaveBeenCalled();
+    expect(h.pty.killCalls).toBe(1);
   });
 });

@@ -118,3 +118,19 @@ jobs:
         run: |
           shellcheck app/scripts/install-macos.sh
           shellcheck app/scripts/install-linux.sh
+
+      - name: PSScriptAnalyzer (Windows installer)
+        # 2026-07-03 audit C1 — the PowerShell one-liner installer previously
+        # shipped with zero static analysis while the sh installers got
+        # shellcheck. Gated at Error severity: the script currently carries 41
+        # Warning-level findings (40× PSAvoidUsingWriteHost — legitimate for a
+        # colored console installer — plus one empty catch and a BOM note)
+        # that are accepted; Error-level findings and parse failures gate CI.
+        shell: pwsh
+        run: |
+          if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) {
+            Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
+          }
+          $findings = Invoke-ScriptAnalyzer -Path app/scripts/install-windows.ps1 -Severity Error
+          $findings | Format-Table -AutoSize | Out-String | Write-Host
+          if ($findings) { exit 1 }

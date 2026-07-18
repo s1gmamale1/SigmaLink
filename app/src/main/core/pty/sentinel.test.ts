@@ -231,52 +231,53 @@ describe('buildPowerShellSentinelSnippet round-trip (Phase 5)', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// v1.6.0 Phase 5 — win32 cmd.exe sentinel snippet
+// 2026-07-03 audit A1 — win32 cmd.exe sentinel, conditional-echo form.
+//
+// The old SET-capture form could never work: cmd expands %VAR% at PARSE time
+// for the whole `&`-chained interactive line, so SET captured the pre-line
+// ERRORLEVEL and the echo expanded __SL_EC before SET ran. The fixed snippet
+// uses `&& … || …` conditional echoes — no variable expansion anywhere, at the
+// documented cost of collapsing non-zero exit codes to 1.
 //
 // NOTE: pending-Windows-dogfood for PTY e2e. Unit-only on macOS.
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('buildCmdSentinelSnippet (Phase 5 — win32 cmd.exe)', () => {
-  it('contains the sentinel prefix and suffix', () => {
+describe('buildCmdSentinelSnippet (audit A1 — conditional-echo)', () => {
+  it('contains no cmd variable-expansion tokens at all', () => {
     const snippet = buildCmdSentinelSnippet();
-    expect(snippet).toContain(SENTINEL_PREFIX);
-    expect(snippet).toContain(SENTINEL_SUFFIX);
+    expect(snippet).not.toContain('%');
+    expect(snippet).not.toContain('!');
   });
 
-  it('starts with " & SET" to capture %ERRORLEVEL% before echo. resets it', () => {
-    const snippet = buildCmdSentinelSnippet();
-    expect(snippet.trimStart()).toMatch(/^& SET/);
-  });
-
-  it('uses %ERRORLEVEL% to capture the CLI exit code', () => {
-    const snippet = buildCmdSentinelSnippet();
-    expect(snippet).toContain('%ERRORLEVEL%');
-  });
-
-  it('uses a SET intermediate variable to avoid echo. reset', () => {
-    // The snippet must save ERRORLEVEL before the echo. command resets it
-    const snippet = buildCmdSentinelSnippet();
-    expect(snippet).toContain('__SL_EC');
+  it('is exactly the conditional-echo pair (success 0 via &&, failure 1 via ||)', () => {
+    expect(buildCmdSentinelSnippet()).toBe(
+      ` && (echo. & echo ${SENTINEL_PREFIX}0${SENTINEL_SUFFIX})` +
+        ` || (echo. & echo ${SENTINEL_PREFIX}1${SENTINEL_SUFFIX})`,
+    );
   });
 });
 
-describe('buildCmdSentinelSnippet round-trip (Phase 5)', () => {
-  it('simulated cmd.exe output (exit 0) matches SENTINEL_RE', () => {
-    // cmd.exe would print a blank line then: __SIGMALINK_CLI_EXIT_0__
-    const simulatedOutput = `\n${SENTINEL_PREFIX}0${SENTINEL_SUFFIX}\n`;
-    SENTINEL_RE.lastIndex = 0;
-    expect(SENTINEL_RE.test(simulatedOutput)).toBe(true);
-  });
-
-  it('simulated cmd.exe output (exit 1) is extracted correctly', () => {
-    const simulatedOutput = `CLI output\n${SENTINEL_PREFIX}1${SENTINEL_SUFFIX}\nC:\\> `;
-    const result = extractSentinel(simulatedOutput);
+describe('buildCmdSentinelSnippet round-trip (audit A1)', () => {
+  // `echo X` prints X verbatim and `echo.` prints a blank line; because the
+  // snippet contains no % or ! tokens, cmd performs NO expansion on it — this
+  // simulation is faithful to real cmd semantics (unlike the old tests, which
+  // hand-simulated output the buggy SET-capture snippet could never produce).
+  it('success-path output matches SENTINEL_RE with code 0', () => {
+    const out = `CLI output\r\n\r\n${SENTINEL_PREFIX}0${SENTINEL_SUFFIX}\r\nC:\\> `;
+    const result = extractSentinel(out);
     expect(result).not.toBeNull();
-    expect(result!.exitCode).toBe(1);
+    expect(result!.exitCode).toBe(0);
     expect(result!.strippedData).not.toContain(SENTINEL_PREFIX);
   });
 
-  it('CRLF line endings from ConPTY are recognised', () => {
+  it('failure-path output matches SENTINEL_RE with code 1', () => {
+    const out = `\r\n${SENTINEL_PREFIX}1${SENTINEL_SUFFIX}\r\n`;
+    const result = extractSentinel(out);
+    expect(result).not.toBeNull();
+    expect(result!.exitCode).toBe(1);
+  });
+
+  it('CRLF line endings from ConPTY are recognised (regex-level, any code)', () => {
     const simulatedOutput = `CLI output\r\n${SENTINEL_PREFIX}42${SENTINEL_SUFFIX}\r\nC:\\> `;
     SENTINEL_RE.lastIndex = 0;
     expect(SENTINEL_RE.test(simulatedOutput)).toBe(true);

@@ -804,6 +804,18 @@ function makeSentinelTestPty(pid: number = FAKE_PID) {
 }
 
 describe('PtyRegistry — Phase 2 sentinel detection', () => {
+  // Shell-first resolution is POSIX-only (win32 coerces to 'direct' — see
+  // resolveEffectiveSpawnMode). Pin a POSIX platform so these tests exercise
+  // the sentinel watcher on Windows dev boxes too, instead of silently arming
+  // nothing and failing (they previously only passed on macOS/Linux hosts).
+  const originalPlatform = process.platform;
+  beforeEach(() => {
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+  });
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+  });
+
   it('fires onCliExited with parsed exit code when sentinel appears in data (exit 0)', () => {
     const { pty, fireData } = makeSentinelTestPty();
     vi.mocked(spawnLocalPty).mockReturnValue(pty);
