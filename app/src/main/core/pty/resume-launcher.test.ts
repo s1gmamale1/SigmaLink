@@ -1173,6 +1173,8 @@ describe('resumeWorkspacePanes — SF-8 auto_approve persistence (A3)', () => {
       exited_at: null,
       external_session_id: VALID_CLAUDE_SESSION_ID,
       auto_approve: 1,
+      pane_index: null,
+      closed_at: null,
     });
 
     const spawnOpts: Array<{ autoApprove?: boolean; extraArgs?: string[] }> = [];
@@ -1219,6 +1221,8 @@ describe('resumeWorkspacePanes — SF-8 auto_approve persistence (A3)', () => {
       exited_at: null,
       external_session_id: VALID_CLAUDE_SESSION_ID,
       auto_approve: 0,
+      pane_index: null,
+      closed_at: null,
     });
 
     const spawnOpts: Array<{ autoApprove?: boolean }> = [];

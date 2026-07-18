@@ -54,7 +54,7 @@ const listSwarmsMock = vi.fn();
 const ptyKillMock = vi.fn();
 const ptyWriteMock = vi.fn();
 // session-persistence fix (2026-07-18) — relaunch must close the crashed ROW.
-const panesCloseMock = vi.fn(() => Promise.resolve());
+const panesCloseMock = vi.fn();
 
 vi.mock('@/renderer/lib/rpc', () => ({
   rpc: {
@@ -157,7 +157,8 @@ beforeEach(() => {
   listSwarmsMock.mockReset();
   ptyKillMock.mockReset();
   ptyWriteMock.mockReset();
-  panesCloseMock.mockClear();
+  panesCloseMock.mockReset();
+  panesCloseMock.mockResolvedValue(undefined);
   listProvidersMock.mockResolvedValue([
     { id: 'claude', name: 'Claude' },
     { id: 'codex', name: 'Codex' },
