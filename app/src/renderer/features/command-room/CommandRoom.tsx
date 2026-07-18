@@ -294,6 +294,14 @@ export function CommandRoom() {
       dispatch({ type: 'UPSERT_SWARM', swarm: result.swarm });
       dispatch({ type: 'ADD_SESSIONS', sessions: [result.session] });
       dispatch({ type: 'SET_ACTIVE_SESSION', id: result.sessionId });
+      // session-persistence fix (2026-07-18) — close the crashed ROW in the DB,
+      // not just the renderer (REMOVE_SESSION is UI-only). Without this the row
+      // lingered open (closed_at NULL) as a stale sibling in its slot and boot
+      // auto-resume respawned its OLD conversation. markPaneClosed is
+      // idempotent; the kill inside panes.close is a no-op on a dead pane.
+      void rpc.panes.close(session.id).catch(() => {
+        /* best-effort — the janitor supersession sweep is the backstop */
+      });
       // Drop the crashed pane only after the replacement lands.
       dispatch({ type: 'REMOVE_SESSION', id: session.id });
     } catch (err) {
