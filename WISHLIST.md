@@ -29,6 +29,31 @@ _(real upgrades to build once the current system is production-grade)_
 
 _(raw ideas land here; promote to ROADMAP.md once scoped into a phase)_
 
+### Parked from the pane stale-render fix (2026-07-18, branch `fix/pane-stale-render-esc-focus`)
+
+Four causes were fixed and shipped on that branch (reveal repaint · `window:restored` wiring ·
+DECSET 1004 focus reporting · engine notify-loop isolation). These are the **unproven** suspects
+that were investigated and deliberately NOT acted on — do not re-derive them from scratch:
+
+- **`content-visibility: auto` steady-state raster (UNPROVEN, low confidence).** FlowView sets
+  `content-visibility: auto` + `contain-intrinsic-size` on every row. Theory was that Chromium
+  skips re-rastering a row it considers offscreen while the engine keeps rewriting it, stranding
+  a stale frame. **Repro attempt failed to reproduce**: a testbed (`electron@30.5.1`, same
+  Chromium as the app) replicating FlowView's exact CSS + 50ms live-region repaints + row
+  churn + 700↔520px width oscillation for 38s produced clean frames at every capture. So this
+  is NOT a steady-state raster bug — which is what pushed the root cause toward the
+  reveal/restore path instead. Re-open only if the garbling survives the shipped fixes.
+- **Electron 30 → newer bump.** App is pinned at `electron@30.5.1` (May 2024 Chromium). Several
+  compositor/`content-visibility` fixes landed upstream since. Not attempted — a major-version
+  Electron bump is a release-scale change with native-module (better-sqlite3, node-pty, whisper)
+  rebuild blast radius, not a bug-fix-branch move. Worth scoping as its own phase.
+- **Live operator verification still owed.** The four fixes are proven by unit tests + a green
+  gate, NOT by watching the bug fail to happen. jsdom cannot prove a repaint. Needs: run a
+  claude pane, reproduce the garble (resize / minimise-restore / cmd+H), confirm it self-heals
+  or never appears. If it STILL garbles, the next suspect is the `LineRow` memo comparator —
+  a style-only change outside the 64-row live tail does not re-render (a documented P1b
+  limitation, `FlowView.tsx:12-15`), which would strand recolored scrollback specifically.
+
 ---
 
 ## 🔬 Deep review findings (2026-07-17) — codex pane shows "Pane crashed (exit unknown)" over a LIVE terminal
