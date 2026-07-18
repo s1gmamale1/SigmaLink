@@ -227,6 +227,24 @@ is the RELIABLE lane (no writes land → janitor heals → resume); graceful qui
 - **Renames are crash-safe in-session** — written synchronously at rename time; 17 named rows live, all
   currently-running named panes intact (Backend-Agent, Frontend-Agent, SAT-Agent, …).
 
+### PR #240 review minors (parked 2026-07-18 — reviewer verdict GREEN 91/100, merged 255207d)
+
+- 🐞 **[low, S] rename carry-forward misses a janitor-closed row** — `app/src/main/core/workspaces/launcher.ts`
+  carry-forward SELECT filters `closed_at IS NULL`; if the boot janitor's `closeSupersededPaneRows` already
+  soft-closed the row holding the operator's rename (non-winner sibling) and the operator later picks that
+  OLD session from the disk picker, the SELECT matches nothing → name reverts to the alias. NOT a
+  regression (this lane always lost the name pre-#240; the common live-winner case IS fixed). Fix: drop the
+  `closed_at IS NULL` filter, or order open-first with a newest-closed fallback, so the name follows the
+  session id regardless of the sweep — and add a test that actually exercises the WHERE (the current fake
+  `get` ignores it).
+- **[test, S] slot-rank CTE never runs on real SQLite** — validated via JS mirror + SQL-shape tripwires
+  only (better-sqlite3 can't load under vitest); NULL-partition/collation semantics unverified by unit
+  tests. Mitigated: byte-for-byte mirror of the shipped PR #221 queries + live-DB dry-runs during the
+  audit. Build when a real-SQLite test harness lands.
+- **[intended] `markAllExpectedExit` swallows a natural crash inside the ≤2.5s quit window** — the pane is
+  auto-resumed next boot instead of surfacing a crash banner. Deliberate tradeoff (resume > stranded
+  error at shutdown); recorded so nobody "fixes" it back.
+
 ### Optimizations (all LOW — the DB is healthy: 1.4MB, 342 pages, freelist 0, largest table 291 rows)
 
 - **[db] `PRAGMA optimize` on close** — SQLite-recommended one-liner in `closeDatabase()`
