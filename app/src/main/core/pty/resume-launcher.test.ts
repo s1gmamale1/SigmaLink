@@ -64,6 +64,9 @@ interface FakeRow {
   started_at: number;
   exited_at: number | null;
   external_session_id: string | null;
+  // session-persistence fix (2026-07-18) — slot-aware eligibility inputs.
+  pane_index: number | null;
+  closed_at: number | null;
 }
 
 function setupDb(kv: Record<string, string> = {}): { db: Database.Database; rows: FakeRow[] } {
@@ -73,8 +76,60 @@ function setupDb(kv: Record<string, string> = {}): { db: Database.Database; rows
       return {
         all(workspaceId: string) {
           expect(sql).toMatch(/FROM agent_sessions/);
-          return rows
-            .filter((r) => r.workspace_id === workspaceId)
+          // listRespawnableRows (respawnFailed lane) — a deliberately FLAT
+          // query over the failed-resume marker only. Discriminator: its WHERE
+          // pins `AND s.status = 'exited'` outside any OR-group; the
+          // eligibility query never contains that exact conjunction.
+          if (/AND s\.status = 'exited'/.test(sql)) {
+            return rows
+              .filter((r) => r.workspace_id === workspaceId)
+              .filter((r) => r.closed_at === null)
+              .filter((r) => r.status === 'exited' && r.exit_code === -1)
+              .sort((a, b) => a.started_at - b.started_at)
+              .map((r) => ({
+                id: r.id,
+                workspaceId: r.workspace_id,
+                providerId: r.provider_id,
+                providerEffective: r.provider_effective,
+                cwd: r.cwd,
+                worktreePath: r.worktree_path,
+                workspaceRoot: r.workspace_root,
+                repoRoot: r.repo_root,
+                externalSessionId: r.external_session_id,
+              }));
+          }
+          // session-persistence fix (2026-07-18) — the production eligibility
+          // query is now the SLOT-AWARE ranked CTE (mirror of
+          // panes.lastResumePlan). Guard the shape here so the JS mirror below
+          // can't silently drift from the SQL: rank ALL rows per
+          // (workspace_id, pane_index) live-first → started_at DESC → id DESC,
+          // THEN filter closed/eligibility (rank-then-filter, PR #221). NULL
+          // pane_index rows are exempt.
+          expect(sql).toMatch(/ROW_NUMBER\(\) OVER/);
+          expect(sql).toMatch(/PARTITION BY s\.workspace_id, s\.pane_index/);
+          expect(sql).toMatch(/closed_at IS NULL/);
+          const ws = rows.filter((r) => r.workspace_id === workspaceId);
+          const live = (r: FakeRow) => r.status === 'running' || r.status === 'starting';
+          const winners = new Set<string>();
+          const slots = new Map<number, FakeRow[]>();
+          for (const r of ws) {
+            if (r.pane_index === null) continue;
+            const bucket = slots.get(r.pane_index) ?? [];
+            bucket.push(r);
+            slots.set(r.pane_index, bucket);
+          }
+          for (const bucket of slots.values()) {
+            bucket.sort(
+              (a, b) =>
+                (live(a) ? 0 : 1) - (live(b) ? 0 : 1) ||
+                b.started_at - a.started_at ||
+                (a.id < b.id ? 1 : a.id > b.id ? -1 : 0),
+            );
+            winners.add(bucket[0]!.id);
+          }
+          return ws
+            .filter((r) => r.pane_index === null || winners.has(r.id))
+            .filter((r) => r.closed_at === null)
             .filter(
               (r) =>
                 r.status === 'running' ||
@@ -186,6 +241,10 @@ function insertSession(
       values.external_session_id !== undefined
         ? values.external_session_id
         : VALID_CLAUDE_SESSION_ID,
+    // NULL pane_index by default: legacy rows are exempt from slot ranking, so
+    // every pre-existing test keeps its original eligibility semantics.
+    pane_index: values.pane_index ?? null,
+    closed_at: values.closed_at ?? null,
   });
 }
 
@@ -738,6 +797,133 @@ describe('respawnFailedWorkspacePanes', () => {
 
     expect(result).toEqual({ workspaceId: 'ws-1', spawned: 1, failed: 0 });
     expect(spawnOpts[0]).toEqual({ sessionId: 'sess-respawn', spawnMode: 'shell-first' });
+  });
+});
+
+// ── session-persistence fix (2026-07-18): slot-aware eligibility ────────────
+// The old listEligibleRows returned EVERY open running/exited(-1) row, so a
+// slot that had accumulated stale siblings (relaunch leaks, historical
+// crashes) respawned ALL of them each boot — the old conversation flipped
+// 'running' via markResumeRunning and out-ranked the operator's actual-latest
+// row in listForWorkspace: the reported "relaunch resumes an OLD irrelevant
+// session" bug. Only the per-slot rank-winner may resume; an ineligible winner
+// (stranded 'error', closed) keeps its slot DARK — it must never un-shadow an
+// older sibling (rank-then-filter, PR #221).
+
+describe('resumeWorkspacePanes — slot-aware eligibility (old-session resurrection fix)', () => {
+  function makeSlotResolve(
+    calls: Array<{ sessionId?: string }>,
+  ): NonNullable<ResumeLauncherDeps['resolve']> {
+    return (_deps, opts) => {
+      calls.push({ sessionId: opts.sessionId ?? opts.preassignedSessionId });
+      return {
+        ptySession: makeSession(opts.sessionId ?? opts.preassignedSessionId ?? 'new-id', opts.providerId),
+        providerRequested: opts.providerId,
+        providerEffective: 'claude',
+        commandUsed: 'claude',
+        argsUsed: opts.extraArgs ?? [],
+        fallbackOccurred: false,
+      };
+    };
+  }
+  const registry = { get: () => undefined } as unknown as PtyRegistry;
+
+  it('resumes ONLY the newest row when a slot has stale exited/-1 siblings', async () => {
+    const { db, rows } = setupDb();
+    insertSession(rows, {
+      id: 'old-a', status: 'exited', exit_code: -1, started_at: 1000,
+      pane_index: 0, external_session_id: null,
+    });
+    insertSession(rows, {
+      id: 'cur-b', status: 'exited', exit_code: -1, started_at: 2000,
+      pane_index: 0, external_session_id: null,
+    });
+    const calls: Array<{ sessionId?: string }> = [];
+
+    const result = await resumeWorkspacePanes('ws-1', {
+      pty: registry,
+      db,
+      claudeHomeDir: makeClaudeHome(),
+      getProvider: () => claudeProvider,
+      resolve: makeSlotResolve(calls),
+    });
+
+    expect(result.resumed.map((r) => r.sessionId)).toEqual(['cur-b']);
+    expect(calls.map((c) => c.sessionId)).toEqual(['cur-b']);
+    // The stale sibling was NOT respawned and NOT marked failed.
+    expect(result.failed).toEqual([]);
+    expect(rows.find((r) => r.id === 'old-a')?.status).toBe('exited');
+  });
+
+  it('does NOT un-shadow an old sibling when the slot winner is a stranded error row', async () => {
+    const { db, rows } = setupDb();
+    insertSession(rows, {
+      id: 'old-a', status: 'exited', exit_code: -1, started_at: 1000,
+      pane_index: 0, external_session_id: null,
+    });
+    // The operator's actual-latest row, stranded by the quit-window race.
+    insertSession(rows, {
+      id: 'cur-b', status: 'error', exit_code: 0, started_at: 2000,
+      pane_index: 0, external_session_id: null,
+    });
+    const calls: Array<{ sessionId?: string }> = [];
+
+    const result = await resumeWorkspacePanes('ws-1', {
+      pty: registry,
+      db,
+      claudeHomeDir: makeClaudeHome(),
+      getProvider: () => claudeProvider,
+      resolve: makeSlotResolve(calls),
+    });
+
+    // Slot yields NOTHING — the winner is ineligible; the OLD conversation
+    // must not come back in its place.
+    expect(result.resumed).toEqual([]);
+    expect(result.failed).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+
+  it('does NOT un-shadow an open sibling when the slot winner is closed', async () => {
+    const { db, rows } = setupDb();
+    insertSession(rows, {
+      id: 'old-a', status: 'exited', exit_code: -1, started_at: 1000,
+      pane_index: 0, external_session_id: null,
+    });
+    insertSession(rows, {
+      id: 'cur-b', status: 'exited', exit_code: -1, started_at: 2000,
+      pane_index: 0, closed_at: 5000, external_session_id: null,
+    });
+    const calls: Array<{ sessionId?: string }> = [];
+
+    const result = await resumeWorkspacePanes('ws-1', {
+      pty: registry,
+      db,
+      claudeHomeDir: makeClaudeHome(),
+      getProvider: () => claudeProvider,
+      resolve: makeSlotResolve(calls),
+    });
+
+    expect(result.resumed).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+
+  it('keeps NULL pane_index legacy rows eligible as before', async () => {
+    const { db, rows } = setupDb();
+    insertSession(rows, {
+      id: 'legacy-1', status: 'exited', exit_code: -1,
+      pane_index: null, external_session_id: null,
+    });
+    const calls: Array<{ sessionId?: string }> = [];
+
+    const result = await resumeWorkspacePanes('ws-1', {
+      pty: registry,
+      db,
+      claudeHomeDir: makeClaudeHome(),
+      getProvider: () => claudeProvider,
+      resolve: makeSlotResolve(calls),
+    });
+
+    expect(result.resumed.map((r) => r.sessionId)).toEqual(['legacy-1']);
   });
 });
 
