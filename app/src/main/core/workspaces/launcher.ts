@@ -525,6 +525,31 @@ export async function executeLaunchPlan(
       // panes that were resumed by id. Fall back to the pre-assigned id from
       // the registry (claude/gemini pre-assign path) when no resume entry.
       const insertExternalSessionId = resumeSessionId ?? rec.externalSessionId ?? null;
+      // session-persistence fix (2026-07-18) — the picker resume lane INSERTs a
+      // NEW row; without carry-forward the operator's rename (BSP-O4 `name`)
+      // and CLI label override (SF-10) silently reset to NULL and the new row
+      // shadowed the old named row in listForWorkspace's rank ("Wren →
+      // Frontend-Agent" reverted to the alias). Copy both from the newest open
+      // row holding this external session id.
+      let carriedName: string | null = null;
+      let carriedDisplayProviderId: string | null = null;
+      if (resumeSessionId) {
+        try {
+          const prev = getRawDb()
+            .prepare(
+              `SELECT name, display_provider_id FROM agent_sessions
+               WHERE workspace_id = ? AND external_session_id = ? AND closed_at IS NULL
+               ORDER BY started_at DESC LIMIT 1`,
+            )
+            .get(wsRow.id, resumeSessionId) as
+            | { name: string | null; display_provider_id: string | null }
+            | undefined;
+          carriedName = prev?.name ?? null;
+          carriedDisplayProviderId = prev?.display_provider_id ?? null;
+        } catch {
+          /* carry-forward is best-effort — a fresh alias is the safe fallback */
+        }
+      }
       let allocatedPaneIndex = pane.paneIndex;
       try {
         const insertSession = getRawDb().transaction(() => {
@@ -554,6 +579,11 @@ export async function executeLaunchPlan(
               // SF-8 Yolo/Bypass — persist the bypass flag so resume can
               // re-apply it without the renderer re-submitting the preference.
               autoApprove: pane.autoApprove ? 1 : 0,
+              // session-persistence fix — rename + CLI label carry-forward
+              // (NULL on fresh spawns; copied from the superseded row on the
+              // picker resume lane).
+              name: carriedName,
+              displayProviderId: carriedDisplayProviderId,
             })
             .run();
         });
@@ -661,8 +691,9 @@ export async function executeLaunchPlan(
         // SF-8 Yolo/Bypass — surface the persisted flag so the renderer
         // knows whether this pane was launched in bypass mode.
         autoApprove: pane.autoApprove ?? false,
-        // BSP-O4 — fresh spawns always start without an operator-supplied name.
-        name: null,
+        // BSP-O4 — fresh spawns start unnamed; picker resumes carry the
+        // operator's rename forward (session-persistence fix).
+        name: carriedName,
       });
 
       // When the PTY exits, mark the session row. If the exit happens within

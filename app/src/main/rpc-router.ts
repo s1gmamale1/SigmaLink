@@ -3706,6 +3706,20 @@ export async function shutdownRouter(): Promise<void> {
   } catch {
     /* never block shutdown */
   }
+  // session-persistence fix (2026-07-18) — flag EVERY live pane's next exit as
+  // deliberate BEFORE killAll(): the quit sequence deliberately holds the DB
+  // open ≤2.5s (waitForPidsExit below) for the win32 WAL checkpoint, so
+  // without this a fast-dying pane's onExit landed status='error' (isPtyCrash
+  // sees signal 15) and the row silently dropped out of boot auto-resume AND
+  // respawn-fresh. All three exit-writer twins (workspaces/launcher,
+  // resume-launcher, swarms/factory-spawn) honor rec.expectedExit; rows stay
+  // 'running' and the boot janitor heals them to exited/-1 — one lane for
+  // graceful quit AND force-quit.
+  try {
+    sharedDeps?.pty.markAllExpectedExit();
+  } catch {
+    /* never block shutdown */
+  }
   // win32-db-lifecycle: capture the live PTY root pids BEFORE killAll so we
   // can wait (bounded) for them to actually exit before closeDatabase below —
   // taskkill only INITIATES termination; handle release lags, and a child

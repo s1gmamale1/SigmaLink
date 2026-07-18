@@ -53,6 +53,8 @@ const listProvidersMock = vi.fn();
 const listSwarmsMock = vi.fn();
 const ptyKillMock = vi.fn();
 const ptyWriteMock = vi.fn();
+// session-persistence fix (2026-07-18) — relaunch must close the crashed ROW.
+const panesCloseMock = vi.fn();
 
 vi.mock('@/renderer/lib/rpc', () => ({
   rpc: {
@@ -74,6 +76,7 @@ vi.mock('@/renderer/lib/rpc', () => ({
       rename: vi.fn(() => Promise.resolve({ ok: true })),
       setDisplayProvider: vi.fn(() => Promise.resolve({ ok: true })),
       brief: vi.fn(() => Promise.resolve()),
+      close: (...args: unknown[]) => panesCloseMock(...args),
     },
     git: {
       listCheckpoints: vi.fn(() => Promise.resolve([])),
@@ -154,6 +157,8 @@ beforeEach(() => {
   listSwarmsMock.mockReset();
   ptyKillMock.mockReset();
   ptyWriteMock.mockReset();
+  panesCloseMock.mockReset();
+  panesCloseMock.mockResolvedValue(undefined);
   listProvidersMock.mockResolvedValue([
     { id: 'claude', name: 'Claude' },
     { id: 'codex', name: 'Codex' },
@@ -347,6 +352,11 @@ describe('CommandRoom — v1.13.2 hardened pane-add', () => {
       expect(dispatchMock).toHaveBeenCalledWith({ type: 'ADD_SESSIONS', sessions: expect.any(Array) });
     });
     expect(dispatchMock).toHaveBeenCalledWith({ type: 'REMOVE_SESSION', id: 's1' });
+    // session-persistence fix (2026-07-18) — the crashed ROW must be closed in
+    // the DB, not just removed from renderer state: an open (closed_at NULL)
+    // row lingers as a stale sibling in its slot and boot auto-resume used to
+    // respawn its OLD conversation.
+    expect(panesCloseMock).toHaveBeenCalledWith('s1');
   });
 });
 

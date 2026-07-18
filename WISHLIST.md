@@ -153,6 +153,22 @@ is the RELIABLE lane (no writes land → janitor heals → resume); graceful qui
 
 ### Confirmed bugs
 
+> **2026-07-18 (same day):** the operator's "relaunch resumes an OLD irrelevant session" report led to a
+> second investigation pass that found TWO MORE root causes stacked on the first one — (3) boot auto-resume
+> was SLOT-BLIND (`listEligibleRows` respawned EVERY open running/exited(-1) row, so stale siblings'
+> old conversations came back and out-ranked the operator's actual-latest stranded row; live-DB receipt:
+> SigmasDashboard slot 0 had FIVE open rows, boot-eligible 7→3 after the fix) and (4) `handleRelaunch`
+> (`CommandRoom.tsx:286`) never wrote `closed_at` on the crashed row (renderer-only REMOVE_SESSION) so
+> stale siblings kept accumulating. All four fixed + gate-green on `fix/session-persistence-correctness`:
+> quit-time `markAllExpectedExit`, slot-aware ranked eligibility (mirror of lastResumePlan), janitor
+> supersession sweep (`closeSupersededPaneRows` — live-DB dry-run: 17 rows healed, 0 running rows touched),
+> relaunch row-close, rename carry-forward. Plan:
+> `docs/superpowers/plans/2026-07-18-session-persistence-correctness.md`.
+
+- ~~🐞 **[high, S] quit-window race strands live panes as `status='error'`**~~ → **FIXED on
+  `fix/session-persistence-correctness`** (2026-07-18): `registry.markAllExpectedExit()` before `killAll()`
+  + SOURCE-ordering test (`rpc-router.shutdown-order.test.ts`). Original finding kept below for the record.
+
 - 🐞 **[high, S] quit-window race strands live panes as `status='error'` — silently excluded from boot
   auto-resume AND the "Respawn fresh" bucket** — `shutdownRouter` (`app/src/main/rpc-router.ts:3671-3724`)
   flips `routerShuttingDown` (suppresses notifications only) then `killAll()`; `PtyRegistry.killAll`
@@ -172,6 +188,11 @@ is the RELIABLE lane (no writes land → janitor heals → resume); graceful qui
   rides janitor→exited/-1→resume. All three exit-writer twins already honor `rec.expectedExit`
   (`launcher.ts:684`, `resume-launcher.ts:308`, `swarms/factory-spawn.ts`). Win32 likely strands MORE
   (taskkill is faster than SIGTERM-drain).
+
+- ~~🐞 **[medium, S-M] operator pane rename lost on the workspace-picker resume lane**~~ → **FIXED on
+  `fix/session-persistence-correctness`** (2026-07-18): `name` + `display_provider_id` carry-forward inside
+  the insert txn (`workspaces/launcher.ts`), keyed on `(workspace_id, external_session_id)`. Original
+  finding kept below for the record.
 
 - 🐞 **[medium, S-M] operator pane rename (`agent_sessions.name`) lost on the workspace-picker resume
   lane** — rename persists via `panes.rename` (`rpc-router.ts:1985-2007`, immediate DB write → crash-safe)
