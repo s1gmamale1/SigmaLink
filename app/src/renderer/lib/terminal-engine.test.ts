@@ -145,6 +145,47 @@ describe('TerminalEngine — resize + change notification', () => {
     expect(() => engine.write('y')).not.toThrow();
     expect(() => engine.resize(80, 24)).not.toThrow();
   });
+
+  it('a THROWING subscriber does not starve the ones registered after it', async () => {
+    // The engine-cache attaches the label reader FIRST (at create time), so it
+    // sits ahead of every presenter bump in the Set. If it ever throws mid-
+    // notify, an unguarded loop would abort before FlowView/DomTerminalView
+    // re-render — the pane freezes on whatever half-painted frame it had.
+    const { engine } = makeEngine();
+    track(engine);
+    const boom = vi.fn(() => {
+      throw new Error('label reader blew up');
+    });
+    const presenter = vi.fn();
+    engine.onBufferChanged(boom);
+    engine.onBufferChanged(presenter);
+
+    await flushWrite(engine, 'hello');
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(boom).toHaveBeenCalled();
+    expect(presenter).toHaveBeenCalled();
+  });
+
+  it('keeps notifying on LATER writes after a subscriber throws', async () => {
+    const { engine } = makeEngine();
+    track(engine);
+    engine.onBufferChanged(() => {
+      throw new Error('persistently broken subscriber');
+    });
+    const presenter = vi.fn();
+    engine.onBufferChanged(presenter);
+
+    await flushWrite(engine, 'first');
+    await new Promise((r) => setTimeout(r, 10));
+    const afterFirst = presenter.mock.calls.length;
+
+    await flushWrite(engine, 'second');
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(afterFirst).toBeGreaterThan(0);
+    expect(presenter.mock.calls.length).toBeGreaterThan(afterFirst);
+  });
 });
 
 describe('TerminalEngine — styled runs + cursor', () => {
