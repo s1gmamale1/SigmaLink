@@ -8,7 +8,7 @@
 // Deliberately ABSENT vs the xterm host: dragFit (CSS wrap handles live drag),
 // WebGL addon, and the xterm link addon (FlowView renders links directly).
 
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
 import { rpc } from '@/renderer/lib/rpc';
 import { getOrCreateEngine, type EngineCacheEntry } from '@/renderer/lib/engine-cache';
 import { useTerminalPaletteEpoch } from '@/renderer/lib/terminal-palette';
@@ -93,6 +93,24 @@ export function DomTerminalView({
   // guaranteed-fresh paint and cheap (the engine, and so the scrollback, is
   // cache-owned and untouched).
   const [revealEpoch, bumpReveal] = useReducer((n: number) => n + 1, 0);
+  const revealScrollRef = useRef<{ scrollTop: number; detached: boolean } | null>(null);
+
+  // A forced repaint deliberately remounts FlowView, whose mount-time follow
+  // behavior pins to the bottom. Restore a reader's detached scroll position
+  // in the parent layout phase, then synchronously notify the new FlowView so
+  // its follow ref stands down before its scheduled rAF re-pin. At-bottom
+  // panes are left alone and retain the normal mount pin.
+  useLayoutEffect(() => {
+    const saved = revealScrollRef.current;
+    revealScrollRef.current = null;
+    if (!saved?.detached) return;
+    const flow = containerRef.current?.querySelector<HTMLDivElement>(
+      '[data-testid="flow-view"]',
+    );
+    if (!flow) return;
+    flow.scrollTop = saved.scrollTop;
+    flow.dispatchEvent(new Event('scroll', { bubbles: true }));
+  }, [revealEpoch]);
 
   // FlowView link context — mirror the xterm host (Terminal.tsx): a clicked
   // PTY-pane link routes through the active workspace's built-in browser via
@@ -183,6 +201,13 @@ export function DomTerminalView({
     const controller = new RefitController({
       fit: runFit,
       reveal: () => {
+        const flow = container.querySelector<HTMLDivElement>('[data-testid="flow-view"]');
+        revealScrollRef.current = flow
+          ? {
+              scrollTop: flow.scrollTop,
+              detached: !!container.querySelector('[data-testid="jump-to-bottom"]'),
+            }
+          : null;
         runFit();
         bumpReveal();
       },
