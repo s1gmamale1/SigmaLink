@@ -5,9 +5,8 @@
 // free, exactly the property this redesign exists for), the hidden-textarea
 // input host (P1a encoder), focus routing, and select-to-copy parity.
 //
-// Deliberately ABSENT vs the xterm host: window:restored reveal (no GPU
-// compositor state to repaint), dragFit (CSS wrap handles live drag), WebGL
-// addon, link addon (FlowView anchors land in P2).
+// Deliberately ABSENT vs the xterm host: dragFit (CSS wrap handles live drag),
+// WebGL addon, and the xterm link addon (FlowView renders links directly).
 
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { rpc } from '@/renderer/lib/rpc';
