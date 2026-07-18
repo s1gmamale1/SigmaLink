@@ -269,7 +269,7 @@ describe('spawnLocalPty: direct mode (regression guard)', () => {
 
   it('treats omitted spawnMode as direct in spawnLocalPty (field-level default)', () => {
     // Phase 7 note: the KV-layer default is now 'shell-first' (parseSpawnMode).
-    // However, spawnLocalPty's 3-condition guard treats a missing/undefined
+    // However, spawnLocalPty's mode guard treats a missing/undefined
     // spawnMode field as NOT matching 'shell-first', so it falls through to
     // direct mode. In practice the KV layer always supplies an explicit mode
     // after Phase 7, so this code path is not exercised in production.
@@ -348,7 +348,7 @@ describe('spawnLocalPty: shell-first mode', () => {
   }
 
   it('spawns the default shell instead of the input command', async () => {
-    if (process.platform === 'win32') return; // win32 falls back to direct
+    if (process.platform === 'win32') return; // covered by the Windows suite below
     vi.useFakeTimers();
 
     const { freshSpawn, written, nodePty } = await setup();
@@ -481,7 +481,7 @@ describe('spawnLocalPty: shell-first mode', () => {
     expect(written.length).toBe(1);
   });
 
-  it('win32: shell-first falls back to direct mode (ENOENT for missing command)', () => {
+  it('win32: shell-first still throws ENOENT for a missing command', () => {
     if (process.platform !== 'win32') return;
 
     process.env.PATH = '/does/not/exist';
@@ -498,14 +498,14 @@ describe('spawnLocalPty: shell-first mode', () => {
     } catch (err) {
       caught = err;
     }
-    // On win32, shell-first silently degrades to direct, which then hits ENOENT
+    // Shell-first preserves the synchronous pre-flight contract so provider
+    // launchers can still walk their alternate-command list.
     const e = caught as NodeJS.ErrnoException;
     expect(e).toBeInstanceOf(Error);
     expect(e.code).toBe('ENOENT');
   });
 
   it('H-9: shell-first throws synchronous ENOENT for a missing binary (drives the launcher alt-command walk)', () => {
-    if (process.platform === 'win32') return; // POSIX path (win32 degrades to direct)
     // Empty PATH so no binary resolves. Previously shell-first injected the
     // command into a live shell, so a missing binary produced only "command
     // not found" output + sentinel — never a synchronous throw — and the
@@ -535,7 +535,7 @@ describe('spawnLocalPty: shell-first mode', () => {
 //
 // resolveEffectiveSpawnMode is the SINGLE source of truth shared by spawnLocalPty
 // (shell-wrap decision) and PtyRegistry.create (sentinel-watch decision). These
-// tests pin the win32 coercion so the two can never disagree again.
+// tests pin cross-platform shell-first parity so the two can never disagree.
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('resolveEffectiveSpawnMode (H-6)', () => {
@@ -559,13 +559,9 @@ describe('resolveEffectiveSpawnMode (H-6)', () => {
     expect(resolveEffectiveSpawnMode(undefined, 'claude')).toBe('direct');
   });
 
-  it('win32: shell-first request is coerced to direct (un-dogfooded — kept consistent end-to-end)', () => {
+  it('win32: shell-first request remains shell-first', () => {
     Object.defineProperty(process, 'platform', { value: 'win32' });
-    // Even an explicit shell-first request must yield direct on win32 so the
-    // pane is NOT shell-wrapped (no sentinel emitted) AND the registry does not
-    // arm a sentinel watcher. The wrap-side (spawnLocalPty) and the watch-side
-    // (PtyRegistry.create) both read this helper, so they agree by construction.
-    expect(resolveEffectiveSpawnMode('shell-first', 'claude')).toBe('direct');
+    expect(resolveEffectiveSpawnMode('shell-first', 'claude')).toBe('shell-first');
   });
 });
 
@@ -575,14 +571,7 @@ describe('spawnLocalPty: win32 shell-first consistency (H-6)', () => {
     Object.defineProperty(process, 'platform', { value: originalPlatform });
   });
 
-  it('simulated win32 + shell-first request does NOT spawn shell-first (no sentinel watcher armed for a non-wrapped pane)', () => {
-    // Simulate win32 and an empty PATH so the would-be command cannot resolve.
-    // If win32 took the shell-first path, spawnShellFirstPty would resolve the
-    // SHELL (which the win32 resolver may still find) and inject a sentinel —
-    // no synchronous throw. Because win32 is coerced to DIRECT, the direct-mode
-    // pre-flight runs instead and throws ENOENT for the missing command,
-    // proving we took the direct path (consistent with the registry, which also
-    // coerces win32 to direct and therefore arms NO sentinel watcher).
+  it('simulated win32 + shell-first preserves synchronous ENOENT pre-flight', () => {
     Object.defineProperty(process, 'platform', { value: 'win32' });
     process.env.PATH = '';
     let caught: unknown = null;
@@ -654,7 +643,7 @@ describe('buildShellCommandLine (Phase 2)', () => {
 // v1.6.0 Phase 5 — win32QuotePwshArg (PowerShell argument quoting)
 //
 // Pure logic tests — runnable on any platform (macOS CI included).
-// pending-Windows-dogfood: PTY e2e verification requires a Windows host.
+// Real Windows shell execution is covered by the sentinel runtime tests.
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('win32QuotePwshArg (Phase 5)', () => {
@@ -701,7 +690,7 @@ describe('win32QuotePwshArg (Phase 5)', () => {
 // v1.6.0 Phase 5 — win32QuoteCmdArg (cmd.exe argument quoting)
 //
 // Pure logic tests — runnable on any platform.
-// pending-Windows-dogfood: PTY e2e verification requires a Windows host.
+// Real Windows shell execution is covered by the sentinel runtime tests.
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('win32QuoteCmdArg (Phase 5)', () => {
@@ -737,7 +726,7 @@ describe('win32QuoteCmdArg (Phase 5)', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 // v1.6.0 Phase 5 — buildWin32PwshCommandLine (Phase 5)
 //
-// pending-Windows-dogfood: PTY e2e verification requires a Windows host.
+// Real Windows shell execution is covered by the runtime suite below.
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('buildWin32PwshCommandLine (Phase 5)', () => {
@@ -781,7 +770,7 @@ describe('buildWin32PwshCommandLine (Phase 5)', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 // v1.6.0 Phase 5 — buildWin32CmdCommandLine (Phase 5)
 //
-// pending-Windows-dogfood: PTY e2e verification requires a Windows host.
+// Real Windows shell execution is covered by the runtime suite below.
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('buildWin32CmdCommandLine (Phase 5)', () => {
@@ -801,9 +790,9 @@ describe('buildWin32CmdCommandLine (Phase 5)', () => {
     expect(line).toContain(SENTINEL_SUFFIX);
   });
 
-  it('with sentinel: uses %ERRORLEVEL% capture pattern', () => {
+  it('with sentinel: uses delayed !ERRORLEVEL! capture', () => {
     const line = buildWin32CmdCommandLine('mybin', [], true);
-    expect(line).toContain('%ERRORLEVEL%');
+    expect(line).toContain('!ERRORLEVEL!');
   });
 
   it('with sentinel: uses SET to save exit code before echo. resets it', () => {
@@ -824,14 +813,11 @@ describe('buildWin32CmdCommandLine (Phase 5)', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// v1.6.0 Phase 5 / H-6 — win32 shell-first helpers exist, but runtime currently
-// coerces win32 shell-first requests back to direct mode until Windows dogfood
-// validates the wrapped-shell sentinel path.
+// v1.6.0 Phase 5 / H-6 — win32 shell-first runtime coverage.
 //
 // NOTE: This test uses vi.doMock + dynamic import to mock node-pty on win32.
-// On the macOS test host, we simulate the win32 platform via process.platform.
-//
-// pending-Windows-dogfood: full PTY integration requires a Windows host.
+// The wrapped-shell spawn assertions run on Windows because command resolution
+// intentionally follows Windows filesystem and PATH semantics.
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('spawnLocalPty: win32 shell-first mode (Phase 5)', () => {
@@ -869,48 +855,90 @@ describe('spawnLocalPty: win32 shell-first mode (Phase 5)', () => {
     };
   }
 
-  it('on simulated win32 with shell-first: stays direct until Windows dogfood clears shell-first', async () => {
-    if (process.platform !== 'win32') {
-      // Simulate win32 platform on macOS by temporarily overriding process.platform.
-      // H-6 restored direct mode on win32 so spawn/watch logic cannot drift.
-      vi.useFakeTimers();
+  it('win32 shell-first spawns PowerShell and injects the CLI with an exit sentinel', async () => {
+    if (process.platform !== 'win32') return;
+    vi.useFakeTimers();
 
-      const { freshSpawn, nodePty } = await setupWin32();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sigmalink-shell-first-'));
+    const shellPath = path.join(tempDir, 'pwsh.exe');
+    fs.writeFileSync(shellPath, '');
+    fs.writeFileSync(path.join(tempDir, 'claude.cmd'), '');
 
-      // Override platform to 'win32' for this test.
-      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
-      // Ensure resolveWindowsCommand won't throw on missing PATH by giving it a real shell.
-      // We rely on spawnShellFirstPty not calling resolveWindowsCommand for the shell
-      // (it calls defaultShell() which already resolves).
+    try {
+      const { freshSpawn, nodePty, written, fireData } = await setupWin32();
+      freshSpawn({
+        command: 'claude',
+        args: ['--flag'],
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          PATH: tempDir,
+          PATHEXT: '.COM;.EXE;.BAT;.CMD',
+        },
+        cols: 80,
+        rows: 24,
+        spawnMode: 'shell-first',
+      });
 
-      try {
-        freshSpawn({
-          command: 'claude',
-          args: ['--flag'],
-          cwd: process.cwd(),
-          cols: 80,
-          rows: 24,
-          spawnMode: 'shell-first',
-        });
-      } catch {
-        // Spawn may fail in test env on a simulated win32 platform — that's expected.
-        // What we verify below is that shell-first wrapping did not happen.
-      } finally {
-        Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
-      }
+      const [spawnCommand, spawnArgs] = vi.mocked(nodePty.spawn).mock.calls[0]!;
+      expect(path.normalize(String(spawnCommand))).toBe(path.normalize(shellPath));
+      expect(spawnArgs).toEqual(['-NoLogo']);
+      expect(written).toHaveLength(0);
 
-      // The spawn call, if it happened, should NOT be a shell-first wrapped
-      // PowerShell/cmd launch. In most simulated environments direct-mode
-      // preflight throws ENOENT before node-pty is reached.
-      const spawnCalls = vi.mocked(nodePty.spawn).mock.calls;
-      for (const call of spawnCalls) {
-        expect(String(call[0]).toLowerCase()).not.toMatch(/powershell|pwsh|cmd\.exe/);
-      }
+      fireData('PS> ');
+
+      expect(written).toHaveLength(1);
+      expect(written[0]).toMatch(/^claude "--flag"/);
+      expect(written[0]).toContain(SENTINEL_PREFIX);
+      expect(written[0]).toContain(SENTINEL_SUFFIX);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('win32 shell-first falls back to a delayed-expansion cmd.exe shell', async () => {
+    if (process.platform !== 'win32') return;
+    vi.useFakeTimers();
+
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sigmalink-shell-first-cmd-'));
+    const shellPath = path.join(tempDir, 'cmd.exe');
+    fs.writeFileSync(shellPath, '');
+    fs.writeFileSync(path.join(tempDir, 'claude.cmd'), '');
+
+    try {
+      const { freshSpawn, nodePty, written, fireData } = await setupWin32();
+      freshSpawn({
+        command: 'claude',
+        args: ['--flag'],
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          PATH: tempDir,
+          PATHEXT: '.COM;.EXE;.BAT;.CMD',
+        },
+        cols: 80,
+        rows: 24,
+        spawnMode: 'shell-first',
+      });
+
+      const [spawnCommand, spawnArgs] = vi.mocked(nodePty.spawn).mock.calls[0]!;
+      expect(path.normalize(String(spawnCommand))).toBe(path.normalize(shellPath));
+      expect(spawnArgs).toEqual(['/d', '/v:on']);
+
+      fireData('C:\\> ');
+
+      expect(written).toHaveLength(1);
+      expect(written[0]).toMatch(/^claude "--flag"/);
+      expect(written[0]).toContain('!ERRORLEVEL!');
+      expect(written[0]).toContain(SENTINEL_PREFIX);
+      expect(written[0]).toContain(SENTINEL_SUFFIX);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
 
   it('win32 direct mode: still throws ENOENT for missing commands', () => {
-    // The 3-condition guard: spawnMode !== 'shell-first' → direct mode → ENOENT.
+    // Explicit direct mode still takes the direct pre-flight path.
     // This verifies the invariant is preserved on win32 when spawnMode is 'direct'.
     process.env.PATH = '/does/not/exist';
     let caught: unknown = null;

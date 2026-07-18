@@ -29,7 +29,7 @@ export interface SpawnInput {
   /**
    * v1.6.0 — Phase 1 shell-first pane mode flag.
    *
-   * 'direct'      (DEFAULT): existing behaviour — node-pty spawns `command`
+   * 'direct':      node-pty spawns `command`
    *               directly (or the user's default shell when command is empty).
    *               BYTE-FOR-BYTE identical to pre-Phase-1 behaviour.
    *
@@ -37,8 +37,7 @@ export interface SpawnInput {
    *               the shell emits its first data chunk (prompt) — or after a
    *               250 ms fallback timer if no data arrives — the composed
    *               command line is written once into the PTY master.
-   *               On win32, falls back silently to 'direct' in Phase 1 because
-   *               PowerShell/cmd quoting is non-trivial.
+   *               Windows uses PowerShell when available, then cmd.exe.
    */
   spawnMode?: 'direct' | 'shell-first';
 }
@@ -123,7 +122,9 @@ export function defaultShell(env: NodeJS.ProcessEnv = process.env): { command: s
       resolveWindowsCommand('powershell.exe', env) ?? resolveWindowsCommand('powershell', env);
     if (powershell) return { command: powershell, args: ['-NoLogo'] };
     const cmdExe = resolveWindowsCommand('cmd.exe', env) ?? 'cmd.exe';
-    return { command: cmdExe, args: [] };
+    // Delayed expansion lets the injected sentinel capture the foreground
+    // command's ERRORLEVEL after it exits. /d avoids AutoRun command pollution.
+    return { command: cmdExe, args: ['/d', '/v:on'] };
   }
   if (process.platform === 'darwin') {
     const sh = env.SHELL ?? '/bin/zsh';
@@ -185,10 +186,8 @@ export const KV_PTY_SPAWN_MODE = 'pty.spawnMode';
  * crashed CLI leaves a live shell in the pane (the operator-requested
  * terminal-fallback behaviour). Explicit 'direct' values are still honoured.
  *
- * win32 note: win32 shell-first is NOT yet Windows-dogfooded. The flip
- * applies to all platforms per operator choice (2026-05-22 sign-off). If
- * win32 issues arise, operators can revert to direct mode by setting the KV
- * flag to 'direct' explicitly.
+ * The default applies consistently across platforms. Operators can still
+ * restore direct mode by setting the KV flag to 'direct' explicitly.
  */
 export function parseSpawnMode(raw: string | null | undefined): 'direct' | 'shell-first' {
   if (raw === 'direct') return 'direct';
@@ -239,8 +238,8 @@ export function posixQuoteArg(arg: string): string {
  * prompt.  The registry's onData path strips the sentinel from the forwarded
  * data and emits the cli-exited signal.
  *
- * The sentinel snippet is POSIX-only and is only injected when
- * `withSentinel === true` (i.e. shell-first mode on non-win32).
+ * This builder emits the POSIX sentinel. Windows shell-first mode dispatches
+ * to its PowerShell or cmd.exe builder instead.
  */
 export function buildShellCommandLine(command: string, args: string[], withSentinel = false): string {
   const parts = [command, ...args.map(posixQuoteArg)];
@@ -330,9 +329,8 @@ export function win32QuoteCmdArg(arg: string): string {
  * PowerShell sentinel snippet so the shell emits the exit-code marker when the
  * CLI exits.
  *
- * NOTE: win32 e2e verification requires a Windows host. This function is
- * unit-tested (pure logic, runnable on macOS) but marked
- * "pending-Windows-dogfood" for full integration testing.
+ * Pure command construction is cross-platform unit-tested; Windows tests also
+ * execute the emitted sentinel in a real PowerShell process.
  *
  * The caller appends `\n` (the Enter keystroke).
  */
@@ -353,9 +351,8 @@ export function buildWin32PwshCommandLine(command: string, args: string[], withS
  * cmd.exe sentinel snippet so the shell emits the exit-code marker when the
  * CLI exits.
  *
- * NOTE: win32 e2e verification requires a Windows host. This function is
- * unit-tested (pure logic, runnable on macOS) but marked
- * "pending-Windows-dogfood" for full integration testing.
+ * Pure command construction is cross-platform unit-tested; Windows tests also
+ * execute the emitted sentinel in a real delayed-expansion cmd.exe process.
  *
  * The caller appends `\n`.
  */
@@ -379,21 +376,18 @@ export function buildWin32CmdCommandLine(command: string, args: string[], withSe
  * the spawn side dropped the win32 check in Phase 5 while the registry kept it,
  * so on win32 a pane was wrapped-and-sentinelled but watched as direct.
  *
- * The three conditions, ALL required for shell-first:
+ * The two conditions required for shell-first:
  *   1. spawnMode === 'shell-first'   (operator opt-in / Phase-7 default)
  *   2. command !== ''                (launching a CLI, not just opening a shell)
- *   3. process.platform !== 'win32'  (win32 shell-first is un-dogfooded — see
- *                                     H-6 note in spawnLocalPty; keep it direct)
  *
  * Centralising the decision here guarantees the wrapping and the watching can
- * never disagree again. To enable win32 shell-first in future, lift the win32
- * condition HERE — both call sites update automatically.
+ * never disagree again across macOS, Linux, and Windows.
  */
 export function resolveEffectiveSpawnMode(
   spawnMode: 'direct' | 'shell-first' | undefined,
   command: string,
 ): 'direct' | 'shell-first' {
-  return spawnMode === 'shell-first' && command !== '' && process.platform !== 'win32'
+  return spawnMode === 'shell-first' && command !== ''
     ? 'shell-first'
     : 'direct';
 }
@@ -458,38 +452,24 @@ export function spawnLocalPty(input: SpawnInput): PtyHandle {
   // ---------------------------------------------------------------------------
   // v1.6.0 Phase 1/5 — shell-first mode branch.
   //
-  // CRITICAL INVARIANT: when spawnMode is 'direct' (the DEFAULT), or when
+  // CRITICAL INVARIANT: when spawnMode is 'direct', or when
   // input.command is empty, we take EXACTLY the existing code path below —
   // behaviour is byte-for-byte identical to pre-Phase-1.
   //
-  // Phase 5: win32 shell-first is now wired behind the same flag. It is
-  // flagged default-off and marked "pending-Windows-dogfood" — the win32
-  // quoting and sentinel logic is unit-tested (pure logic, runnable on macOS)
-  // but full e2e verification requires a Windows host.
+  // Phase 5: win32 shell-first is wired behind the same flag, using the
+  // PowerShell/cmd quoting and sentinel builders below.
   //
-  // 3-condition guard (unchanged from Phase 1):
+  // 2-condition guard:
   //   1. spawnMode === 'shell-first'   (operator opt-in)
   //   2. command !== ''                (non-empty → launching a CLI, not just opening a shell)
-  //   [win32 platform check removed in Phase 5 — win32 now takes the shell-first path]
   //
   // Phase 7 (DONE — 2026-05-22): default is now 'shell-first'.
   // parseSpawnMode() returns 'shell-first' for any unset/absent KV value.
   // Explicit 'direct' KV values are still honoured.
   //
-  // H-6 (Wave-2 hardening, 2026-05-26): the win32 platform guard is RESTORED.
-  // win32 shell-first is un-dogfooded and was never wired safely: `spawnLocalPty`
-  // dropped the win32 check in Phase 5 (so it wrapped the command in a shell and
-  // emitted the exit-code sentinel), but `PtyRegistry.create` STILL coerces win32
-  // to 'direct' when deciding whether to arm the sentinel watcher. The result on
-  // win32 was a pane spawned shell-first-wrapped (printing raw sentinel markers
-  // into the user's terminal) while the registry watched it as direct (never
-  // firing onCliExited). Re-adding the guard here makes the spawn-wrapping and
-  // the sentinel-watching agree at the SINGLE source of truth: win32 is now
-  // consistently 'direct' end-to-end (no shell wrap, no sentinel watcher). The
-  // matching coercion in registry.ts and the documented intent in the win32
-  // local-pty test now hold. To enable win32 shell-first in future, lift the
-  // win32 condition in the shared `resolveEffectiveSpawnMode` helper — both this
-  // function and registry.ts call it, so they can never disagree again.
+  // H-6 (Wave-2 hardening): spawnLocalPty and PtyRegistry both resolve the mode
+  // through the helper above, keeping shell wrapping and sentinel watching in
+  // lockstep on every platform.
   // ---------------------------------------------------------------------------
   const effectiveMode = resolveEffectiveSpawnMode(input.spawnMode, input.command);
 
@@ -658,7 +638,7 @@ export function spawnLocalPty(input: SpawnInput): PtyHandle {
 //
 // Phase 5: win32 now supported. The command-line builder is selected based on
 // the default shell resolved for win32 (PowerShell vs cmd.exe), mirroring the
-// POSIX sentinel/quoting path. Win32 e2e is pending-Windows-dogfood.
+// POSIX, PowerShell, and cmd.exe sentinel/quoting paths.
 // ---------------------------------------------------------------------------
 const SHELL_FIRST_PROMPT_TIMEOUT_MS = 250;
 
@@ -705,11 +685,7 @@ function spawnShellFirstPty(input: SpawnInput): PtyHandle {
   // Resolve the binary here, BEFORE building the shell command line, mirroring
   // the direct-mode pre-flight. On a miss we throw the same ENOENT shape so the
   // launcher walks to the next alt-command in BOTH modes. On a hit we inject the
-  // RESOLVED absolute path into the command line so the chosen binary is
-  // unambiguous regardless of spawn mode.
-  //
-  // (win32 always degrades to direct after H-6, so this path is POSIX-only in
-  // practice; the resolver stays platform-aware for symmetry.)
+  // original command and let the durable shell resolve it through the same env.
   const baseEnv = input.env ?? process.env;
   const resolvedCommand =
     process.platform === 'win32'

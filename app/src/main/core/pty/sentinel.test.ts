@@ -3,6 +3,7 @@
 // These tests run on any platform (pure logic, no win32 host required).
 
 import { describe, it, expect } from 'vitest';
+import { execFileSync } from 'node:child_process';
 import {
   SENTINEL_PREFIX,
   SENTINEL_SUFFIX,
@@ -172,10 +173,7 @@ describe('sentinel round-trip', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 // v1.6.0 Phase 5 — win32 PowerShell sentinel snippet
 //
-// NOTE: win32 e2e verification requires a Windows host. These tests cover
-// the pure logic (snippet format, marker presence, regex match) and are
-// runnable on any platform (macOS CI included).
-// pending-Windows-dogfood: full PTY integration test runs on a Windows host.
+// Pure assertions run everywhere; a real-shell round trip runs on Windows.
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('buildPowerShellSentinelSnippet (Phase 5 — win32 pwsh)', () => {
@@ -190,9 +188,9 @@ describe('buildPowerShellSentinelSnippet (Phase 5 — win32 pwsh)', () => {
     expect(snippet.trimStart()).toMatch(/^; Write-Host/);
   });
 
-  it('uses $LASTEXITCODE so PowerShell substitutes the actual exit code', () => {
+  it('delimits $LASTEXITCODE so the suffix is not parsed as part of the variable name', () => {
     const snippet = buildPowerShellSentinelSnippet();
-    expect(snippet).toContain('$LASTEXITCODE');
+    expect(snippet).toContain('$($LASTEXITCODE)');
   });
 
   it('includes a backtick-n newline escape for the leading newline', () => {
@@ -203,6 +201,23 @@ describe('buildPowerShellSentinelSnippet (Phase 5 — win32 pwsh)', () => {
 });
 
 describe('buildPowerShellSentinelSnippet round-trip (Phase 5)', () => {
+  it('emits an extractable non-zero exit code in real Windows PowerShell', () => {
+    if (process.platform !== 'win32') return;
+
+    const output = execFileSync(
+      'powershell.exe',
+      [
+        '-NoLogo',
+        '-NoProfile',
+        '-Command',
+        `cmd /c exit 7${buildPowerShellSentinelSnippet()}`,
+      ],
+      { encoding: 'utf8' },
+    );
+
+    expect(extractSentinel(output)?.exitCode).toBe(7);
+  });
+
   it('simulated PowerShell output (exit 0) matches SENTINEL_RE', () => {
     // PowerShell would expand: Write-Host "`n__SIGMALINK_CLI_EXIT_0__"
     // producing: \n__SIGMALINK_CLI_EXIT_0__ (with a real newline before)
@@ -233,7 +248,7 @@ describe('buildPowerShellSentinelSnippet round-trip (Phase 5)', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 // v1.6.0 Phase 5 — win32 cmd.exe sentinel snippet
 //
-// NOTE: pending-Windows-dogfood for PTY e2e. Unit-only on macOS.
+// Pure assertions run everywhere; a real-shell round trip runs on Windows.
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('buildCmdSentinelSnippet (Phase 5 — win32 cmd.exe)', () => {
@@ -248,9 +263,9 @@ describe('buildCmdSentinelSnippet (Phase 5 — win32 cmd.exe)', () => {
     expect(snippet.trimStart()).toMatch(/^& SET/);
   });
 
-  it('uses %ERRORLEVEL% to capture the CLI exit code', () => {
+  it('uses delayed !ERRORLEVEL! expansion to capture the CLI exit code', () => {
     const snippet = buildCmdSentinelSnippet();
-    expect(snippet).toContain('%ERRORLEVEL%');
+    expect(snippet).toContain('!ERRORLEVEL!');
   });
 
   it('uses a SET intermediate variable to avoid echo. reset', () => {
@@ -261,6 +276,21 @@ describe('buildCmdSentinelSnippet (Phase 5 — win32 cmd.exe)', () => {
 });
 
 describe('buildCmdSentinelSnippet round-trip (Phase 5)', () => {
+  it('emits an extractable non-zero exit code in a delayed-expansion cmd shell', () => {
+    if (process.platform !== 'win32') return;
+
+    const output = execFileSync(
+      'cmd.exe',
+      ['/d', '/v:on', '/q'],
+      {
+        encoding: 'utf8',
+        input: `cmd /c exit 7${buildCmdSentinelSnippet()}\r\nexit 0\r\n`,
+      },
+    );
+
+    expect(extractSentinel(output)?.exitCode).toBe(7);
+  });
+
   it('simulated cmd.exe output (exit 0) matches SENTINEL_RE', () => {
     // cmd.exe would print a blank line then: __SIGMALINK_CLI_EXIT_0__
     const simulatedOutput = `\n${SENTINEL_PREFIX}0${SENTINEL_SUFFIX}\n`;
