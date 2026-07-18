@@ -142,3 +142,79 @@ slot-collision window structurally (no status flip ever happens on this path). R
 scanner patterns still generic (`sign in again` is plain English — advisory tier makes misfires cosmetic
 now); registry `authErrors` first-detection-only per session (chip is dismissible; clears on relaunch).
 Gate: tsc 0 · eslint 0 · vitest 4994/4996 (2 skipped) · build 0.
+
+---
+
+## 🔬 Deep review findings (2026-07-18) — DB session/workspace persistence audit (relaunch · force-quit · rename · perf)
+
+_Full trace of pane persistence for claude/codex panes (spawn INSERT → quit → boot resume → rename), verified
+against the LIVE operator DB read-only (291 `agent_sessions` rows, 17 workspaces). Headline: force-quit/crash
+is the RELIABLE lane (no writes land → janitor heals → resume); graceful quit is a per-pane race._
+
+### Confirmed bugs
+
+- 🐞 **[high, S] quit-window race strands live panes as `status='error'` — silently excluded from boot
+  auto-resume AND the "Respawn fresh" bucket** — `shutdownRouter` (`app/src/main/rpc-router.ts:3671-3724`)
+  flips `routerShuttingDown` (suppresses notifications only) then `killAll()`; `PtyRegistry.killAll`
+  (`app/src/main/core/pty/registry.ts:635`) never sets `expectedExit`, and the quit sequence deliberately
+  holds the DB open ≤2.5s (`waitForPidsExit`) for the win32 WAL checkpoint. Any pane whose process dies
+  inside that window fires onExit → `isPtyCrash(false, code 0, signal 15)` → crash → `status='error'` LANDS
+  (`app/src/main/core/workspaces/launcher.ts:678-702`; twin `resume-launcher.ts:296-339`). Boot auto-resume
+  eligibility is `status='running' OR (exited AND exit_code=-1)` (`resume-launcher.ts:342-368`); the
+  respawn-fresh bucket is `exited/-1` only (`resume-launcher.ts:474-502`) — `'error'` rows are in NEITHER,
+  so the pane simply never comes back (no toast either — it's filtered out of the SQL, not "failed").
+  Slow-dying panes escape (write lands after `closeDatabase` → swallowed → row stays `running` → boot
+  janitor heals to exited/-1 → resumes fine). **Live-DB receipts: 128 open `exited/-1` rows (janitor lane,
+  works) vs 3 open stranded `error/0` rows (race fired); 118 `error/0` rows with `closed_at` set are
+  deliberate closes — harmless, the PR #221 shield working.** Fix (structural — one lane for ALL quits):
+  mark every live record expectedExit before `killAll()` (e.g. `registry.markAllExpectedExit()`, mirroring
+  `markExpectedExit` `registry.ts:528`) so quit-time exits skip the status write entirely and every pane
+  rides janitor→exited/-1→resume. All three exit-writer twins already honor `rec.expectedExit`
+  (`launcher.ts:684`, `resume-launcher.ts:308`, `swarms/factory-spawn.ts`). Win32 likely strands MORE
+  (taskkill is faster than SIGTERM-drain).
+
+- 🐞 **[medium, S-M] operator pane rename (`agent_sessions.name`) lost on the workspace-picker resume
+  lane** — rename persists via `panes.rename` (`rpc-router.ts:1985-2007`, immediate DB write → crash-safe)
+  and survives boot auto-resume because `resumeWorkspacePanes` reuses the SAME row in place
+  (`markResumeRunning`, `resume-launcher.ts:284-294`). But reopening a workspace through the launcher
+  picker (SessionStep → `panes.lastResumePlan` → `executeLaunchPlan`) INSERTs a brand-new row with
+  `name: null` (`workspaces/launcher.ts:532-557`, explicit at `:664-666`); `lastResumePlan` doesn't even
+  return `name` (`rpc-router.ts:1820-1858`). The new row wins rank-then-filter (`rn=1`: running + newest
+  first) in `listForWorkspace` (`rpc-router.ts:1900-1923`), shadowing the old named row forever →
+  "Wren → Frontend-Agent" reverts to the alias. Fix: inside the insert transaction, carry `name`
+  (+ `display_provider_id`) forward from the newest open row with the same `external_session_id`
+  (fallback key: same `workspace_id`+`pane_index`). NOTE: auto-label can NOT clobber names — NAME and
+  SIGMA::LABEL are separate slots; the label is renderer-ephemeral (`PaneHeader.tsx:205-211`).
+
+- 🐞 **[low, M] codex/kimi/opencode external-session-id capture window loses resume-by-id on an early
+  crash** — claude's id is pre-assigned at spawn and lands in the INSERT itself (`launcher.ts:527,548`) →
+  crash-safe from t=0. codex/kimi/opencode rely on the disk-scan retries at +2/+5/+15s
+  (`rpc-router.ts:578-628`); a crash inside that window leaves `external_session_id` NULL → next boot
+  deliberately spawns FRESH (session-collapse policy, `resume-launcher.ts:69-89`) → the conversation is
+  orphaned (recoverable only via the CLI's own resume picker). Deterministic codex capture via its stdout
+  banner is the already-noted follow-up (`resume-launcher.ts:735-738` comment).
+
+### Verified-good (receipts, no action)
+
+- **Force-quit/crash correctness** — deliberate closes write `closed_at` synchronously BEFORE the kill
+  (`pty/mark-pane-closed.ts:14-22`); a crash never resurrects a closed pane, and the late `'error'` write
+  can't un-close it. Boot janitor heals zombies (`db/janitor.ts:26-50`); PR #221 rank-then-filter
+  ghost-resurrection fix intact at both mirror sites.
+- **Workspace/room restore** — kv `app.lastSession`; 2s trailing-edge flush caps crash loss at ~2s
+  (`session-restore.ts:53-98`); before-quit final flush correctly ordered BEFORE `closeDatabase`
+  (`electron/main.ts:1104-1117`).
+- **Renames are crash-safe in-session** — written synchronously at rename time; 17 named rows live, all
+  currently-running named panes intact (Backend-Agent, Frontend-Agent, SAT-Agent, …).
+
+### Optimizations (all LOW — the DB is healthy: 1.4MB, 342 pages, freelist 0, largest table 291 rows)
+
+- **[db] `PRAGMA optimize` on close** — SQLite-recommended one-liner in `closeDatabase()`
+  (`db/client.ts:368`). Effort: S.
+- **[db] janitor row GC** — purge soft-deleted (`closed_at`) + ancient exited rows older than ~N days;
+  keep-set must stay ⊇ resume/rehydrate reads (reaper rule). 291 rows in ~2 months — cosmetic today.
+  Build when `agent_sessions` > ~5k rows. Effort: S.
+- **[db] periodic `wal_checkpoint(PASSIVE)`** — the only checkpoint today is at quit, and the app now runs
+  24/7 (Jorvis). WAL is 523KB — fine. Build when a WAL is observed >16MB mid-run. Effort: S.
+- **[ram] non-finding** — main-process scrollback is bounded 256KiB/pane (`pty/ring-buffer.ts:4`, ≈4MB at
+  15 panes); SQLite page cache is default (~2MB). DB layer is NOT where SigmaLink's RAM goes — renderer/
+  xterm + child CLI processes are. No DB-side action.
