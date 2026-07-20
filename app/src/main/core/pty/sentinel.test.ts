@@ -199,9 +199,11 @@ describe('buildPowerShellSentinelSnippet (Phase 5 — win32 pwsh)', () => {
     expect(snippet.trimStart()).toMatch(/^; Write-Host/);
   });
 
-  it('delimits $LASTEXITCODE so the suffix is not parsed as part of the variable name', () => {
+  it('normalizes the interrupted native-pipeline signature to exit code 130', () => {
     const snippet = buildPowerShellSentinelSnippet();
-    expect(snippet).toContain('$($LASTEXITCODE)');
+    expect(snippet).toContain(
+      '$(if ($LASTEXITCODE -eq 0 -and -not $?) { 130 } else { $LASTEXITCODE })',
+    );
   });
 
   it('includes a backtick-n newline escape for the leading newline', () => {

@@ -770,6 +770,26 @@ describe('spawnLocalPty: win32 shell-first mode (Phase 5)', () => {
     if (process.platform !== 'win32') return;
     vi.useFakeTimers();
 
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sigmalink-argv-shim-'));
+    const commandName = 'sigmalink-argv-probe';
+    fs.writeFileSync(
+      path.join(tempDir, `${commandName}.cmd`),
+      '@ECHO off\r\nECHO This sibling batch shim must not run.\r\n',
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(tempDir, `${commandName}.ps1`),
+      [
+        '#!/usr/bin/env pwsh',
+        '$basedir=Split-Path $MyInvocation.MyCommand.Definition -Parent',
+        '$ret=0',
+        '[Console]::Out.Write((ConvertTo-Json -Compress -InputObject @($args)))',
+        'exit $ret',
+        '',
+      ].join('\r\n'),
+      'utf8',
+    );
+
     const payloads = [
       'x" & echo SIGMA_INJECTED & rem "',
       '100%',
@@ -781,39 +801,56 @@ describe('spawnLocalPty: win32 shell-first mode (Phase 5)', () => {
       'line1\r\nline2',
     ];
     const expectedPayloads = [...payloads.slice(0, -1), 'line1 line2'];
-    const nodeScript = 'process.stdout.write(JSON.stringify(process.argv.slice(1)))';
-    const { freshSpawn, nodePty, written, fireData } = await setupWin32();
+    const systemRoot = process.env.SystemRoot;
+    if (!systemRoot) throw new Error('SystemRoot is required for this Windows test');
+    const controlledEnv: NodeJS.ProcessEnv = {
+      SystemRoot: systemRoot,
+      ComSpec: path.join(systemRoot, 'System32', 'cmd.exe'),
+      PATH: `${tempDir};${path.join(systemRoot, 'System32')}`,
+      PATHEXT: '.CMD;.EXE',
+      TEMP: process.env.TEMP,
+      TMP: process.env.TMP,
+    };
 
-    freshSpawn({
-      command: 'pnpm',
-      args: ['exec', 'node', '-e', nodeScript, ...payloads],
-      cwd: process.cwd(),
-      env: process.env,
-      cols: 80,
-      rows: 24,
-      spawnMode: 'shell-first',
-    });
+    try {
+      const { freshSpawn, nodePty, written, fireData } = await setupWin32();
+      freshSpawn({
+        command: commandName,
+        args: payloads,
+        cwd: process.cwd(),
+        env: controlledEnv,
+        cols: 80,
+        rows: 24,
+        spawnMode: 'shell-first',
+      });
 
-    const [, , spawnOptions] = vi.mocked(nodePty.spawn).mock.calls[0]!;
-    const spawnEnv = spawnOptions.env as NodeJS.ProcessEnv;
-    expect(spawnEnv.SIGMALINK_SHELL_FIRST_COMMAND?.toLowerCase()).toContain('pnpm.ps1');
-    expect(spawnEnv.SIGMALINK_SHELL_FIRST_COMMAND?.toLowerCase()).not.toContain('pnpm.cmd');
-    fireData('PS> ');
-    expect(written).toHaveLength(1);
+      const [spawnCommand, , spawnOptions] = vi.mocked(nodePty.spawn).mock.calls[0]!;
+      const spawnEnv = spawnOptions.env as NodeJS.ProcessEnv;
+      expect(spawnEnv.SIGMALINK_SHELL_FIRST_COMMAND?.toLowerCase()).toContain(
+        `${commandName}.ps1`,
+      );
+      expect(spawnEnv.SIGMALINK_SHELL_FIRST_COMMAND?.toLowerCase()).not.toContain(
+        `${commandName}.cmd`,
+      );
+      fireData('PS> ');
+      expect(written).toHaveLength(1);
 
-    const output = execFileSync(
-      'powershell.exe',
-      ['-NoLogo', '-NoProfile', '-Command', written[0]!],
-      {
-        encoding: 'utf8',
-        env: spawnOptions.env as NodeJS.ProcessEnv,
-      },
-    );
-    const extracted = extractSentinel(output);
+      const output = execFileSync(
+        String(spawnCommand),
+        ['-NoLogo', '-NoProfile', '-Command', written[0]!],
+        {
+          encoding: 'utf8',
+          env: spawnEnv,
+        },
+      );
+      const extracted = extractSentinel(output);
 
-    expect(extracted).not.toBeNull();
-    expect(JSON.parse(extracted!.strippedData.trim())).toEqual(expectedPayloads);
-    expect(extracted!.exitCode).toBe(0);
+      expect(extracted).not.toBeNull();
+      expect(JSON.parse(extracted!.strippedData.trim())).toEqual(expectedPayloads);
+      expect(extracted!.exitCode).toBe(0);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   }, 15_000);
 
   it('win32 .cmd without sibling .ps1 downgrades to direct even when PowerShell exists', async () => {
@@ -1018,7 +1055,7 @@ describe.skipIf(process.platform !== 'win32')('spawnLocalPty Windows ConPTY inte
       });
 
       expect(interruptSent).toBe(true);
-      expect(sentinelCode).not.toBeNull();
+      expect(sentinelCode).toBe(130);
       expect(shellMarkerSeen).toBe(true);
       expect(explicitExitSent).toBe(true);
       expect(output).not.toMatch(/Terminate batch job/i);

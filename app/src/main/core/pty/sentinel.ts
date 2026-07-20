@@ -154,13 +154,17 @@ export function buildSentinelSnippet(): string {
  * strings.  `$LASTEXITCODE` holds the exit code of the last native command.
  * The `$()` delimiter prevents the sentinel suffix underscores from becoming
  * part of the PowerShell variable name.
- * `$LASTEXITCODE` is set BEFORE the semicolon sequence changes `$?`, so
- * chaining with `;` is correct here (`;` does not change `$LASTEXITCODE`).
+ * Windows PowerShell resets `$LASTEXITCODE` to 0 when ConPTY interrupts the
+ * foreground native pipeline, but leaves `$?` false for the next command.
+ * Normalize only that otherwise-clean failure signature to the conventional
+ * SIGINT status 130. Real zero and non-zero native exits remain unchanged.
  *
  * The caller appends `\n` (the Enter keystroke written into the PTY master).
  */
 export function buildPowerShellSentinelSnippet(): string {
+  const exitCode =
+    '$(if ($LASTEXITCODE -eq 0 -and -not $?) { 130 } else { $LASTEXITCODE })';
   return (
-    `; Write-Host "\`n${SENTINEL_PREFIX}$($LASTEXITCODE)${SENTINEL_SUFFIX}"`
+    `; Write-Host "\`n${SENTINEL_PREFIX}${exitCode}${SENTINEL_SUFFIX}"`
   );
 }
