@@ -536,8 +536,13 @@ describe('keep ⊇ use invariant — reaper keep-predicate covers every consumer
       fileURLToPath(new URL('../pty/resume-launcher.ts', import.meta.url)),
       'utf8',
     );
-    // listEligibleRows + listRespawnableRows predicate fragments:
-    expect(src).toContain("s.status = 'running'");
+    // listEligibleRows (session-persistence fix 2026-07-18: slot-ranked CTE —
+    // the outer WHERE keeps the same status predicate, applied to rank
+    // winners only, so the use-set is a strict SUBSET of the pre-fix set and
+    // keep ⊇ use still holds):
+    expect(src).toContain("status = 'running' OR (status = 'exited' AND exit_code = -1)");
+    // listRespawnableRows (unchanged flat failed-resume marker):
+    expect(src).toContain("s.status = 'exited'");
     expect(src).toContain("s.exit_code = -1");
     // If this fails: resume-launcher's use-predicate changed. Update the
     // transcriptions in this file AND verify isWorktreeKeepEligible still

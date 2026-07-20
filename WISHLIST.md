@@ -178,6 +178,22 @@ is the RELIABLE lane (no writes land → janitor heals → resume); graceful qui
 
 ### Confirmed bugs
 
+> **2026-07-18 (same day):** the operator's "relaunch resumes an OLD irrelevant session" report led to a
+> second investigation pass that found TWO MORE root causes stacked on the first one — (3) boot auto-resume
+> was SLOT-BLIND (`listEligibleRows` respawned EVERY open running/exited(-1) row, so stale siblings'
+> old conversations came back and out-ranked the operator's actual-latest stranded row; live-DB receipt:
+> SigmasDashboard slot 0 had FIVE open rows, boot-eligible 7→3 after the fix) and (4) `handleRelaunch`
+> (`CommandRoom.tsx:286`) never wrote `closed_at` on the crashed row (renderer-only REMOVE_SESSION) so
+> stale siblings kept accumulating. All four fixed + gate-green on `fix/session-persistence-correctness`:
+> quit-time `markAllExpectedExit`, slot-aware ranked eligibility (mirror of lastResumePlan), janitor
+> supersession sweep (`closeSupersededPaneRows` — live-DB dry-run: 17 rows healed, 0 running rows touched),
+> relaunch row-close, rename carry-forward. Plan:
+> `docs/superpowers/plans/2026-07-18-session-persistence-correctness.md`.
+
+- ~~🐞 **[high, S] quit-window race strands live panes as `status='error'`**~~ → **FIXED on
+  `fix/session-persistence-correctness`** (2026-07-18): `registry.markAllExpectedExit()` before `killAll()`
+  + SOURCE-ordering test (`rpc-router.shutdown-order.test.ts`). Original finding kept below for the record.
+
 - 🐞 **[high, S] quit-window race strands live panes as `status='error'` — silently excluded from boot
   auto-resume AND the "Respawn fresh" bucket** — `shutdownRouter` (`app/src/main/rpc-router.ts:3671-3724`)
   flips `routerShuttingDown` (suppresses notifications only) then `killAll()`; `PtyRegistry.killAll`
@@ -197,6 +213,11 @@ is the RELIABLE lane (no writes land → janitor heals → resume); graceful qui
   rides janitor→exited/-1→resume. All three exit-writer twins already honor `rec.expectedExit`
   (`launcher.ts:684`, `resume-launcher.ts:308`, `swarms/factory-spawn.ts`). Win32 likely strands MORE
   (taskkill is faster than SIGTERM-drain).
+
+- ~~🐞 **[medium, S-M] operator pane rename lost on the workspace-picker resume lane**~~ → **FIXED on
+  `fix/session-persistence-correctness`** (2026-07-18): `name` + `display_provider_id` carry-forward inside
+  the insert txn (`workspaces/launcher.ts`), keyed on `(workspace_id, external_session_id)`. Original
+  finding kept below for the record.
 
 - 🐞 **[medium, S-M] operator pane rename (`agent_sessions.name`) lost on the workspace-picker resume
   lane** — rename persists via `panes.rename` (`rpc-router.ts:1985-2007`, immediate DB write → crash-safe)
@@ -230,6 +251,24 @@ is the RELIABLE lane (no writes land → janitor heals → resume); graceful qui
   (`electron/main.ts:1104-1117`).
 - **Renames are crash-safe in-session** — written synchronously at rename time; 17 named rows live, all
   currently-running named panes intact (Backend-Agent, Frontend-Agent, SAT-Agent, …).
+
+### PR #240 review minors (parked 2026-07-18 — reviewer verdict GREEN 91/100, merged 255207d)
+
+- 🐞 **[low, S] rename carry-forward misses a janitor-closed row** — `app/src/main/core/workspaces/launcher.ts`
+  carry-forward SELECT filters `closed_at IS NULL`; if the boot janitor's `closeSupersededPaneRows` already
+  soft-closed the row holding the operator's rename (non-winner sibling) and the operator later picks that
+  OLD session from the disk picker, the SELECT matches nothing → name reverts to the alias. NOT a
+  regression (this lane always lost the name pre-#240; the common live-winner case IS fixed). Fix: drop the
+  `closed_at IS NULL` filter, or order open-first with a newest-closed fallback, so the name follows the
+  session id regardless of the sweep — and add a test that actually exercises the WHERE (the current fake
+  `get` ignores it).
+- **[test, S] slot-rank CTE never runs on real SQLite** — validated via JS mirror + SQL-shape tripwires
+  only (better-sqlite3 can't load under vitest); NULL-partition/collation semantics unverified by unit
+  tests. Mitigated: byte-for-byte mirror of the shipped PR #221 queries + live-DB dry-runs during the
+  audit. Build when a real-SQLite test harness lands.
+- **[intended] `markAllExpectedExit` swallows a natural crash inside the ≤2.5s quit window** — the pane is
+  auto-resumed next boot instead of surfacing a crash banner. Deliberate tradeoff (resume > stranded
+  error at shutdown); recorded so nobody "fixes" it back.
 
 ### Optimizations (all LOW — the DB is healthy: 1.4MB, 342 pages, freelist 0, largest table 291 rows)
 

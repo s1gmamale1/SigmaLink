@@ -360,3 +360,46 @@ describe('shell-first sentinel split across PTY reads (finding 4)', () => {
     expect(forwarded[0]).toContain('prompt');
   });
 });
+
+// session-persistence fix (2026-07-18) — quit-time stranding. shutdownRouter
+// flags EVERY live session before killAll() so the quit-window SIGTERM exits
+// skip the exit classifiers' status writes (rows stay 'running'; the boot
+// janitor heals them to exited/-1 and the resume lane picks them up).
+describe('markAllExpectedExit (quit-time stranding fix)', () => {
+  it('flags every live session so exit classifiers skip the status write', () => {
+    const first = makeLifecyclePty();
+    const second = makeLifecyclePty();
+    const handles = [first, second];
+    let i = 0;
+    vi.mocked(spawnLocalPty).mockImplementation(() => handles[i++]!.pty);
+    const registry = new PtyRegistry(() => undefined, () => undefined);
+
+    const a = registry.create({ ...baseInput, sessionId: 'pane-quit-a' });
+    const b = registry.create({ ...baseInput, providerId: 'codex', sessionId: 'pane-quit-b' });
+    expect(a.expectedExit).not.toBe(true);
+    expect(b.expectedExit).not.toBe(true);
+
+    registry.markAllExpectedExit();
+
+    expect(registry.get('pane-quit-a')?.expectedExit).toBe(true);
+    expect(registry.get('pane-quit-b')?.expectedExit).toBe(true);
+  });
+
+  it('suppresses the onPaneEvent exit sink for flagged sessions (quit exits are not phantom errors)', () => {
+    const fake = makeLifecyclePty();
+    vi.mocked(spawnLocalPty).mockReturnValue(fake.pty);
+    const events: Array<{ kind: string }> = [];
+    const registry = new PtyRegistry(() => undefined, () => undefined, {
+      onPaneEvent: (e) => events.push({ kind: e.kind }),
+    });
+    registry.create({ ...baseInput, sessionId: 'pane-quit-c' });
+
+    registry.markAllExpectedExit();
+    // Quit-time SIGTERM: node-pty reports a non-zero exit. Without the flag
+    // this fed the pane-event sinks kind 'error'. (create() itself emits
+    // 'started' — only exit-kind events must be suppressed.)
+    fake.fireExit(143, 15);
+
+    expect(events.filter((e) => e.kind !== 'started')).toHaveLength(0);
+  });
+});

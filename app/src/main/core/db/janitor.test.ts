@@ -31,8 +31,25 @@ const fakeDrizzle = {
   }),
 };
 
+// session-persistence fix (2026-07-18) — the supersession sweep runs through
+// getRawDb (window-function UPDATE better expressed as raw SQL). Capture every
+// prepared statement + its binds so the sweep's SQL contract is assertable.
+const preparedSqls: string[] = [];
+const sweepRuns: unknown[][] = [];
 const fakeRaw = {
-  prepare: () => ({ all: () => [], run: () => ({ changes: 0 }) }),
+  prepare: (sql: string) => {
+    preparedSqls.push(sql);
+    return {
+      all: () => [],
+      run: (...args: unknown[]) => {
+        if (/SET closed_at = \?/.test(sql)) {
+          sweepRuns.push(args);
+          return { changes: 7 };
+        }
+        return { changes: 0 };
+      },
+    };
+  },
 };
 
 // janitor.ts imports getDb from './client'
@@ -46,6 +63,8 @@ import { runBootJanitor } from './janitor';
 beforeEach(() => {
   updates.length = 0;
   selectWhereArgs.length = 0;
+  preparedSqls.length = 0;
+  sweepRuns.length = 0;
 });
 
 describe('runBootJanitor', () => {
@@ -88,5 +107,29 @@ describe('runBootJanitor', () => {
     expect(report.zombieSessionsMarked).toBe(0);
     const sessionUpdates = updates.filter((u) => u.status === 'exited');
     expect(sessionUpdates.length).toBe(0);
+  });
+
+  // session-persistence fix (2026-07-18) — supersession sweep. Stale open
+  // siblings (relaunch leaks, historical crashes) accumulate per slot; boot
+  // auto-resume used to respawn their OLD conversations. The sweep closes
+  // every open pane row that is not its slot's rank-winner, healing the
+  // backlog on first boot.
+  it('closes every open row that is not its slot rank-winner and reports the count', async () => {
+    zombieRows = [];
+    const report = await runBootJanitor();
+    expect(report.supersededRowsClosed).toBe(7);
+
+    const sweepSql = preparedSqls.find((s) => /SET closed_at = \?/.test(s));
+    expect(sweepSql).toBeDefined();
+    // Contract assertions — the sweep must mirror the slot-rank twins
+    // (lastResumePlan / listForWorkspace / listEligibleRows):
+    expect(sweepSql!).toMatch(/PARTITION BY workspace_id, pane_index/);
+    expect(sweepSql!).toMatch(/closed_at IS NULL/); // only open rows get closed
+    expect(sweepSql!).toMatch(/pane_index IS NOT NULL/); // legacy NULL-index rows untouched
+    expect(sweepSql!).toMatch(/started_at DESC/);
+    expect(sweepSql!).toMatch(/CASE WHEN status IN \('running', 'starting'\)/); // live-first rank
+    // The single bind is the close timestamp.
+    expect(sweepRuns).toHaveLength(1);
+    expect(typeof sweepRuns[0]?.[0]).toBe('number');
   });
 });

@@ -10,8 +10,9 @@
 // surviving worktree rows, but only if doing so completes within ~1s; we do
 // not want to slow boot for users with very large worktree pools.
 
+import type Database from 'better-sqlite3';
 import { eq, and, inArray } from 'drizzle-orm';
-import { getDb } from './client';
+import { getDb, getRawDb } from './client';
 import { agentSessions, swarms as swarmsTable, workspaces as workspacesTable } from './schema';
 import { worktreePruneRepo } from '../git/git-ops';
 
@@ -19,9 +20,59 @@ export interface JanitorReport {
   zombieSessionsMarked: number;
   reposPruned: number;
   zombieSwarmsMarked: number;
+  /** session-persistence fix (2026-07-18) — stale open siblings soft-closed. */
+  supersededRowsClosed: number;
 }
 
 const PRUNE_BUDGET_MS = 1_000;
+
+/**
+ * session-persistence fix (2026-07-18) — close (soft-delete) every open pane
+ * row that is NOT its slot's rank-winner. Stale siblings accumulate from
+ * relaunch leaks and historical crashes; boot auto-resume used to respawn ALL
+ * of them (old-conversation resurrection: the resurrected old row flipped
+ * 'running' and out-ranked the operator's actual-latest row in
+ * listForWorkspace). The rank mirrors panes.lastResumePlan / listForWorkspace
+ * / listEligibleRows: live-first → started_at DESC → id DESC per
+ * (workspace_id, pane_index); ranking runs over ALL rows (open + closed) so a
+ * closed winner keeps its slot dark (rank-then-filter, PR #221). Runs every
+ * boot; the first run heals the accumulated backlog. Legacy pane_index-NULL
+ * rows are untouched.
+ */
+export function closeSupersededPaneRows(
+  raw: Pick<Database.Database, 'prepare'>,
+  now: number,
+): number {
+  try {
+    const res = raw
+      .prepare(
+        `UPDATE agent_sessions
+         SET closed_at = ?
+         WHERE closed_at IS NULL
+           AND pane_index IS NOT NULL
+           AND id NOT IN (
+             SELECT id FROM (
+               SELECT id,
+                      ROW_NUMBER() OVER (
+                        PARTITION BY workspace_id, pane_index
+                        ORDER BY
+                          CASE WHEN status IN ('running', 'starting') THEN 0 ELSE 1 END ASC,
+                          started_at DESC,
+                          id DESC
+                      ) AS rn
+               FROM agent_sessions
+               WHERE pane_index IS NOT NULL
+             )
+             WHERE rn = 1
+           )`,
+      )
+      .run(now);
+    return Number(res.changes ?? 0);
+  } catch {
+    /* best-effort — a sweep failure must never block boot */
+    return 0;
+  }
+}
 
 export async function runBootJanitor(): Promise<JanitorReport> {
   const db = getDb();
@@ -85,5 +136,9 @@ export async function runBootJanitor(): Promise<JanitorReport> {
     zombieSwarmsMarked += 1;
   }
 
-  return { zombieSessionsMarked: marked, reposPruned, zombieSwarmsMarked };
+  // 4) Close superseded pane rows AFTER the zombie flips so the rank sees the
+  //    post-heal statuses (deterministic started_at ordering among non-live).
+  const supersededRowsClosed = closeSupersededPaneRows(getRawDb(), now);
+
+  return { zombieSessionsMarked: marked, reposPruned, zombieSwarmsMarked, supersededRowsClosed };
 }

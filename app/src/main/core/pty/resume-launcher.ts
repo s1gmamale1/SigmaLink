@@ -340,29 +340,56 @@ export function attachExitPersistence(
 }
 
 function listEligibleRows(db: Database.Database, workspaceId: string): ResumeRow[] {
+  // session-persistence fix (2026-07-18) — SLOT-AWARE eligibility. The old
+  // query returned EVERY open running/exited(-1) row, so a slot that had
+  // accumulated stale siblings (relaunch leaks, historical crashes) respawned
+  // ALL of them each boot: the old conversation won markResumeRunning, flipped
+  // 'running', and out-ranked the operator's actual-latest row in
+  // listForWorkspace — the reported "relaunch resumes an OLD irrelevant
+  // session" bug. Mirror of panes.lastResumePlan / panes.listForWorkspace
+  // (rpc-router.ts): rank ALL rows per (workspace_id, pane_index) live-first →
+  // started_at DESC → id DESC, THEN filter closed/eligibility
+  // (rank-then-filter, PR #221 — a closed/ineligible winner keeps its slot
+  // dark, never un-shadows an older sibling). NULL pane_index (legacy) rows
+  // are exempt from ranking and keep the old per-row eligibility.
   return db
     .prepare(
-      `SELECT
-         s.id,
-         s.workspace_id AS workspaceId,
-         s.provider_id AS providerId,
-         s.provider_effective AS providerEffective,
-         s.cwd,
-         s.worktree_path AS worktreePath,
-         s.branch AS branch,
-         w.root_path AS workspaceRoot,
-         w.repo_root AS repoRoot,
-         s.external_session_id AS externalSessionId,
-         s.auto_approve AS autoApprove
-       FROM agent_sessions s
-       JOIN workspaces w ON w.id = s.workspace_id
-       WHERE s.workspace_id = ?
-         AND s.closed_at IS NULL
-         AND (
-           s.status = 'running'
-           OR (s.status = 'exited' AND s.exit_code = -1)
-         )
-       ORDER BY s.started_at ASC`,
+      `WITH ranked AS (
+         SELECT
+           s.id,
+           s.workspace_id AS workspaceId,
+           s.provider_id AS providerId,
+           s.provider_effective AS providerEffective,
+           s.cwd,
+           s.worktree_path AS worktreePath,
+           s.branch AS branch,
+           w.root_path AS workspaceRoot,
+           w.repo_root AS repoRoot,
+           s.external_session_id AS externalSessionId,
+           s.auto_approve AS autoApprove,
+           s.status,
+           s.exit_code,
+           s.closed_at,
+           s.pane_index,
+           s.started_at,
+           ROW_NUMBER() OVER (
+             PARTITION BY s.workspace_id, s.pane_index
+             ORDER BY
+               CASE WHEN s.status IN ('running', 'starting') THEN 0 ELSE 1 END ASC,
+               s.started_at DESC,
+               s.id DESC
+           ) AS rn
+         FROM agent_sessions s
+         JOIN workspaces w ON w.id = s.workspace_id
+         WHERE s.workspace_id = ?
+       )
+       SELECT id, workspaceId, providerId, providerEffective, cwd, worktreePath,
+              branch, workspaceRoot, repoRoot, externalSessionId, autoApprove
+       FROM ranked
+       WHERE (pane_index IS NULL OR rn = 1)
+         AND closed_at IS NULL
+         AND (status = 'running' OR (status = 'exited' AND exit_code = -1))
+       ORDER BY started_at ASC`,
     )
     .all(workspaceId) as ResumeRow[];
 }

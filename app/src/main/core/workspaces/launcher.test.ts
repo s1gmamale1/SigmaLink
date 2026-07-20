@@ -892,3 +892,83 @@ describe('executeLaunchPlan — Task 6: shell panes skip ALL per-pane MCP wiring
     expect(vi.mocked(ensureRufloMcpForPane)).not.toHaveBeenCalled();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// session-persistence fix (2026-07-18) — rename carry-forward on picker resume.
+// The picker lane (lastResumePlan → executeLaunchPlan) INSERTs a brand-new row;
+// without carry-forward the operator's rename (BSP-O4 `name`) and CLI label
+// override (SF-10 `display_provider_id`) silently reset to NULL and the new row
+// shadowed the old named row in listForWorkspace's rank.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('executeLaunchPlan — rename carry-forward on picker resume', () => {
+  function mockDbs(
+    prevRow: { name: string | null; display_provider_id: string | null } | undefined,
+  ) {
+    const capturedInserts: Array<Record<string, unknown>> = [];
+    const carrySelects: unknown[][] = [];
+    vi.mocked(getRawDb).mockReturnValue({
+      prepare: vi.fn((sql: string) => ({
+        get: vi.fn((...args: unknown[]) => {
+          if (/SELECT name, display_provider_id/.test(sql)) {
+            carrySelects.push(args);
+            return prevRow;
+          }
+          return undefined;
+        }),
+        all: vi.fn(() => []),
+        run: vi.fn(() => undefined),
+      })),
+      transaction: <T extends (...args: unknown[]) => unknown>(fn: T): T => fn,
+    } as unknown as ReturnType<typeof getRawDb>);
+    vi.mocked(getDb).mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({ get: vi.fn(() => GIT_WS_ROW) })),
+        })),
+      })),
+      insert: vi.fn(() => ({
+        values: vi.fn((v: Record<string, unknown>) => {
+          capturedInserts.push(v);
+          return { run: vi.fn() };
+        }),
+      })),
+      update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(() => ({ run: vi.fn() })) })) })),
+    } as unknown as ReturnType<typeof getDb>);
+    return { capturedInserts, carrySelects };
+  }
+
+  it('carries name + display_provider_id forward when the pane resumes by session id', async () => {
+    const { capturedInserts, carrySelects } = mockDbs({
+      name: 'Frontend-Agent',
+      display_provider_id: 'cursor',
+    });
+    const { deps } = makeTestDeps();
+    const plan = {
+      workspaceRoot: '/tmp/ws',
+      panes: [{ paneIndex: 0, providerId: 'shell' }],
+      paneResumePlan: [{ paneIndex: 0, sessionId: 'ext-prev-123' }],
+    } as unknown as LaunchPlan;
+
+    const { sessions } = await executeLaunchPlan(plan, deps);
+
+    // The carry-forward SELECT is scoped to (workspace, external session id).
+    expect(carrySelects[0]).toEqual([WS_ID, 'ext-prev-123']);
+    expect(capturedInserts[0]?.name).toBe('Frontend-Agent');
+    expect(capturedInserts[0]?.displayProviderId).toBe('cursor');
+    // The returned session carries the name so the UI shows it immediately.
+    expect(sessions[0]?.name).toBe('Frontend-Agent');
+  });
+
+  it('fresh (non-resume) spawns insert name: null and skip the carry-forward read', async () => {
+    const { capturedInserts, carrySelects } = mockDbs(undefined);
+    const { deps } = makeTestDeps();
+
+    const { sessions } = await executeLaunchPlan(makeGitPlan(), deps);
+
+    expect(carrySelects).toHaveLength(0);
+    expect(capturedInserts[0]?.name).toBeNull();
+    expect(capturedInserts[0]?.displayProviderId).toBeNull();
+    expect(sessions[0]?.name).toBeNull();
+  });
+});
