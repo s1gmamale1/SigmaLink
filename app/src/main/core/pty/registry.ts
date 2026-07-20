@@ -294,7 +294,11 @@ export class PtyRegistry {
     // win32 check in Phase 5 while this kept it). Both call sites now share the
     // single `resolveEffectiveSpawnMode` helper so the watcher armed here always
     // matches whether spawnLocalPty actually wrapped the command in a shell.
-    const effectiveSpawnMode = resolveEffectiveSpawnMode(input.spawnMode, input.command ?? '');
+    const effectiveSpawnMode = resolveEffectiveSpawnMode(
+      input.spawnMode,
+      input.command ?? '',
+      input.env ?? process.env,
+    );
     const pty = spawnLocalPty(input);
     const buffer = new RingBuffer();
     // v1.9-scrollback — restore prior content BEFORE the live onData listener

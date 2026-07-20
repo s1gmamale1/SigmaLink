@@ -129,14 +129,14 @@ export function buildSentinelSnippet(): string {
 }
 
 // ---------------------------------------------------------------------------
-// v1.6.0 Phase 5 — win32 per-shell sentinel snippets.
+// v1.6.0 Phase 5 — win32 PowerShell sentinel snippet.
 //
 // The sentinel MARKER format (__SIGMALINK_CLI_EXIT_<code>__) is identical on
 // all platforms — SENTINEL_RE / extractSentinel / containsSentinel remain
-// unchanged and recognise all three variants.
+// unchanged and recognise both POSIX and PowerShell variants.
 //
-// PowerShell emits the sentinel via Write-Host; cmd.exe via echo.  Both print
-// the same \n__SIGMALINK_CLI_EXIT_<code>__\n pattern that SENTINEL_RE matches.
+// PowerShell emits the same \n__SIGMALINK_CLI_EXIT_<code>__\n pattern that
+// SENTINEL_RE matches.
 // ---------------------------------------------------------------------------
 
 /**
@@ -160,28 +160,5 @@ export function buildSentinelSnippet(): string {
 export function buildPowerShellSentinelSnippet(): string {
   return (
     `; Write-Host "\`n${SENTINEL_PREFIX}$($LASTEXITCODE)${SENTINEL_SUFFIX}"`
-  );
-}
-
-/**
- * Build the cmd.exe snippet that emits the sentinel after the CLI exits.
- *
- * Intended for injection as the tail of a cmd.exe command line, e.g.:
- *   claude --args & SET "__SL_EC=!ERRORLEVEL!" & echo. & echo __SIGMALINK_CLI_EXIT_!__SL_EC!__
- *
- * The snippet is:
- *   & SET "__SL_EC=!ERRORLEVEL!" & echo. & echo __SIGMALINK_CLI_EXIT_!__SL_EC!__
- *
- * `echo.` prints a blank line (the leading newline that SENTINEL_RE expects).
- * The durable cmd shell is started with `/v:on`, so `!ERRORLEVEL!` is expanded
- * when the SET command executes, after the CLI has exited. Saving it before
- * `echo.` prevents that successful echo from replacing the CLI's exit code.
- *
- * The caller appends `\r\n` or `\n` (the Enter keystroke written into the PTY
- * master for cmd.exe — `\r\n` is conventional but `\n` also works in ConPTY).
- */
-export function buildCmdSentinelSnippet(): string {
-  return (
-    ` & SET "__SL_EC=!ERRORLEVEL!" & echo. & echo ${SENTINEL_PREFIX}!__SL_EC!${SENTINEL_SUFFIX}`
   );
 }

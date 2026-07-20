@@ -15,13 +15,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 vi.mock('./local-pty', () => {
   return {
     spawnLocalPty: vi.fn(),
-    resolveEffectiveSpawnMode: (
+    resolveEffectiveSpawnMode: vi.fn((
       spawnMode: 'direct' | 'shell-first' | undefined,
       command: string,
     ): 'direct' | 'shell-first' =>
       spawnMode === 'shell-first' && command !== ''
         ? 'shell-first'
-        : 'direct',
+        : 'direct'),
   };
 });
 
@@ -33,7 +33,7 @@ const processTreeMock = vi.hoisted(() => ({
 
 vi.mock('../process/process-tree', () => processTreeMock);
 
-import { spawnLocalPty } from './local-pty';
+import { resolveEffectiveSpawnMode, spawnLocalPty } from './local-pty';
 import { PtyRegistry } from './registry';
 import type { PtyHandle } from './local-pty';
 import { SENTINEL_PREFIX, SENTINEL_SUFFIX } from './sentinel';
@@ -1280,7 +1280,45 @@ describe('PtyRegistry — H-6 win32 shell-first consistency', () => {
     Object.defineProperty(process, 'platform', { value: originalPlatform });
   });
 
-  it('simulated win32: CLI exit returns to the live shell-first pane', () => {
+  it('simulated win32: cmd-only environments record direct mode and arm no sentinel watcher', () => {
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    const env = {
+      PATH: 'C:\\cmd-only',
+      PATHEXT: '.EXE',
+    };
+    vi.mocked(resolveEffectiveSpawnMode).mockReturnValueOnce('direct');
+    const { pty, fireData } = makeSentinelTestPty();
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+
+    const forwarded: string[] = [];
+    const cliExits: Array<{ sessionId: string; exitCode: number }> = [];
+    const registry = new PtyRegistry(
+      (_sessionId, data) => forwarded.push(data),
+      () => undefined,
+      { onCliExited: (info) => cliExits.push(info) },
+    );
+    const sess = registry.create({
+      providerId: 'claude',
+      command: 'claude',
+      args: [],
+      cwd: '/tmp',
+      env,
+      cols: 80,
+      rows: 24,
+      spawnMode: 'shell-first',
+    });
+
+    expect(resolveEffectiveSpawnMode).toHaveBeenCalledWith('shell-first', 'claude', env);
+    expect(sess.spawnMode).toBe('direct');
+
+    const sentinel = `\r\n${SENTINEL_PREFIX}130${SENTINEL_SUFFIX}\r\n`;
+    fireData(sentinel);
+
+    expect(cliExits).toHaveLength(0);
+    expect(forwarded).toEqual([sentinel]);
+  });
+
+  it('simulated win32: PowerShell CLI exit returns to the live shell-first pane', () => {
     Object.defineProperty(process, 'platform', { value: 'win32' });
     const { pty, fireData } = makeSentinelTestPty();
     vi.mocked(spawnLocalPty).mockReturnValue(pty);

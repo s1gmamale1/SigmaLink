@@ -10,6 +10,7 @@
 // real ENOENT before invoking node-pty, restoring the fallback contract.
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -25,13 +26,9 @@ import {
   resolveEffectiveSpawnMode,
   KV_PTY_SPAWN_MODE,
   buildShellCommandLine,
-  win32QuotePwshArg,
-  win32QuoteCmdArg,
-  buildWin32PwshCommandLine,
-  buildWin32CmdCommandLine,
   defaultShell,
 } from './local-pty';
-import { SENTINEL_PREFIX, SENTINEL_SUFFIX } from './sentinel';
+import { extractSentinel, SENTINEL_PREFIX, SENTINEL_SUFFIX } from './sentinel';
 
 const originalPath = process.env.PATH;
 const originalPlatform = process.platform;
@@ -559,9 +556,28 @@ describe('resolveEffectiveSpawnMode (H-6)', () => {
     expect(resolveEffectiveSpawnMode(undefined, 'claude')).toBe('direct');
   });
 
-  it('win32: shell-first request remains shell-first', () => {
+  it('win32: shell-first request remains shell-first when pwsh resolves from PATH', () => {
     Object.defineProperty(process, 'platform', { value: 'win32' });
-    expect(resolveEffectiveSpawnMode('shell-first', 'claude')).toBe('shell-first');
+    vi.spyOn(fs, 'existsSync').mockImplementation(
+      (candidate) => candidate === 'C:\\Program Files\\PowerShell\\7\\pwsh.exe',
+    );
+
+    expect(resolveEffectiveSpawnMode('shell-first', 'claude', {
+      PATH: 'C:\\Program Files\\PowerShell\\7',
+      PATHEXT: '.EXE',
+    })).toBe('shell-first');
+  });
+
+  it('win32: cmd-only environments downgrade shell-first to direct', () => {
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    vi.spyOn(fs, 'existsSync').mockImplementation(
+      (candidate) => candidate === 'C:\\cmd-only\\cmd.exe',
+    );
+
+    expect(resolveEffectiveSpawnMode('shell-first', 'claude', {
+      PATH: 'C:\\cmd-only',
+      PATHEXT: '.EXE',
+    })).toBe('direct');
   });
 });
 
@@ -640,179 +656,6 @@ describe('buildShellCommandLine (Phase 2)', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// v1.6.0 Phase 5 — win32QuotePwshArg (PowerShell argument quoting)
-//
-// Pure logic tests — runnable on any platform (macOS CI included).
-// Real Windows shell execution is covered by the sentinel runtime tests.
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('win32QuotePwshArg (Phase 5)', () => {
-  it('wraps a simple arg in double quotes', () => {
-    expect(win32QuotePwshArg('hello')).toBe('"hello"');
-  });
-
-  it('handles args with spaces', () => {
-    expect(win32QuotePwshArg('say hello')).toBe('"say hello"');
-  });
-
-  it('escapes backtick (PowerShell escape character)', () => {
-    expect(win32QuotePwshArg('a`b')).toBe('"a``b"');
-  });
-
-  it('escapes double quotes with backtick', () => {
-    expect(win32QuotePwshArg('he said "hi"')).toBe('"he said `"hi`""');
-  });
-
-  it('escapes dollar sign to prevent variable expansion', () => {
-    expect(win32QuotePwshArg('--key=$FOO')).toBe('"--key=`$FOO"');
-  });
-
-  it('escapes parentheses (subexpression delimiters)', () => {
-    // ( → `(  and  ) → `)  so (value) → `(value`) wrapped in "..."
-    expect(win32QuotePwshArg('(value)')).toBe('"`(value`)"');
-  });
-
-  it('escapes braces', () => {
-    // { → `{  and  } → `}  so {block} → `{block`} wrapped in "..."
-    expect(win32QuotePwshArg('{block}')).toBe('"`{block`}"');
-  });
-
-  it('handles an empty arg', () => {
-    expect(win32QuotePwshArg('')).toBe('""');
-  });
-
-  it('handles backslashes (no escaping needed in double-quoted strings)', () => {
-    expect(win32QuotePwshArg('C:\\Users\\foo')).toBe('"C:\\Users\\foo"');
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// v1.6.0 Phase 5 — win32QuoteCmdArg (cmd.exe argument quoting)
-//
-// Pure logic tests — runnable on any platform.
-// Real Windows shell execution is covered by the sentinel runtime tests.
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('win32QuoteCmdArg (Phase 5)', () => {
-  it('wraps a simple arg in double quotes', () => {
-    expect(win32QuoteCmdArg('hello')).toBe('"hello"');
-  });
-
-  it('handles args with spaces', () => {
-    expect(win32QuoteCmdArg('say hello')).toBe('"say hello"');
-  });
-
-  it('escapes percent signs to prevent variable expansion', () => {
-    expect(win32QuoteCmdArg('--key=%FOO%')).toBe('"--key=%%FOO%%"');
-  });
-
-  it('escapes double quotes with backslash', () => {
-    expect(win32QuoteCmdArg('he said "hi"')).toBe('"he said \\"hi\\""');
-  });
-
-  it('escapes exclamation marks (delayed expansion)', () => {
-    expect(win32QuoteCmdArg('hello!')).toBe('"hello^!"');
-  });
-
-  it('handles an empty arg', () => {
-    expect(win32QuoteCmdArg('')).toBe('""');
-  });
-
-  it('handles backslashes (no escaping needed inside double quotes for cmd)', () => {
-    expect(win32QuoteCmdArg('C:\\Users\\foo')).toBe('"C:\\Users\\foo"');
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// v1.6.0 Phase 5 — buildWin32PwshCommandLine (Phase 5)
-//
-// Real Windows shell execution is covered by the runtime suite below.
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('buildWin32PwshCommandLine (Phase 5)', () => {
-  it('without sentinel: produces "command <quotedArgs>\\n"', () => {
-    const line = buildWin32PwshCommandLine('claude', ['--flag', 'value']);
-    expect(line).toBe('claude "--flag" "value"\n');
-  });
-
-  it('with sentinel: ends with newline', () => {
-    const line = buildWin32PwshCommandLine('claude', ['--flag'], true);
-    expect(line.endsWith('\n')).toBe(true);
-  });
-
-  it('with sentinel: contains the sentinel prefix and suffix', () => {
-    const line = buildWin32PwshCommandLine('claude', ['--resume', 'abc'], true);
-    expect(line).toContain(SENTINEL_PREFIX);
-    expect(line).toContain(SENTINEL_SUFFIX);
-  });
-
-  it('with sentinel: uses $LASTEXITCODE (PowerShell exit code variable)', () => {
-    const line = buildWin32PwshCommandLine('mybin', [], true);
-    expect(line).toContain('$LASTEXITCODE');
-  });
-
-  it('with sentinel: uses Write-Host to emit the marker', () => {
-    const line = buildWin32PwshCommandLine('mybin', [], true);
-    expect(line).toContain('Write-Host');
-  });
-
-  it('without sentinel: NO sentinel prefix in output', () => {
-    const line = buildWin32PwshCommandLine('claude', ['--flag']);
-    expect(line).not.toContain(SENTINEL_PREFIX);
-  });
-
-  it('no-args case: produces "command\\n"', () => {
-    const line = buildWin32PwshCommandLine('mybin', []);
-    expect(line).toBe('mybin\n');
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// v1.6.0 Phase 5 — buildWin32CmdCommandLine (Phase 5)
-//
-// Real Windows shell execution is covered by the runtime suite below.
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('buildWin32CmdCommandLine (Phase 5)', () => {
-  it('without sentinel: produces "command <quotedArgs>\\n"', () => {
-    const line = buildWin32CmdCommandLine('claude', ['--flag', 'value']);
-    expect(line).toBe('claude "--flag" "value"\n');
-  });
-
-  it('with sentinel: ends with newline', () => {
-    const line = buildWin32CmdCommandLine('claude', ['--flag'], true);
-    expect(line.endsWith('\n')).toBe(true);
-  });
-
-  it('with sentinel: contains the sentinel prefix and suffix', () => {
-    const line = buildWin32CmdCommandLine('claude', ['--resume', 'abc'], true);
-    expect(line).toContain(SENTINEL_PREFIX);
-    expect(line).toContain(SENTINEL_SUFFIX);
-  });
-
-  it('with sentinel: uses delayed !ERRORLEVEL! capture', () => {
-    const line = buildWin32CmdCommandLine('mybin', [], true);
-    expect(line).toContain('!ERRORLEVEL!');
-  });
-
-  it('with sentinel: uses SET to save exit code before echo. resets it', () => {
-    const line = buildWin32CmdCommandLine('mybin', [], true);
-    expect(line).toContain('SET');
-    expect(line).toContain('__SL_EC');
-  });
-
-  it('without sentinel: NO sentinel prefix in output', () => {
-    const line = buildWin32CmdCommandLine('claude', ['--flag']);
-    expect(line).not.toContain(SENTINEL_PREFIX);
-  });
-
-  it('no-args case: produces "command\\n"', () => {
-    const line = buildWin32CmdCommandLine('mybin', []);
-    expect(line).toBe('mybin\n');
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
 // v1.6.0 Phase 5 / H-6 — win32 shell-first runtime coverage.
 //
 // NOTE: This test uses vi.doMock + dynamic import to mock node-pty on win32.
@@ -880,15 +723,20 @@ describe('spawnLocalPty: win32 shell-first mode (Phase 5)', () => {
         spawnMode: 'shell-first',
       });
 
-      const [spawnCommand, spawnArgs] = vi.mocked(nodePty.spawn).mock.calls[0]!;
+      const [spawnCommand, spawnArgs, spawnOptions] = vi.mocked(nodePty.spawn).mock.calls[0]!;
       expect(path.normalize(String(spawnCommand))).toBe(path.normalize(shellPath));
       expect(spawnArgs).toEqual(['-NoLogo']);
       expect(written).toHaveLength(0);
+      const spawnEnv = spawnOptions.env as Record<string, string>;
+      expect(spawnEnv.SIGMALINK_SHELL_FIRST_COMMAND).toContain('/d /s /c');
+      expect(spawnEnv.SIGMALINK_SHELL_FIRST_COMMAND.toLowerCase()).toContain('claude.cmd');
 
       fireData('PS> ');
 
       expect(written).toHaveLength(1);
-      expect(written[0]).toMatch(/^claude "--flag"/);
+      expect(written[0]).toMatch(
+        /^cmd\.exe --% %SIGMALINK_SHELL_FIRST_COMMAND%\n/,
+      );
       expect(written[0]).toContain(SENTINEL_PREFIX);
       expect(written[0]).toContain(SENTINEL_SUFFIX);
     } finally {
@@ -896,7 +744,54 @@ describe('spawnLocalPty: win32 shell-first mode (Phase 5)', () => {
     }
   });
 
-  it('win32 shell-first falls back to a delayed-expansion cmd.exe shell', async () => {
+  it('round-trips adversarial arguments through an npm .cmd shim without injection', async () => {
+    if (process.platform !== 'win32') return;
+    vi.useFakeTimers();
+
+    const payloads = [
+      'x" & echo SIGMA_INJECTED & rem "',
+      '100%',
+      'hello!',
+      '$env:PATH',
+      'a|b<c>d^e(f){g}',
+      'trailing\\',
+      'quote\\"after',
+      'line1\r\nline2',
+    ];
+    const expectedPayloads = [...payloads.slice(0, -1), 'line1 line2'];
+    const nodeScript = 'process.stdout.write(JSON.stringify(process.argv.slice(1)))';
+    const { freshSpawn, nodePty, written, fireData } = await setupWin32();
+
+    freshSpawn({
+      command: 'pnpm',
+      args: ['exec', 'node', '-e', nodeScript, ...payloads],
+      cwd: process.cwd(),
+      env: process.env,
+      cols: 80,
+      rows: 24,
+      spawnMode: 'shell-first',
+    });
+
+    const [, , spawnOptions] = vi.mocked(nodePty.spawn).mock.calls[0]!;
+    fireData('PS> ');
+    expect(written).toHaveLength(1);
+
+    const output = execFileSync(
+      'powershell.exe',
+      ['-NoLogo', '-NoProfile', '-Command', written[0]!],
+      {
+        encoding: 'utf8',
+        env: spawnOptions.env as NodeJS.ProcessEnv,
+      },
+    );
+    const extracted = extractSentinel(output);
+
+    expect(extracted).not.toBeNull();
+    expect(JSON.parse(extracted!.strippedData.trim())).toEqual(expectedPayloads);
+    expect(extracted!.exitCode).toBe(0);
+  });
+
+  it('win32 cmd-only shell-first downgrades to direct without injecting through persistent cmd.exe', async () => {
     if (process.platform !== 'win32') return;
     vi.useFakeTimers();
 
@@ -904,15 +799,15 @@ describe('spawnLocalPty: win32 shell-first mode (Phase 5)', () => {
     const shellPath = path.join(tempDir, 'cmd.exe');
     fs.writeFileSync(shellPath, '');
     fs.writeFileSync(path.join(tempDir, 'claude.cmd'), '');
+    const injectionPayload = 'x" & echo SIGMA_INJECTED & rem "';
 
     try {
       const { freshSpawn, nodePty, written, fireData } = await setupWin32();
       freshSpawn({
         command: 'claude',
-        args: ['--flag'],
+        args: [injectionPayload],
         cwd: process.cwd(),
         env: {
-          ...process.env,
           PATH: tempDir,
           PATHEXT: '.COM;.EXE;.BAT;.CMD',
         },
@@ -922,16 +817,17 @@ describe('spawnLocalPty: win32 shell-first mode (Phase 5)', () => {
       });
 
       const [spawnCommand, spawnArgs] = vi.mocked(nodePty.spawn).mock.calls[0]!;
-      expect(path.normalize(String(spawnCommand))).toBe(path.normalize(shellPath));
-      expect(spawnArgs).toEqual(['/d', '/v:on']);
+      expect(spawnCommand).toBe('cmd.exe');
+      expect(typeof spawnArgs).toBe('string');
+      expect(String(spawnArgs)).toContain('/d /s /c');
+      expect(String(spawnArgs)).not.toContain('/v:on');
+      expect(String(spawnArgs)).not.toContain(injectionPayload);
 
       fireData('C:\\> ');
+      vi.advanceTimersByTime(251);
 
-      expect(written).toHaveLength(1);
-      expect(written[0]).toMatch(/^claude "--flag"/);
-      expect(written[0]).toContain('!ERRORLEVEL!');
-      expect(written[0]).toContain(SENTINEL_PREFIX);
-      expect(written[0]).toContain(SENTINEL_SUFFIX);
+      expect(written).toHaveLength(0);
+      expect(written.join('')).not.toContain('SIGMA_INJECTED');
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
@@ -981,6 +877,24 @@ describe('defaultShell', () => {
     });
     expect(r).toEqual({
       command: 'C:\\Program Files\\PowerShell\\7\\pwsh.exe',
+      args: ['-NoLogo'],
+    });
+  });
+
+  it('win32: resolves built-in Windows PowerShell from SystemRoot when PATH omits it', () => {
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+    const canonicalPowerShell =
+      'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
+    vi.spyOn(fs, 'existsSync').mockImplementation(
+      (candidate) => candidate === canonicalPowerShell,
+    );
+
+    expect(defaultShell({
+      SystemRoot: 'C:\\Windows',
+      PATH: 'C:\\cmd-only',
+      PATHEXT: '.EXE',
+    })).toEqual({
+      command: canonicalPowerShell,
       args: ['-NoLogo'],
     });
   });
