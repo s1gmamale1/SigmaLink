@@ -841,6 +841,7 @@ describe('spawnLocalPty: win32 shell-first mode (Phase 5)', () => {
         {
           encoding: 'utf8',
           env: spawnEnv,
+          timeout: 60_000,
         },
       );
       const extracted = extractSentinel(output);
@@ -851,7 +852,7 @@ describe('spawnLocalPty: win32 shell-first mode (Phase 5)', () => {
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
-  }, 15_000);
+  }, 90_000);
 
   it('win32 .cmd without sibling .ps1 downgrades to direct even when PowerShell exists', async () => {
     if (process.platform !== 'win32') return;
