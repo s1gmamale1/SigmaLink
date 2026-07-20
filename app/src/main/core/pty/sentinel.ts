@@ -20,15 +20,16 @@ export const SENTINEL_SUFFIX = '__';
 
 /**
  * Regex that matches the sentinel line.
- * Capture group 1: the raw exit-code digits.
+ * Capture group 1: the raw signed or unsigned exit code.
  *
  * The sentinel is printed with a leading newline by the shell (`printf '\n…'`)
  * so it is always at the start of a line.  We tolerate:
+ *   - an optional minus sign (PowerShell can emit signed Windows status codes)
  *   - optional leading \r (Windows-style CRLF from PTY normalisation)
  *   - optional trailing \r before \n
  */
 export const SENTINEL_RE = new RegExp(
-  `(?:^|\\r?\\n)${SENTINEL_PREFIX}(\\d+)${SENTINEL_SUFFIX}\\r?(?:\\n|$)`,
+  `(?:^|\\r?\\n)${SENTINEL_PREFIX}(-?\\d+)${SENTINEL_SUFFIX}\\r?(?:\\n|$)`,
   'g',
 );
 
@@ -87,11 +88,12 @@ export function extractSentinel(data: string): SentinelMatch | null {
 // ---------------------------------------------------------------------------
 
 /**
- * Maximum carried tail length. The longest possible sentinel line is ~30
- * chars (`\n` + prefix(21) + 3 exit-code digits + suffix(2) + `\r\n`); 64
- * leaves comfortable headroom while bounding per-chunk concat cost.
+ * Maximum carried tail length. A signed 32-bit Windows status uses 11
+ * characters (for example `-1073741510`), making the framed sentinel line
+ * roughly 40 characters. 80 leaves headroom while bounding per-chunk concat
+ * cost.
  */
-export const SENTINEL_CARRY_MAX = 64;
+export const SENTINEL_CARRY_MAX = 80;
 
 /**
  * Compute the tail of `combined` (= previous carry + current chunk) to carry

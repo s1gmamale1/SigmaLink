@@ -108,42 +108,42 @@ describe('spawnLocalPty ENOENT pre-flight', () => {
     expect(e.message).toMatch(/ENOENT/);
   });
 
-  it('does not throw for an empty command (default shell path)', () => {
+  it('does not throw for an empty command (default shell path)', async () => {
     // Empty command means "open the user's default shell" — that path takes
     // over inside `platformAwareSpawnArgs` and we should not pre-flight it
     // against PATH (the resolved shell is always real, by construction).
-    // We can't actually invoke node-pty here without a TTY, so spy on
-    // `spawnLocalPty`'s exit path: assert no synchronous throw happens.
-    //
-    // The native node-pty spawn IS attempted; on a CI runner it succeeds.
-    // If it doesn't (e.g. no /bin/sh), we still verify the ENOENT path
-    // didn't fire by inspecting the thrown error's code.
-    let handle: ReturnType<typeof spawnLocalPty> | null = null;
-    let caught: unknown = null;
+    // Isolate the native binding: spawning a real ConPTY here leaves
+    // node-pty's AttachConsole helper racing Vitest teardown on Windows.
+    const mockProc = {
+      pid: 12345,
+      write: vi.fn(),
+      resize: vi.fn(),
+      kill: vi.fn(),
+      onData: vi.fn(),
+      onExit: vi.fn(),
+    };
+    vi.resetModules();
+    vi.doMock('node-pty', () => ({
+      spawn: vi.fn(() => mockProc),
+    }));
+
     try {
-      handle = spawnLocalPty({
+      const { spawnLocalPty: freshSpawn } = await import('./local-pty');
+      const nodePty = await import('node-pty');
+      const handle = freshSpawn({
         command: '',
         args: [],
         cwd: process.cwd(),
         cols: 80,
         rows: 24,
       });
-    } catch (err) {
-      caught = err;
-    }
-    // Either a handle was produced, OR a non-ENOENT failure occurred (the
-    // pre-flight was correctly skipped). We never want the pre-flight ENOENT
-    // to fire for an empty command.
-    if (caught) {
-      expect((caught as NodeJS.ErrnoException).code).not.toBe('ENOENT');
-    } else {
+
       expect(handle).toBeTruthy();
-      // Clean up the live PTY so the test process exits cleanly.
-      try {
-        handle?.kill();
-      } catch {
-        /* ignore */
-      }
+      expect(vi.mocked(nodePty.spawn)).toHaveBeenCalledOnce();
+      handle.kill();
+      expect(mockProc.kill).toHaveBeenCalledOnce();
+    } finally {
+      vi.doUnmock('node-pty');
     }
   });
 });
@@ -579,6 +579,22 @@ describe('resolveEffectiveSpawnMode (H-6)', () => {
       PATHEXT: '.EXE',
     })).toBe('direct');
   });
+
+  it('win32: resolved .cmd without a same-basename .ps1 downgrades to direct', () => {
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sigmalink-mode-no-ps1-'));
+    fs.writeFileSync(path.join(tempDir, 'pwsh.exe'), '');
+    fs.writeFileSync(path.join(tempDir, 'claude.cmd'), '');
+
+    try {
+      expect(resolveEffectiveSpawnMode('shell-first', 'claude', {
+        PATH: tempDir,
+        PATHEXT: '.CMD;.EXE',
+      })).toBe('direct');
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('spawnLocalPty: win32 shell-first consistency (H-6)', () => {
@@ -705,7 +721,8 @@ describe('spawnLocalPty: win32 shell-first mode (Phase 5)', () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sigmalink-shell-first-'));
     const shellPath = path.join(tempDir, 'pwsh.exe');
     fs.writeFileSync(shellPath, '');
-    fs.writeFileSync(path.join(tempDir, 'claude.cmd'), '');
+    fs.writeFileSync(path.join(tempDir, 'claude.cmd'), '@echo must not be parsed\r\n');
+    fs.writeFileSync(path.join(tempDir, 'claude.ps1'), '');
 
     try {
       const { freshSpawn, nodePty, written, fireData } = await setupWin32();
@@ -729,14 +746,19 @@ describe('spawnLocalPty: win32 shell-first mode (Phase 5)', () => {
       expect(written).toHaveLength(0);
       const spawnEnv = spawnOptions.env as Record<string, string>;
       expect(spawnEnv.SIGMALINK_SHELL_FIRST_COMMAND).toContain('/d /s /c');
-      expect(spawnEnv.SIGMALINK_SHELL_FIRST_COMMAND.toLowerCase()).toContain('claude.cmd');
+      expect(spawnEnv.SIGMALINK_SHELL_FIRST_COMMAND).toContain('-NoProfile');
+      expect(spawnEnv.SIGMALINK_SHELL_FIRST_COMMAND).toContain('-ExecutionPolicy');
+      expect(spawnEnv.SIGMALINK_SHELL_FIRST_COMMAND).toContain('-File');
+      expect(spawnEnv.SIGMALINK_SHELL_FIRST_COMMAND.toLowerCase()).toContain('claude.ps1');
+      expect(spawnEnv.SIGMALINK_SHELL_FIRST_COMMAND.toLowerCase()).not.toContain('claude.cmd');
 
       fireData('PS> ');
 
       expect(written).toHaveLength(1);
       expect(written[0]).toMatch(
-        /^cmd\.exe --% %SIGMALINK_SHELL_FIRST_COMMAND%\n/,
+        /^cmd\.exe --% %SIGMALINK_SHELL_FIRST_COMMAND%\r/,
       );
+      expect(written[0]).not.toContain('\n');
       expect(written[0]).toContain(SENTINEL_PREFIX);
       expect(written[0]).toContain(SENTINEL_SUFFIX);
     } finally {
@@ -773,6 +795,9 @@ describe('spawnLocalPty: win32 shell-first mode (Phase 5)', () => {
     });
 
     const [, , spawnOptions] = vi.mocked(nodePty.spawn).mock.calls[0]!;
+    const spawnEnv = spawnOptions.env as NodeJS.ProcessEnv;
+    expect(spawnEnv.SIGMALINK_SHELL_FIRST_COMMAND?.toLowerCase()).toContain('pnpm.ps1');
+    expect(spawnEnv.SIGMALINK_SHELL_FIRST_COMMAND?.toLowerCase()).not.toContain('pnpm.cmd');
     fireData('PS> ');
     expect(written).toHaveLength(1);
 
@@ -789,15 +814,14 @@ describe('spawnLocalPty: win32 shell-first mode (Phase 5)', () => {
     expect(extracted).not.toBeNull();
     expect(JSON.parse(extracted!.strippedData.trim())).toEqual(expectedPayloads);
     expect(extracted!.exitCode).toBe(0);
-  });
+  }, 15_000);
 
-  it('win32 cmd-only shell-first downgrades to direct without injecting through persistent cmd.exe', async () => {
+  it('win32 .cmd without sibling .ps1 downgrades to direct even when PowerShell exists', async () => {
     if (process.platform !== 'win32') return;
     vi.useFakeTimers();
 
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sigmalink-shell-first-cmd-'));
-    const shellPath = path.join(tempDir, 'cmd.exe');
-    fs.writeFileSync(shellPath, '');
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sigmalink-shell-first-no-ps1-'));
+    fs.writeFileSync(path.join(tempDir, 'pwsh.exe'), '');
     fs.writeFileSync(path.join(tempDir, 'claude.cmd'), '');
     const injectionPayload = 'x" & echo SIGMA_INJECTED & rem "';
 
@@ -898,6 +922,111 @@ describe('defaultShell', () => {
       args: ['-NoLogo'],
     });
   });
+});
+
+describe.skipIf(process.platform !== 'win32')('spawnLocalPty Windows ConPTY integration', () => {
+  it('returns to the persistent PowerShell after one Ctrl+C', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sigmalink-ctrl-c-'));
+    const commandName = 'sigmalink-ctrl-c-probe';
+    const readyMarker = '__SIGMALINK_PROBE_CHILD_READY__';
+    const shellMarker = '__SIGMALINK_PROBE_SHELL_READY__';
+    const escapeControl = String.fromCharCode(27);
+    const bellControl = String.fromCharCode(7);
+    const oscSequence = new RegExp(
+      `${escapeControl}\\][^${bellControl}]*(?:${bellControl}|${escapeControl}\\\\)`,
+      'g',
+    );
+    const csiSequence = new RegExp(`${escapeControl}\\[[0-?]*[ -/]*[@-~]`, 'g');
+    const nodePath = process.execPath.replace(/'/g, "''");
+    fs.writeFileSync(
+      path.join(tempDir, `${commandName}.cmd`),
+      '@echo this batch shim must not run\r\n',
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(tempDir, `${commandName}.ps1`),
+      [
+        `Write-Output '${readyMarker}'`,
+        `& '${nodePath}' -e 'setTimeout(() => {}, 30000)'`,
+        'exit $LASTEXITCODE',
+        '',
+      ].join('\r\n'),
+      'utf8',
+    );
+
+    const handle = spawnLocalPty({
+      command: commandName,
+      args: [],
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        PATH: `${tempDir}${path.delimiter}${process.env.PATH ?? ''}`,
+      },
+      cols: 120,
+      rows: 30,
+      spawnMode: 'shell-first',
+    });
+
+    let output = '';
+    let interruptSent = false;
+    let sentinelCode: number | null = null;
+    let shellMarkerSeen = false;
+    let explicitExitSent = false;
+    let exited = false;
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error(`Windows shell-first Ctrl+C probe timed out:\n${output}`));
+        }, 30_000);
+
+        handle.onData((chunk) => {
+          output += chunk;
+          const normalized = output
+            .replace(oscSequence, '')
+            .replace(csiSequence, '')
+            .replace(/\r/g, '');
+
+          if (!interruptSent && output.includes(readyMarker)) {
+            interruptSent = true;
+            setTimeout(() => handle.write('\x03'), 200);
+          }
+
+          const sentinel = extractSentinel(output);
+          if (sentinelCode === null && sentinel) {
+            sentinelCode = sentinel.exitCode;
+            setTimeout(() => handle.write(`Write-Output "${shellMarker}"\r`), 200);
+          }
+
+          if (
+            !shellMarkerSeen &&
+            new RegExp(`(?:^|\\n)${shellMarker}(?:\\n|$)`).test(normalized)
+          ) {
+            shellMarkerSeen = true;
+            setTimeout(() => {
+              explicitExitSent = true;
+              handle.write('exit\r');
+            }, 100);
+          }
+        });
+
+        handle.onExit(() => {
+          exited = true;
+          clearTimeout(timeout);
+          resolve();
+        });
+      });
+
+      expect(interruptSent).toBe(true);
+      expect(sentinelCode).not.toBeNull();
+      expect(shellMarkerSeen).toBe(true);
+      expect(explicitExitSent).toBe(true);
+      expect(output).not.toMatch(/Terminate batch job/i);
+    } finally {
+      if (!exited) handle.kill();
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  }, 35_000);
 });
 
 describe('defaultShell on linux', () => {

@@ -200,6 +200,23 @@ function isPowerShell(command: string): boolean {
   );
 }
 
+/**
+ * Return the same-basename PowerShell sibling for a resolved .cmd/.bat shim.
+ *
+ * npm writes sibling launchers such as `claude.cmd` and `claude.ps1`. We only
+ * probe the filesystem; shim contents are never read or interpreted.
+ */
+function resolveSiblingPowerShellShim(resolvedCommand: string): string | null {
+  if (windowsExtensionKind(resolvedCommand) !== 'cmd') return null;
+  const parsed = path.win32.parse(resolvedCommand);
+  const sibling = path.win32.join(parsed.dir, `${parsed.name}.ps1`);
+  try {
+    return fs.existsSync(sibling) ? sibling : null;
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // v1.6.0 — Shell-first mode helpers
 // ---------------------------------------------------------------------------
@@ -298,6 +315,7 @@ export function buildShellCommandLine(command: string, args: string[], withSenti
  *   1. spawnMode === 'shell-first'   (operator opt-in / Phase-7 default)
  *   2. command !== ''                (launching a CLI, not just opening a shell)
  *   3. win32 only: PowerShell resolves from the child environment
+ *   4. win32 .cmd/.bat only: a same-basename .ps1 sibling exists
  *
  * Centralising the decision here guarantees the wrapping and the watching can
  * never disagree again across macOS, Linux, and Windows.
@@ -308,7 +326,17 @@ export function resolveEffectiveSpawnMode(
   env: NodeJS.ProcessEnv = process.env,
 ): 'direct' | 'shell-first' {
   if (spawnMode !== 'shell-first' || command === '') return 'direct';
-  if (process.platform === 'win32' && resolveWindowsPowerShell(env) === null) return 'direct';
+  if (process.platform === 'win32') {
+    if (resolveWindowsPowerShell(env) === null) return 'direct';
+    const resolvedCommand = resolveWindowsCommand(command, env);
+    if (
+      resolvedCommand !== null &&
+      windowsExtensionKind(resolvedCommand) === 'cmd' &&
+      resolveSiblingPowerShellShim(resolvedCommand) === null
+    ) {
+      return 'direct';
+    }
+  }
   return 'shell-first';
 }
 
@@ -572,7 +600,12 @@ const WINDOWS_SHELL_FIRST_COMMAND_ENV = 'SIGMALINK_SHELL_FIRST_COMMAND';
  * The value is stored in the PTY environment rather than interpolated into the
  * PowerShell source. PowerShell expands `%SIGMALINK_SHELL_FIRST_COMMAND%` after
  * its stop-parsing operator and does not reinterpret metacharacters from the
- * value. cmdEscapeArg then protects the cmd parse (twice for npm .cmd shims).
+ * value. cmdEscapeArg then protects the cmd parse.
+ *
+ * Resolved npm .cmd/.bat shims run through their same-basename .ps1 sibling in
+ * a transient PowerShell child. Keeping a batch file as the foreground job of
+ * the persistent pane shell makes one Ctrl+C trigger cmd.exe's interactive
+ * "Terminate batch job (Y/N)?" prompt.
  */
 function buildWindowsShellFirstCommand(
   resolvedCommand: string,
@@ -584,32 +617,45 @@ function buildWindowsShellFirstCommand(
   let commandArgs = args;
   let doubleEscape = kind === 'cmd';
 
-  if (kind === 'ps1') {
+  const scriptPath =
+    kind === 'ps1'
+      ? resolvedCommand
+      : kind === 'cmd'
+        ? resolveSiblingPowerShellShim(resolvedCommand)
+        : null;
+  if (scriptPath) {
     command = powerShellCommand;
     commandArgs = [
       '-NoProfile',
       '-ExecutionPolicy',
       'Bypass',
       '-File',
-      resolvedCommand,
+      scriptPath,
       ...args,
     ];
     doubleEscape = false;
   }
 
+  const escapedCommand = scriptPath
+    ? cmdEscapeArg(command)
+    : cmdEscapeCommandPath(command);
   const inner = [
-    cmdEscapeCommandPath(command),
+    escapedCommand,
     ...commandArgs.map((arg) => cmdEscapeArg(arg, doubleEscape)),
   ].join(' ');
   return `/d /s /c "${inner}"`;
 }
 
 function buildWindowsShellFirstScript(withSentinel: boolean): string {
-  let script = `cmd.exe --% %${WINDOWS_SHELL_FIRST_COMMAND_ENV}%\n`;
+  // ConPTY input is terminal input, not a PowerShell script file. PSReadLine
+  // treats LF as a multiline edit; CR is the Enter key that submits each line.
+  // Queue the sentinel and cleanup behind the foreground command so Ctrl+C
+  // interrupts the CLI and PowerShell executes both lines after it returns.
+  let script = `cmd.exe --% %${WINDOWS_SHELL_FIRST_COMMAND_ENV}%\r`;
   if (withSentinel) {
-    script += buildPowerShellSentinelSnippet().replace(/^;\s*/, '') + '\n';
+    script += buildPowerShellSentinelSnippet().replace(/^;\s*/, '') + '\r';
   }
-  script += `Remove-Item Env:${WINDOWS_SHELL_FIRST_COMMAND_ENV} -ErrorAction SilentlyContinue\n`;
+  script += `Remove-Item Env:${WINDOWS_SHELL_FIRST_COMMAND_ENV} -ErrorAction SilentlyContinue\r`;
   return script;
 }
 

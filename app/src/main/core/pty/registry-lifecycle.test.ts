@@ -319,6 +319,17 @@ describe('shell-first sentinel split across PTY reads (finding 4)', () => {
     expect(cliExits[0]?.exitCode).toBe(42);
   });
 
+  it('fires onCliExited for a signed Windows exit code split across chunks', () => {
+    const cliExits: Array<{ sessionId: string; exitCode: number }> = [];
+    const { fake, sess } = createShellFirstSession(cliExits, []);
+
+    fake.fireData(`CLI interrupted\n${SENTINEL_PREFIX}-10737`);
+    expect(cliExits).toHaveLength(0);
+    fake.fireData(`41510${SENTINEL_SUFFIX}\r\n`);
+
+    expect(cliExits).toEqual([{ sessionId: sess.id, exitCode: -1073741510 }]);
+  });
+
   it('forwards both raw halves unchanged (carry is detection-only, never retro-strips)', () => {
     const cliExits: Array<{ sessionId: string; exitCode: number }> = [];
     const forwarded: string[] = [];

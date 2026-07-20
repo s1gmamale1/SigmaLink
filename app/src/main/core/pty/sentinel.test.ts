@@ -60,6 +60,11 @@ describe('containsSentinel', () => {
     expect(containsSentinel(data)).toBe(true);
   });
 
+  it('returns true for a signed Windows exit code', () => {
+    const data = `\n${SENTINEL_PREFIX}-1073741510${SENTINEL_SUFFIX}\n`;
+    expect(containsSentinel(data)).toBe(true);
+  });
+
   it('returns false for normal PTY output without the sentinel', () => {
     expect(containsSentinel('hello world\r\n')).toBe(false);
     expect(containsSentinel('')).toBe(false);
@@ -102,6 +107,13 @@ describe('extractSentinel', () => {
     const data = `\n${SENTINEL_PREFIX}127${SENTINEL_SUFFIX}\n`;
     const result = extractSentinel(data);
     expect(result!.exitCode).toBe(127);
+  });
+
+  it('parses a signed Windows NTSTATUS exit code', () => {
+    const data = `\n${SENTINEL_PREFIX}-1073741510${SENTINEL_SUFFIX}\n`;
+    const result = extractSentinel(data);
+    expect(result).not.toBeNull();
+    expect(result!.exitCode).toBe(-1073741510);
   });
 
   it('strips the sentinel line from the returned data', () => {
@@ -246,6 +258,11 @@ describe('buildPowerShellSentinelSnippet round-trip (Phase 5)', () => {
 
 // ── 2026-06-10 audit finding 4: cross-chunk sentinel carry helper ──────────
 describe('sliceSentinelCarry', () => {
+  it('is sized for a signed 32-bit Windows exit code plus line framing', () => {
+    const longestSignedLine = `\n${SENTINEL_PREFIX}-2147483648${SENTINEL_SUFFIX}\r\n`;
+    expect(SENTINEL_CARRY_MAX).toBeGreaterThanOrEqual(longestSignedLine.length);
+  });
+
   it('keeps the tail from the last newline when a partial sentinel may be in flight', () => {
     expect(sliceSentinelCarry('CLI output\n__SIGMALINK_CLI_EX')).toBe('\n__SIGMALINK_CLI_EX');
   });
