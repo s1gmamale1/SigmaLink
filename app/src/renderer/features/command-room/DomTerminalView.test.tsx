@@ -73,6 +73,37 @@ function settle(): Promise<void> {
   return new Promise((r) => setTimeout(r, 20));
 }
 
+function stubFlowScrollGeometry(): () => void {
+  const scrollHeightDescriptor = Object.getOwnPropertyDescriptor(
+    HTMLElement.prototype,
+    'scrollHeight',
+  );
+  const clientHeightDescriptor = Object.getOwnPropertyDescriptor(
+    HTMLElement.prototype,
+    'clientHeight',
+  );
+  Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
+    configurable: true,
+    get: () => 1000,
+  });
+  Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+    configurable: true,
+    get: () => 200,
+  });
+  return () => {
+    if (scrollHeightDescriptor) {
+      Object.defineProperty(HTMLElement.prototype, 'scrollHeight', scrollHeightDescriptor);
+    } else {
+      delete (HTMLElement.prototype as { scrollHeight?: number }).scrollHeight;
+    }
+    if (clientHeightDescriptor) {
+      Object.defineProperty(HTMLElement.prototype, 'clientHeight', clientHeightDescriptor);
+    } else {
+      delete (HTMLElement.prototype as { clientHeight?: number }).clientHeight;
+    }
+  };
+}
+
 describe('DomTerminalView', () => {
   it('creates a cached engine and marks it mounted; unmount clears the flag', async () => {
     const { unmount } = render(<DomTerminalView sessionId="d1" />);
@@ -384,6 +415,174 @@ describe('DomTerminalView', () => {
       expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
     } finally {
       getSel.mockRestore();
+    }
+  });
+});
+
+describe('DomTerminalView — DECSET 1004 focus reporting', () => {
+  it('sends CSI I on focus and CSI O on blur when the app enabled ?1004h', async () => {
+    const { container } = render(<DomTerminalView sessionId="f1" />);
+    await settle();
+    const engine = getCachedEngine('f1')!.engine;
+    await act(async () => {
+      engine.write('\x1b[?1004h');
+      await settle();
+    });
+    rpcMock.pty.write.mockClear();
+
+    const input = container.querySelector('textarea')!;
+    fireEvent.focus(input);
+    fireEvent.blur(input);
+
+    const sent = rpcMock.pty.write.mock.calls.map((c) => c[1]);
+    expect(sent).toEqual(['\x1b[I', '\x1b[O']);
+  });
+
+  it('sends NOTHING when the app never enabled focus reporting', async () => {
+    const { container } = render(<DomTerminalView sessionId="f2" />);
+    await settle();
+    rpcMock.pty.write.mockClear();
+
+    const input = container.querySelector('textarea')!;
+    fireEvent.focus(input);
+    fireEvent.blur(input);
+
+    expect(rpcMock.pty.write).not.toHaveBeenCalled();
+  });
+
+  it('stops reporting after the app disables it with ?1004l', async () => {
+    const { container } = render(<DomTerminalView sessionId="f3" />);
+    await settle();
+    const engine = getCachedEngine('f3')!.engine;
+    await act(async () => {
+      engine.write('\x1b[?1004h');
+      await settle();
+      engine.write('\x1b[?1004l');
+      await settle();
+    });
+    rpcMock.pty.write.mockClear();
+
+    const input = container.querySelector('textarea')!;
+    fireEvent.focus(input);
+    fireEvent.blur(input);
+
+    expect(rpcMock.pty.write).not.toHaveBeenCalled();
+  });
+});
+
+describe('DomTerminalView — reveal repaint (restore / un-hide / window-restore)', () => {
+  it('a window:restored repaint preserves a scrolled-up FlowView and its detached state', async () => {
+    const eventHandlers: Record<string, (payload: unknown) => void> = {};
+    vi.stubGlobal('sigma', {
+      eventOn: (channel: string, cb: (payload: unknown) => void) => {
+        eventHandlers[channel] = cb;
+        return () => delete eventHandlers[channel];
+      },
+    });
+
+    // The controller only reveals once it has fitted at least once (a reveal
+    // before the first fit would measure a not-yet-laid-out container), so
+    // drive a real initial rect the way the live ResizeObserver does.
+    let roCallback: ((entries: unknown[]) => void) | null = null;
+    class CapturingRO {
+      constructor(cb: (entries: unknown[]) => void) {
+        roCallback = cb;
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal('ResizeObserver', CapturingRO);
+
+    // jsdom has no layout metrics. Give both the pre- and post-remount
+    // scrollers the same realistic geometry so FlowView's mount pin and
+    // scroll-detach decisions run exactly as they do in Chromium.
+    const restoreScrollGeometry = stubFlowScrollGeometry();
+
+    try {
+      const { container } = render(<DomTerminalView sessionId="rv1" />);
+      await settle();
+      await act(async () => {
+        roCallback!([{ contentRect: { width: 800, height: 600 } }]);
+        await settle();
+      });
+
+      const before = container.querySelector('[data-testid="flow-view"]') as HTMLDivElement;
+      expect(before).toBeTruthy();
+      expect(eventHandlers['window:restored']).toBeTypeOf('function');
+
+      // Establish bottom, then model a user reading older scrollback.
+      before.scrollTop = 800;
+      fireEvent.scroll(before);
+      before.scrollTop = 200;
+      fireEvent.scroll(before);
+      expect(container.querySelector('[data-testid="jump-to-bottom"]')).toBeTruthy();
+
+      await act(async () => {
+        eventHandlers['window:restored']!({});
+        await settle();
+      });
+
+      const after = container.querySelector('[data-testid="flow-view"]') as HTMLDivElement;
+      expect(after).toBeTruthy();
+      // A REMOUNT, not a re-render: React reuses the DOM node when the key is
+      // unchanged, so node identity changing is the proof the view was rebuilt
+      // from scratch — the DOM-path equivalent of the xterm reveal repaint.
+      expect(after).not.toBe(before);
+      expect(after.scrollTop).toBe(200);
+      expect(container.querySelector('[data-testid="jump-to-bottom"]')).toBeTruthy();
+    } finally {
+      restoreScrollGeometry();
+    }
+  });
+
+  it('a hidden→visible repaint preserves a scrolled-up FlowView and its detached state', async () => {
+    let roCallback: ((entries: unknown[]) => void) | null = null;
+    class CapturingRO {
+      constructor(cb: (entries: unknown[]) => void) {
+        roCallback = cb;
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal('ResizeObserver', CapturingRO);
+
+    const restoreScrollGeometry = stubFlowScrollGeometry();
+    try {
+      const { container } = render(<DomTerminalView sessionId="rv2" />);
+      await settle();
+      const rect = (width: number, height: number) => [{ contentRect: { width, height } }];
+
+      // First real rect = the initial fit (not a reveal).
+      await act(async () => {
+        roCallback!(rect(800, 600));
+        await settle();
+      });
+      const before = container.querySelector('[data-testid="flow-view"]') as HTMLDivElement;
+
+      before.scrollTop = 800;
+      fireEvent.scroll(before);
+      before.scrollTop = 200;
+      fireEvent.scroll(before);
+      expect(container.querySelector('[data-testid="jump-to-bottom"]')).toBeTruthy();
+
+      // Pane hidden (display:none somewhere up the tree), then restored at the
+      // SAME size — exactly the case a size-compare fit would no-op through.
+      await act(async () => {
+        roCallback!(rect(0, 0));
+        await settle();
+        roCallback!(rect(800, 600));
+        await settle();
+      });
+
+      const after = container.querySelector('[data-testid="flow-view"]') as HTMLDivElement;
+      expect(after).toBeTruthy();
+      expect(after).not.toBe(before);
+      expect(after.scrollTop).toBe(200);
+      expect(container.querySelector('[data-testid="jump-to-bottom"]')).toBeTruthy();
+    } finally {
+      restoreScrollGeometry();
     }
   });
 });

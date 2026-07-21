@@ -179,6 +179,14 @@ export class TerminalEngine {
     return { mode: this.term.modes.mouseTrackingMode, sgr: this.sgrMouseMode };
   }
 
+  /** DECSET 1004 — the app asked to be told when the terminal gains/loses
+   *  focus (claude's Ink renderer repaints its frame on focus-in, which is how
+   *  the xterm path self-healed a torn frame; the DOM presenter must send the
+   *  same CSI I / CSI O reports). */
+  get focusReporting(): boolean {
+    return this.term.modes.sendFocusMode;
+  }
+
   /** OSC-133 shell-integration marks (FinalTerm protocol), oldest first. */
   get promptMarks(): readonly PromptMark[] {
     return this.marks;
@@ -344,7 +352,19 @@ export class TerminalEngine {
     schedule(() => {
       this.notifyScheduled = false;
       if (this.disposed) return;
-      for (const cb of this.changeSubs) cb();
+      // Per-subscriber isolation: the engine-cache attaches the label reader
+      // BEFORE any presenter subscribes, so an unguarded loop let one throwing
+      // subscriber abort the rest — the pane would freeze on a half-painted
+      // frame until something forced a re-render (the "garbled until I
+      // refocus" report). Snapshot first so a subscriber that unsubscribes
+      // itself mid-notify can't mutate the Set we're iterating.
+      for (const cb of Array.from(this.changeSubs)) {
+        try {
+          cb();
+        } catch {
+          /* one broken subscriber must never starve the presenters */
+        }
+      }
     });
   }
 }

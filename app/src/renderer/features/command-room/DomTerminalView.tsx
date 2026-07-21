@@ -5,11 +5,10 @@
 // free, exactly the property this redesign exists for), the hidden-textarea
 // input host (P1a encoder), focus routing, and select-to-copy parity.
 //
-// Deliberately ABSENT vs the xterm host: window:restored reveal (no GPU
-// compositor state to repaint), dragFit (CSS wrap handles live drag), WebGL
-// addon, link addon (FlowView anchors land in P2).
+// Deliberately ABSENT vs the xterm host: dragFit (CSS wrap handles live drag),
+// WebGL addon, and the xterm link addon (FlowView renders links directly).
 
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
 import { rpc } from '@/renderer/lib/rpc';
 import { getOrCreateEngine, type EngineCacheEntry } from '@/renderer/lib/engine-cache';
 import { useTerminalPaletteEpoch } from '@/renderer/lib/terminal-palette';
@@ -81,6 +80,37 @@ export function DomTerminalView({
 
   // Phase 17 — theme switch: remount the presenter views in the new palette.
   const paletteEpoch = useTerminalPaletteEpoch();
+
+  // Reveal epoch — the DOM-path twin of the xterm host's forced repaint.
+  // RefitController fires `reveal` when a pane comes back from hidden (0×0 →
+  // real rect: minimise, fullscreen siblings, scratch tabs, workspace switch)
+  // or when the window is restored/un-hidden. Those restore at the SAME pixel
+  // size, so a fit that compares dimensions no-ops and whatever stale/torn
+  // frame was on screen stays there — the xterm path called this the
+  // "duplicated/garbled text on restore" bug and fixed it with refresh() +
+  // atlas clear. The DOM path has no GPU atlas: bumping this epoch (keyed into
+  // the view below) rebuilds the row DOM from the engine buffer, which is a
+  // guaranteed-fresh paint and cheap (the engine, and so the scrollback, is
+  // cache-owned and untouched).
+  const [revealEpoch, bumpReveal] = useReducer((n: number) => n + 1, 0);
+  const revealScrollRef = useRef<{ scrollTop: number; detached: boolean } | null>(null);
+
+  // A forced repaint deliberately remounts FlowView, whose mount-time follow
+  // behavior pins to the bottom. Restore a reader's detached scroll position
+  // in the parent layout phase, then synchronously notify the new FlowView so
+  // its follow ref stands down before its scheduled rAF re-pin. At-bottom
+  // panes are left alone and retain the normal mount pin.
+  useLayoutEffect(() => {
+    const saved = revealScrollRef.current;
+    revealScrollRef.current = null;
+    if (!saved?.detached) return;
+    const flow = containerRef.current?.querySelector<HTMLDivElement>(
+      '[data-testid="flow-view"]',
+    );
+    if (!flow) return;
+    flow.scrollTop = saved.scrollTop;
+    flow.dispatchEvent(new Event('scroll', { bubbles: true }));
+  }, [revealEpoch]);
 
   // FlowView link context — mirror the xterm host (Terminal.tsx): a clicked
   // PTY-pane link routes through the active workspace's built-in browser via
@@ -165,7 +195,23 @@ export function DomTerminalView({
     };
     // No dragFit: during a divider drag CSS re-wraps the text continuously;
     // the engine/PTY learn the final size once, on release/settle.
-    const controller = new RefitController({ fit: runFit, reveal: runFit });
+    // `reveal` = fit PLUS a forced view remount (see revealEpoch above): the
+    // restore case lands at an unchanged grid, where a bare fit is a no-op and
+    // would leave the stale frame on screen.
+    const controller = new RefitController({
+      fit: runFit,
+      reveal: () => {
+        const flow = container.querySelector<HTMLDivElement>('[data-testid="flow-view"]');
+        revealScrollRef.current = flow
+          ? {
+              scrollTop: flow.scrollTop,
+              detached: !!container.querySelector('[data-testid="jump-to-bottom"]'),
+            }
+          : null;
+        runFit();
+        bumpReveal();
+      },
+    });
 
     const ro = new ResizeObserver((entries) => {
       const e = entries[0];
@@ -178,6 +224,15 @@ export function DomTerminalView({
     const onResizeEnd = () => controller.onDragEnd();
     window.addEventListener('sigma:pane-resize-start', onResizeStart);
     window.addEventListener('sigma:pane-resize-end', onResizeEnd);
+
+    // Window un-minimize / re-show (macOS cmd+H un-hide, dock restore). The
+    // ResizeObserver never fires — layout is unchanged — so without this the
+    // presenter has no signal that the compositor may have dropped frames
+    // while the window was occluded. The xterm host has listened for this
+    // since the pane-refit spec; the DOM host never did.
+    const offWindowRestored = window.sigma?.eventOn?.('window:restored', () =>
+      controller.onWindowRestored(),
+    );
 
     const onFocusReq = (ev: Event) => {
       const detail = (ev as CustomEvent<{ sessionId?: string }>).detail;
@@ -345,6 +400,11 @@ export function DomTerminalView({
       window.removeEventListener('sigma:pane-resize-start', onResizeStart);
       window.removeEventListener('sigma:pane-resize-end', onResizeEnd);
       window.removeEventListener('sigma:pty-focus', onFocusReq);
+      try {
+        offWindowRestored?.();
+      } catch {
+        /* preload gone / already removed */
+      }
       // Engine is cache-owned: NOT disposed here (parity with detachFromHost).
     };
   }, [sessionId]);
@@ -388,6 +448,17 @@ export function DomTerminalView({
     });
     if (bytes === null) return; // cmd-shortcuts / bare modifiers stay with the app
     ev.preventDefault();
+    writeBytes(bytes);
+  };
+
+  // DECSET 1004 focus reporting. The xterm host got this from xterm.js for
+  // free; the DOM host has to send it. It matters beyond protocol parity:
+  // claude's Ink renderer REPAINTS its frame on focus-in, which is what made
+  // "click the pane and it heals" work — without these reports a torn frame
+  // stays torn. Gated on the app actually requesting 1004 so a plain shell
+  // never sees stray CSI I/O bytes.
+  const onFocusReport = (bytes: '\x1b[I' | '\x1b[O') => {
+    if (entry.ptyExited || !entry.engine.focusReporting) return;
     writeBytes(bytes);
   };
 
@@ -462,10 +533,10 @@ export function DomTerminalView({
         // Phase 17: keyed by palette epoch — a theme switch remounts the view
         // past the row memoization so every line repaints in the new palette
         // (rare path; the view re-hydrates from the engine buffer).
-        <GridView key={`g${paletteEpoch}`} engine={entry.engine} />
+        <GridView key={`g${paletteEpoch}-${revealEpoch}`} engine={entry.engine} />
       ) : (
         <FlowView
-          key={`f${paletteEpoch}`}
+          key={`f${paletteEpoch}-${revealEpoch}`}
           engine={entry.engine}
           onLinkClick={onLinkClick}
           searchTerm={searchOpen ? searchTerm : undefined}
@@ -476,6 +547,8 @@ export function DomTerminalView({
         ref={inputRef}
         onKeyDown={onKeyDown}
         onPaste={onPaste}
+        onFocus={() => onFocusReport('\x1b[I')}
+        onBlur={() => onFocusReport('\x1b[O')}
         aria-label="terminal input"
         spellCheck={false}
         autoCapitalize="off"
