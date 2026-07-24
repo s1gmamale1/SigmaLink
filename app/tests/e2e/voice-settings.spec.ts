@@ -14,6 +14,7 @@ import {
 } from '@playwright/test';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createElectronTestProfile } from '../../src/test-utils/electron-test-profile';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -42,11 +43,12 @@ async function dismissOnboarding(win: Page): Promise<void> {
 
 test('Settings → Voice diagnostics render four indicator dots', async () => {
   test.setTimeout(180_000);
+  const profile = createElectronTestProfile('sigmalink-e2e-voice-profile-');
   let app: ElectronApplication | null = null;
   try {
     app = await electron.launch({
-      args: [path.resolve(__dirname, '../../electron-dist/main.js')],
-      env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1', NODE_ENV: 'test' },
+      args: [path.resolve(__dirname, '../../electron-dist/main.js'), ...profile.args],
+      env: { ...profile.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1' },
       timeout: 60_000,
     });
 
@@ -107,8 +109,6 @@ test('Settings → Voice diagnostics render four indicator dots', async () => {
     const permText = (await permission.textContent()) ?? '';
     expect(permText.length).toBeGreaterThan(0);
   } finally {
-    if (app) {
-      await app.close().catch(() => undefined);
-    }
+    await profile.close(app);
   }
 });

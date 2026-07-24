@@ -17,6 +17,7 @@
 import { test, _electron as electron, expect, type ElectronApplication } from '@playwright/test';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createElectronTestProfile } from '../../src/test-utils/electron-test-profile';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -27,17 +28,17 @@ test.describe.configure({ retries: 1 });
 test('sync IPC channels are reachable — no "IPC channel not allowed" on Settings → Sync', async () => {
   test.setTimeout(90_000);
 
+  const profile = createElectronTestProfile('sigmalink-e2e-sync-');
   let app: ElectronApplication | null = null;
-
-  app = await electron.launch({
-    args: [path.resolve(__dirname, '../../electron-dist/main.js')],
-    env: {
-      ...process.env,
-      ELECTRON_DISABLE_SECURITY_WARNINGS: '1',
-      NODE_ENV: 'test',
-    },
-    timeout: 60_000,
-  });
+  try {
+    app = await electron.launch({
+      args: [path.resolve(__dirname, '../../electron-dist/main.js'), ...profile.args],
+      env: {
+        ...profile.env,
+        ELECTRON_DISABLE_SECURITY_WARNINGS: '1',
+      },
+      timeout: 60_000,
+    });
 
   const win = await app.firstWindow({ timeout: 30_000 });
   await win.waitForLoadState('domcontentloaded').catch(() => undefined);
@@ -154,5 +155,7 @@ test('sync IPC channels are reachable — no "IPC channel not allowed" on Settin
     'Sync settings section did not render — the Settings → Sync surface may be broken',
   ).toBe(true);
 
-  await app.close().catch(() => undefined);
+  } finally {
+    await profile.close(app);
+  }
 });

@@ -11,6 +11,7 @@ import { test, _electron as electron, expect, type ElectronApplication, type Pag
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createElectronTestProfile } from '../../src/test-utils/electron-test-profile';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -44,11 +45,12 @@ test('Sigma Assistant streams a real Claude CLI reply', async () => {
     return;
   }
 
+  const profile = createElectronTestProfile('sigmalink-e2e-assistant-');
   let app: ElectronApplication | null = null;
   try {
     app = await electron.launch({
-      args: [path.resolve(__dirname, '../../electron-dist/main.js')],
-      env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1', NODE_ENV: 'test' },
+      args: [path.resolve(__dirname, '../../electron-dist/main.js'), ...profile.args],
+      env: { ...profile.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1' },
       timeout: 60_000,
     });
 
@@ -83,6 +85,7 @@ test('Sigma Assistant streams a real Claude CLI reply', async () => {
       }).sigma;
       await sigma.invoke('kv.set', 'app.onboarded', '1');
       await sigma.invoke('kv.set', 'coachmark.featureSpotlight.seen', '1');
+      await sigma.invoke('kv.set', 'ruflo.autowriteMcp', '0');
       await sigma.invoke('workspaces.open', root);
       window.dispatchEvent(new CustomEvent('sigma:test:activate-workspace', { detail: { rootPath: root } }));
     }, repoRoot);
@@ -139,6 +142,6 @@ test('Sigma Assistant streams a real Claude CLI reply', async () => {
       )
       .toMatch(/\b4\b|four/i);
   } finally {
-    if (app) await app.close().catch(() => undefined);
+    await profile.close(app);
   }
 });

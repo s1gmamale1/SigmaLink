@@ -3,6 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { createElectronTestProfile } from '../../src/test-utils/electron-test-profile';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -156,11 +157,13 @@ test.describe.configure({ retries: 1 });
 
 test('SigmaLink full visual sweep', async () => {
   test.setTimeout(240_000);
+  const profile = createElectronTestProfile('sigmalink-e2e-smoke-');
   let app: ElectronApplication | null = null;
   try {
+  try {
     app = await electron.launch({
-      args: [path.resolve(__dirname, '../../electron-dist/main.js')],
-      env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1', NODE_ENV: 'test' },
+      args: [path.resolve(__dirname, '../../electron-dist/main.js'), ...profile.args],
+      env: { ...profile.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1' },
       timeout: 60_000,
     });
   } catch (e) {
@@ -240,6 +243,7 @@ test('SigmaLink full visual sweep', async () => {
         // @ts-expect-error sigma is exposed
         await window.sigma.invoke('kv.set', 'app.onboarded', '1');
         await window.sigma.invoke('kv.set', 'coachmark.featureSpotlight.seen', '1');
+        await window.sigma.invoke('kv.set', 'ruflo.autowriteMcp', '0');
       } catch (err) {
         return String(err);
       }
@@ -701,6 +705,7 @@ test('SigmaLink full visual sweep', async () => {
     .catch(() => undefined);
 
   await app.close().catch(() => undefined);
+  app = null;
 
   const duplicateFrameGroups = detectDuplicateFrames(screenshotsDir);
   for (const group of duplicateFrameGroups) {
@@ -719,4 +724,7 @@ test('SigmaLink full visual sweep', async () => {
   );
 
   expect(stepLog.length).toBeGreaterThan(5);
+  } finally {
+    await profile.close(app);
+  }
 });

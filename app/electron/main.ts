@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { startShellPathBootstrap } from '../src/main/core/util/shell-path';
+import { assertIsolatedTestProfile } from '../src/main/core/util/test-profile-guard';
 import { linuxToolPathCandidates, mergePathEntries } from '../src/main/core/util/linux-path';
 import { app, BrowserWindow, ipcMain, shell, Tray, Menu, globalShortcut, nativeImage, clipboard } from 'electron';
 import { buildGlobalCaptureController, getWhisperEngine, type GlobalCaptureController } from '@sigmalink/voice-core';
@@ -37,6 +38,15 @@ const requireCJS = createRequire(import.meta.url);
 
 let mainWindow: BrowserWindow | null = null;
 const devServerUrl = process.env.VITE_DEV_SERVER_URL;
+
+// Test processes execute the full production router and can migrate/restore the
+// profile before a window appears. Refuse an accidental live-profile launch;
+// all Playwright entry points must opt into the isolated profile helper.
+assertIsolatedTestProfile({
+  nodeEnv: process.env.NODE_ENV,
+  isolatedMarker: process.env.SIGMA_TEST_PROFILE_ISOLATED,
+  argv: process.argv,
+});
 
 // RC2b — Windows toast identity. Without an explicit AUMID, Windows silently
 // drops Electron toasts. Must be called early, before the ready event. Matches appId.
