@@ -122,36 +122,31 @@ export function loadNativeWin(): import('./native-mac').NativeVoiceModule | null
 }
 
 /**
- * Convenience: returns false when the bundled loader fell back to its
- * synchronous unavailable stub. A real SAPI5 module probes asynchronously;
- * it is treated as loaded while the probe settles, then its result is cached
- * for subsequent checks.
+ * Resolve SAPI5 availability once and cache the result. The real addon probes
+ * its STA thread asynchronously; callers must await that answer before they
+ * persist a mode or select the native engine.
  */
-export function isNativeWinVoiceAvailable(): boolean {
+export async function isNativeWinVoiceAvailable(): Promise<boolean> {
   const native = loadNativeWin();
   if (!native) return false;
   if (cachedAvailability !== undefined) return cachedAvailability;
-  if (availabilityProbe) return true;
+  if (availabilityProbe) return availabilityProbe;
 
   try {
     const result = (
       native.isAvailable as unknown as () => boolean | Promise<boolean>
     )();
-    if (typeof result === 'boolean') {
-      cachedAvailability = result;
-      return result;
-    }
     availabilityProbe = Promise.resolve(result).then(
       (available) => {
-        cachedAvailability = available;
-        return available;
+        cachedAvailability = Boolean(available);
+        return cachedAvailability;
       },
       () => {
         cachedAvailability = false;
         return false;
       },
     );
-    return true;
+    return availabilityProbe;
   } catch {
     cachedAvailability = false;
     return false;

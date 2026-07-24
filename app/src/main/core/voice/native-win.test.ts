@@ -59,13 +59,13 @@ describe('isNativeWinVoiceAvailable — non-win32', () => {
   it('returns false on darwin', async () => {
     Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
     const { isNativeWinVoiceAvailable } = await import('./native-win');
-    expect(isNativeWinVoiceAvailable()).toBe(false);
+    await expect(isNativeWinVoiceAvailable()).resolves.toBe(false);
   });
 
   it('returns false on linux', async () => {
     Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
     const { isNativeWinVoiceAvailable } = await import('./native-win');
-    expect(isNativeWinVoiceAvailable()).toBe(false);
+    await expect(isNativeWinVoiceAvailable()).resolves.toBe(false);
   });
 });
 
@@ -144,6 +144,6 @@ describe('isNativeWinVoiceAvailable — mocked module', () => {
   it('returns false for the bundled Windows fallback stub', async () => {
     Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
     const { isNativeWinVoiceAvailable } = await import('./native-win');
-    expect(isNativeWinVoiceAvailable()).toBe(false);
+    await expect(isNativeWinVoiceAvailable()).resolves.toBe(false);
   });
 });

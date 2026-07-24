@@ -112,28 +112,39 @@ export function parseProtocolLine(raw: string): ProtocolParse | null {
  */
 export class ProtocolLineBuffer {
   private acc = '';
+  private overflowed = false;
 
   push(chunk: string, onLine: (line: string) => void): void {
     if (!chunk) return;
-    this.acc += chunk;
-    let nl = this.acc.indexOf('\n');
-    while (nl !== -1) {
-      const line = this.acc.slice(0, nl).replace(/\r$/, '');
-      this.acc = this.acc.slice(nl + 1);
-      onLine(line);
-      nl = this.acc.indexOf('\n');
-    }
+    let offset = 0;
+    while (offset < chunk.length) {
+      const nl = chunk.indexOf('\n', offset);
+      const end = nl === -1 ? chunk.length : nl;
+      const segment = chunk.slice(offset, end);
 
-    if (this.acc.length > MAX_UNTERMINATED_LINE_CHARS) {
-      this.acc = this.acc.slice(-MAX_UNTERMINATED_LINE_CHARS);
+      if (!this.overflowed) {
+        if (this.acc.length + segment.length > MAX_UNTERMINATED_LINE_CHARS) {
+          this.acc = '';
+          this.overflowed = true;
+        } else {
+          this.acc += segment;
+        }
+      }
+
+      if (nl === -1) return;
+      if (!this.overflowed) onLine(this.acc.replace(/\r$/, ''));
+      this.acc = '';
+      this.overflowed = false;
+      offset = nl + 1;
     }
   }
 
   flush(onLine: (line: string) => void): void {
-    if (this.acc.length) {
+    if (!this.overflowed && this.acc.length) {
       onLine(this.acc);
-      this.acc = '';
     }
+    this.acc = '';
+    this.overflowed = false;
   }
 }
 

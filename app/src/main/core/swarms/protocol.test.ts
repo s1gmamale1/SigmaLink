@@ -12,7 +12,7 @@ import {
 } from './protocol';
 
 describe('ProtocolLineBuffer', () => {
-  it('retains only the newest 64 KiB of an unterminated line', () => {
+  it('drops an unterminated line after 64 KiB instead of emitting a partial suffix', () => {
     const maxUnterminatedChars = 64 * 1024;
     const buffer = new ProtocolLineBuffer();
     const emitted: string[] = [];
@@ -21,7 +21,19 @@ describe('ProtocolLineBuffer', () => {
     buffer.push(input, (line) => emitted.push(line));
     buffer.flush((line) => emitted.push(line));
 
-    expect(emitted).toEqual([input.slice(-maxUnterminatedChars)]);
+    expect(emitted).toEqual([]);
+  });
+
+  it('does not reinterpret the retained suffix of an overlong line as protocol', () => {
+    const maxUnterminatedChars = 64 * 1024;
+    const forgedSuffix = 'SIGMA::DONE {}' + 'x'.repeat(maxUnterminatedChars - 14);
+    const buffer = new ProtocolLineBuffer();
+    const emitted: string[] = [];
+
+    buffer.push(`ordinary-output${forgedSuffix}`, (line) => emitted.push(line));
+    buffer.push('\nSIGMA::READY {}\n', (line) => emitted.push(line));
+
+    expect(emitted).toEqual(['SIGMA::READY {}']);
   });
 });
 

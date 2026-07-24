@@ -125,49 +125,61 @@ export function buildVoiceController(deps: VoiceControllerDeps) {
   //   4. platform is darwin AND the native module loads — non-darwin keeps
   //      mode='off' and the renderer surfaces `voice:unavailable` so the
   //      Composer can hide the mic without bouncing through a toast.
+  let firstLaunchCancelled = false;
+  const applyFirstLaunchAvailability = (nativeAvailable: boolean): void => {
+    if (!deps.kv || firstLaunchCancelled) return;
+    if (nativeAvailable) {
+      if (mode === 'off') {
+        mode = 'auto';
+        try {
+          deps.kv.set(KV_VOICE_MODE, mode);
+        } catch {
+          /* persistence failure is non-fatal */
+        }
+        console.log(
+          '[voice] auto-enabled on first launch (native available)',
+        );
+      }
+      try {
+        deps.kv.set(KV_VOICE_FIRST_LAUNCH, '1');
+      } catch {
+        /* swallow */
+      }
+      return;
+    }
+
+    // No native engine — emit a one-shot reason so the renderer can render
+    // an explanatory tooltip instead of silently disabling. We still stamp
+    // firstLaunch=1 so this is not re-broadcast on every adapter rebuild.
+    const reason: 'platform' | 'no-native' =
+      (process.platform === 'darwin' || process.platform === 'win32')
+        ? 'no-native'
+        : 'platform';
+    try {
+      deps.emit('voice:unavailable', { reason });
+    } catch {
+      /* fire-and-forget */
+    }
+    try {
+      deps.kv.set(KV_VOICE_FIRST_LAUNCH, '1');
+    } catch {
+      /* swallow */
+    }
+  };
+
+  let firstLaunchReady: Promise<void> = Promise.resolve();
   if (deps.kv) {
     try {
       const firstLaunch = deps.kv.get(KV_VOICE_FIRST_LAUNCH);
       if (firstLaunch !== '1') {
-        const nativeAvailable =
-          (process.platform === 'darwin' && isNativeMacVoiceAvailable()) ||
-          (process.platform === 'win32'  && isNativeWinVoiceAvailable());
-        if (nativeAvailable) {
-          if (mode === 'off') {
-            mode = 'auto';
-            try {
-              deps.kv.set(KV_VOICE_MODE, mode);
-            } catch {
-              /* persistence failure is non-fatal */
-            }
-            console.log(
-              '[voice] auto-enabled on first launch (native available)',
-            );
-          }
-          try {
-            deps.kv.set(KV_VOICE_FIRST_LAUNCH, '1');
-          } catch {
-            /* swallow */
-          }
+        if (process.platform === 'win32') {
+          firstLaunchReady = isNativeWinVoiceAvailable()
+            .then(applyFirstLaunchAvailability)
+            .catch(() => applyFirstLaunchAvailability(false));
         } else {
-          // No native engine — emit a one-shot reason so the renderer can
-          // render an explanatory tooltip instead of silently disabling.
-          // We still stamp `firstLaunch=1` so we don't re-broadcast the
-          // event on every adapter rebuild.
-          const reason: 'platform' | 'no-native' =
-            (process.platform === 'darwin' || process.platform === 'win32')
-              ? 'no-native'
-              : 'platform';
-          try {
-            deps.emit('voice:unavailable', { reason });
-          } catch {
-            /* fire-and-forget */
-          }
-          try {
-            deps.kv.set(KV_VOICE_FIRST_LAUNCH, '1');
-          } catch {
-            /* swallow */
-          }
+          applyFirstLaunchAvailability(
+            process.platform === 'darwin' && isNativeMacVoiceAvailable(),
+          );
         }
       }
     } catch {
@@ -175,6 +187,7 @@ export function buildVoiceController(deps: VoiceControllerDeps) {
     }
   }
   let phase: VoicePhase = 'idle';
+  let startPending = false;
 
   function broadcast(): void {
     deps.emit('voice:state', {
@@ -197,14 +210,16 @@ export function buildVoiceController(deps: VoiceControllerDeps) {
    * when the mode + platform allows it, or `null` when the renderer should
    * own the capture loop (Web Speech path).
    */
-  function selectEngine(): NativeVoiceModule | null {
+  async function selectEngine(): Promise<NativeVoiceModule | null> {
     if (mode === 'off') return null;
     if (mode === 'web-speech') return null;
     // win32 branch — checked before the darwin short-circuit so a win32
     // host with mode='auto' resolves to the Windows native engine.
     if (process.platform === 'win32') {
       if (mode === 'native-win') return loadNativeWin();
-      if (mode === 'auto') return isNativeWinVoiceAvailable() ? loadNativeWin() : null;
+      if (mode === 'auto') {
+        return await isNativeWinVoiceAvailable() ? loadNativeWin() : null;
+      }
       return null; // 'native-mac' forced on win32 → fall through to null
     }
     if (process.platform !== 'darwin') return null;
@@ -290,54 +305,60 @@ export function buildVoiceController(deps: VoiceControllerDeps) {
       if (!VALID_SOURCES.has(source)) {
         throw new Error(`voice.start: invalid source "${String(source)}"`);
       }
-      if (active) {
+      if (active || startPending) {
         throw new Error('voice-busy');
       }
-      if (mode === 'off') {
-        throw new Error('voice-disabled');
-      }
-      const native = selectEngine();
-      const id = randomUUID();
-      active = {
-        id,
-        source,
-        startedAt: Date.now(),
-        native: native !== null,
-        lastPartial: '',
-      };
-      if (native) {
-        bindNativeCallbacks(native);
-        // requestPermission is idempotent after the first prompt; still cheap.
-        try {
-          const status = await native.requestPermission();
-          if (status !== 'granted') {
+      startPending = true;
+      try {
+        await firstLaunchReady;
+        if (mode === 'off') {
+          throw new Error('voice-disabled');
+        }
+        const native = await selectEngine();
+        const id = randomUUID();
+        active = {
+          id,
+          source,
+          startedAt: Date.now(),
+          native: native !== null,
+          lastPartial: '',
+        };
+        if (native) {
+          bindNativeCallbacks(native);
+          // requestPermission is idempotent after the first prompt; still cheap.
+          try {
+            const status = await native.requestPermission();
+            if (status !== 'granted') {
+              active = null;
+              setPhase('idle');
+              throw new Error('no-permission');
+            }
+          } catch (err) {
             active = null;
             setPhase('idle');
-            throw new Error('no-permission');
+            throw err;
           }
-        } catch (err) {
-          active = null;
-          setPhase('idle');
-          throw err;
-        }
-        const opts: NativeStartOptions = {
-          locale: 'en-US',
-          onDevice: true,
-          addPunctuation: true,
-        };
-        try {
-          await native.start(opts);
+          const opts: NativeStartOptions = {
+            locale: 'en-US',
+            onDevice: true,
+            addPunctuation: true,
+          };
+          try {
+            await native.start(opts);
+            setPhase('listening');
+          } catch (err) {
+            active = null;
+            setPhase('idle');
+            throw err;
+          }
+        } else {
+          // Renderer Web Speech drives recognition; we just record the slot.
           setPhase('listening');
-        } catch (err) {
-          active = null;
-          setPhase('idle');
-          throw err;
         }
-      } else {
-        // Renderer Web Speech drives recognition; we just record the slot.
-        setPhase('listening');
+        return { sessionId: id };
+      } finally {
+        startPending = false;
       }
-      return { sessionId: id };
     },
     /**
      * Stop the active session. Idempotent — a stop with no active session is
@@ -395,6 +416,8 @@ export function buildVoiceController(deps: VoiceControllerDeps) {
       if (!VALID_MODES.has(m)) {
         throw new Error(`voice.setMode: invalid mode "${String(m)}"`);
       }
+      firstLaunchCancelled = true;
+      firstLaunchReady = Promise.resolve();
       mode = m;
       // V1.1.1 — persist the user's choice so it survives the next restart.
       // We also stamp firstLaunch=1 here so a deliberate `off` cannot be
