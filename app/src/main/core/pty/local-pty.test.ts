@@ -8,6 +8,8 @@
 //
 // `spawnLocalPty` now resolves the command against PATH up-front and throws a
 // real ENOENT before invoking node-pty, restoring the fallback contract.
+// (2026-07 kimi migration: POSIX shell-first is the exception — a pre-flight
+// miss defers to the pane's login shell; see "shell-first POSIX soft-miss".)
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import fs from 'node:fs';
@@ -504,29 +506,27 @@ describe('spawnLocalPty: shell-first mode', () => {
     expect(e.code).toBe('ENOENT');
   });
 
-  it('H-9: shell-first throws synchronous ENOENT for a missing binary (drives the launcher alt-command walk)', () => {
+  it('H-9 (revised 2026-07): POSIX shell-first does NOT throw synchronously for a missing binary (login shell resolves it)', () => {
     if (process.platform === 'win32') return; // POSIX path (win32 degrades to direct)
-    // Empty PATH so no binary resolves. Previously shell-first injected the
-    // command into a live shell, so a missing binary produced only "command
-    // not found" output + sentinel — never a synchronous throw — and the
-    // launcher's [command, ...altCommands] walk was dead in this mode.
+    // Behavior change: Electron's PATH is the wrong oracle on POSIX shell-first
+    // (dev: no login-shell PATH bootstrap; packaged: stale warm-boot cache).
+    // A pre-flight miss now degrades to injecting the bare command; a genuine
+    // not-found surfaces via the shell's "command not found" + exit-127
+    // sentinel. Empty PATH so Electron-side resolution must miss.
     process.env.PATH = '/does/not/exist';
-    let caught: unknown = null;
+    const handle = spawnLocalPty({
+      command: 'definitely-not-a-real-binary-xyz',
+      args: [],
+      cwd: process.cwd(),
+      cols: 80,
+      rows: 24,
+      spawnMode: 'shell-first',
+    });
     try {
-      spawnLocalPty({
-        command: 'definitely-not-a-real-binary-xyz',
-        args: [],
-        cwd: process.cwd(),
-        cols: 80,
-        rows: 24,
-        spawnMode: 'shell-first',
-      });
-    } catch (err) {
-      caught = err;
+      expect(handle.pid).toBeGreaterThan(0);
+    } finally {
+      handle.kill();
     }
-    const e = caught as NodeJS.ErrnoException;
-    expect(e).toBeInstanceOf(Error);
-    expect(e.code).toBe('ENOENT');
   });
 });
 
@@ -973,5 +973,42 @@ describe('defaultShell on linux', () => {
   it('falls back to bash when SHELL is fish', () => {
     Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
     expect(defaultShell({ SHELL: '/usr/bin/fish' })).toEqual({ command: '/bin/bash', args: ['-l'] });
+  });
+});
+
+describe('spawnLocalPty shell-first POSIX soft-miss', () => {
+  it.skipIf(process.platform === 'win32')(
+    'does NOT throw synchronously when the command is missing from Electron PATH (login shell resolves it)',
+    () => {
+      // Kimi-after-migration regression: ~/.kimi-code/bin is only on the login
+      // shell's PATH (via ~/.zshrc), not Electron's. Shell-first must defer to
+      // the pane's own shell instead of hard-failing the launch.
+      const handle = spawnLocalPty({
+        command: 'sigmalink-definitely-not-a-real-command-xyz',
+        args: [],
+        cwd: os.homedir(),
+        cols: 80,
+        rows: 24,
+        spawnMode: 'shell-first',
+      });
+      try {
+        expect(handle.pid).toBeGreaterThan(0);
+      } finally {
+        handle.kill();
+      }
+    },
+  );
+
+  it('direct mode still throws ENOENT synchronously for a missing command', () => {
+    expect(() =>
+      spawnLocalPty({
+        command: 'sigmalink-definitely-not-a-real-command-xyz',
+        args: [],
+        cwd: os.homedir(),
+        cols: 80,
+        rows: 24,
+        spawnMode: 'direct',
+      }),
+    ).toThrowError(/ENOENT/);
   });
 });
