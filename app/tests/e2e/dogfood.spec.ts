@@ -27,6 +27,10 @@ const screenshotsDir = path.resolve(__dirname, '../../../docs/06-test/screenshot
 fs.mkdirSync(screenshotsDir, { recursive: true });
 
 const launchesToClean: Array<{ profile: ElectronTestProfile; app: ElectronApplication }> = [];
+interface IsolatedLaunch {
+  profile: ElectronTestProfile;
+  app: ElectronApplication;
+}
 
 // BUG-V1.1-PW-01 — Wrap the file in `test.describe(...)` so test.afterEach
 // lives inside a suite the file-loader has registered. Without this,
@@ -43,7 +47,7 @@ test.afterEach(async () => {
   }
 });
 
-async function launchApp(label: string): Promise<ElectronApplication> {
+async function launchApp(label: string): Promise<IsolatedLaunch> {
   const profile = createElectronTestProfile(`sigmalink-dogfood-${label}-`);
   try {
     const app = await electron.launch({
@@ -52,7 +56,7 @@ async function launchApp(label: string): Promise<ElectronApplication> {
       timeout: 60_000,
     });
     launchesToClean.push({ profile, app });
-    return app;
+    return { profile, app };
   } catch (error) {
     await profile.close();
     throw error;
@@ -207,7 +211,7 @@ test.setTimeout(180_000);
 //     Bridge Conversations panel, OriginLink mount, Diagnostics tab.
 // ────────────────────────────────────────────────────────────────────────
 test('Differentiator surfaces render without console errors', async () => {
-  const app = await launchApp('diff');
+  const { app, profile } = await launchApp('diff');
   const consoleErrors: string[] = [];
 
   const win = await app.firstWindow({ timeout: 30_000 });
@@ -220,7 +224,7 @@ test('Differentiator surfaces render without console errors', async () => {
   await win.waitForTimeout(2500);
   await dismissOnboarding(win);
 
-  const repoRoot = path.resolve(__dirname, '../../../');
+  const repoRoot = profile.workspaceDir;
   await activateRepoWorkspace(win, repoRoot);
   await win.waitForTimeout(1200);
 
@@ -325,7 +329,7 @@ test('Differentiator surfaces render without console errors', async () => {
 // Glass foundation — DEFAULT_THEME='glass' in renderer/lib/themes.ts.)
 // ────────────────────────────────────────────────────────────────────────
 test('BUG-W7-003: default theme on fresh kv is glass', async () => {
-  const app = await launchApp('w7-003');
+  const { app } = await launchApp('w7-003');
   const win = await app.firstWindow({ timeout: 30_000 });
   await win.waitForLoadState('domcontentloaded').catch(() => undefined);
   // Allow ThemeProvider's hydrate effect to run (it reads kv.app.theme,
@@ -369,13 +373,13 @@ test('BUG-W7-003: default theme on fresh kv is glass', async () => {
 //     `workspaces.open`. No race, no "no workspace" error.
 // ────────────────────────────────────────────────────────────────────────
 test('BUG-W7-006: swarms.create after workspaces.open has no race', async () => {
-  const app = await launchApp('w7-006');
+  const { app, profile } = await launchApp('w7-006');
   const win = await app.firstWindow({ timeout: 30_000 });
   await win.waitForLoadState('domcontentloaded').catch(() => undefined);
   await win.waitForTimeout(2500);
   await dismissOnboarding(win);
 
-  const repoRoot = path.resolve(__dirname, '../../../');
+  const repoRoot = profile.workspaceDir;
 
   // Open + immediately create — no setTimeout/waitForTimeout between calls.
   // v1.4.7 packet-03 — use a minimal 1-agent custom roster with the `shell`

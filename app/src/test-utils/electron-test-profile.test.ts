@@ -18,6 +18,10 @@ describe('createElectronTestProfile', () => {
     expect(profile.env.SIGMA_TEST_PROFILE_ISOLATED).toBe('1');
     expect(profile.env.HOME).toBe(profile.homeDir);
     expect(profile.env.USERPROFILE).toBe(profile.homeDir);
+    const workspaceDir = Reflect.get(profile, 'workspaceDir') as unknown;
+    expect(workspaceDir).toBeTypeOf('string');
+    expect(fs.existsSync(workspaceDir as string)).toBe(true);
+    expect(path.relative(profile.rootDir, workspaceDir as string)).not.toMatch(/^\.\./);
     for (const key of ['APPDATA', 'LOCALAPPDATA', 'XDG_CONFIG_HOME', 'XDG_CACHE_HOME', 'XDG_DATA_HOME']) {
       const value = profile.env[key];
       expect(value).toBeTruthy();

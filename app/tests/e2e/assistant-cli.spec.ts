@@ -77,8 +77,8 @@ test('Sigma Assistant streams a real Claude CLI reply', async () => {
 
     // v1.4.7 packet-03 — Sigma Assistant requires an active workspace since
     // v1.4.0 (SigmaRoom.tsx:180 renders EmptyState when activeWorkspace is null).
-    // Open the SigmaLink repo as a workspace + activate it before navigating.
-    const repoRoot = path.resolve(__dirname, '../../../');
+    // Open the disposable helper-owned workspace + activate it before navigating.
+    const repoRoot = profile.workspaceDir;
     await win.evaluate(async (root: string) => {
       const sigma = (window as unknown as {
         sigma: { invoke: (c: string, ...a: unknown[]) => Promise<unknown> };

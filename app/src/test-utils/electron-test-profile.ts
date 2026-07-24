@@ -7,6 +7,7 @@ export interface ElectronTestProfile {
   rootDir: string;
   userDataDir: string;
   homeDir: string;
+  workspaceDir: string;
   args: string[];
   env: NodeJS.ProcessEnv;
   close(app?: ElectronApplication | null): Promise<void>;
@@ -21,6 +22,7 @@ export function createElectronTestProfile(prefix = 'sigmalink-electron-test-'): 
   };
   const userDataDir = makeDir('user-data');
   const homeDir = makeDir('home');
+  const workspaceDir = makeDir('SigmaLink');
   const appDataDir = makeDir('app-data');
   const localAppDataDir = makeDir('local-app-data');
   const xdgConfigDir = makeDir('xdg-config');
@@ -32,6 +34,7 @@ export function createElectronTestProfile(prefix = 'sigmalink-electron-test-'): 
     rootDir,
     userDataDir,
     homeDir,
+    workspaceDir,
     args: [`--user-data-dir=${userDataDir}`],
     env: {
       ...process.env,

@@ -254,13 +254,13 @@ test('SigmaLink full visual sweep', async () => {
   // 05 — workspaces empty (the room itself)
   await snap(win, '05-workspaces-empty.png', 'workspaces empty (post-onboarding)');
 
-  // Open the SigmaLink folder as a workspace via RPC.
-  // P3-S8: use the actual repo root (cross-platform). Previously a hardcoded
-  // Windows path was used, which failed on macOS/Linux runners and left the
+  // Open the disposable SigmaLink-named test workspace via RPC. Previously a
+  // hardcoded Windows path was used, which failed on macOS/Linux runners and left the
   // app without an active workspace — every downstream room rendered as
   // `workspaces` instead of its real surface, and SigmaRoom showed
-  // EmptyState (no Conversations panel) which broke the P3-S7 assertion.
-  const repoRoot = path.resolve(__dirname, '../../../');
+  // EmptyState (no Conversations panel) which broke the P3-S7 assertion. The
+  // helper-owned path also prevents Ruflo autowrite from touching this checkout.
+  const repoRoot = profile.workspaceDir;
   const openResult = await win
     .evaluate(async (folder: string) => {
       try {
