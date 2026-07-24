@@ -173,7 +173,15 @@ export function stopProcessTrees(
 ): { snapshots: ProcessTreeSnapshot[]; stoppedPids: number[] } {
   const platform = deps.platform ?? process.platform;
   const exec = deps.exec ?? defaultExec;
-  const snapshots = rootPids.map((pid) => inspectProcessTree(pid, deps));
+  const hasValidRoot = rootPids.some((pid) => Boolean(pid && pid > 0));
+  const listed = hasValidRoot
+    ? listProcessRows(deps)
+    : { supported: platformSupported(platform), rows: [] };
+  const snapshots = rootPids.map((pid) => {
+    if (!pid || pid <= 0) return emptySnapshot(pid, platformSupported(platform));
+    if (!listed.supported) return emptySnapshot(pid, false);
+    return buildSubtree(listed.rows, pid);
+  });
 
   if (platform === 'win32') {
     // `taskkill /T` walks the parent-child chain itself (takes the detached

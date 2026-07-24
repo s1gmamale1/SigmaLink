@@ -131,7 +131,9 @@ function makeChild(pid = 9999): EventEmitter & {
   child.pid = pid;
   child.killed = false;
   child.kill = vi.fn(() => {
-    /* intentionally not setting killed=true so SIGKILL test can verify escalation */
+    // Match Node's ChildProcess contract: this means a signal was sent, not
+    // that the process has exited.
+    child.killed = true;
   });
   const makeStream = () => {
     const s = new EventEmitter() as EventEmitter & { on: MockInstance };

@@ -68,6 +68,7 @@ export interface ProtocolParse {
 }
 
 const VERB_SET = new Set<string>(PROTOCOL_VERBS);
+const MAX_UNTERMINATED_LINE_CHARS = 64 * 1024;
 
 /**
  * Parse a single line. Returns null if the line does not start with SIGMA::,
@@ -121,6 +122,10 @@ export class ProtocolLineBuffer {
       this.acc = this.acc.slice(nl + 1);
       onLine(line);
       nl = this.acc.indexOf('\n');
+    }
+
+    if (this.acc.length > MAX_UNTERMINATED_LINE_CHARS) {
+      this.acc = this.acc.slice(-MAX_UNTERMINATED_LINE_CHARS);
     }
   }
 

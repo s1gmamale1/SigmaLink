@@ -840,15 +840,11 @@ function httpPost(url: string, body: unknown): Promise<string> {
 
 /** Send SIGTERM; after KILL_ESCALATION_MS send SIGKILL if still alive. */
 async function killChild(child: ChildProcess | null): Promise<void> {
-  if (!child || child.killed) return;
-  try {
-    child.kill('SIGTERM');
-  } catch {
-    /* ignore */
-  }
+  if (!child || child.exitCode != null || child.signalCode != null) return;
   await new Promise<void>((resolve) => {
+    let exited = false;
     const escalate = setTimeout(() => {
-      if (!child.killed) {
+      if (!exited) {
         try {
           child.kill('SIGKILL');
         } catch {
@@ -858,8 +854,14 @@ async function killChild(child: ChildProcess | null): Promise<void> {
       resolve();
     }, KILL_ESCALATION_MS);
     child.once('exit', () => {
+      exited = true;
       clearTimeout(escalate);
       resolve();
     });
+    try {
+      child.kill('SIGTERM');
+    } catch {
+      /* ignore */
+    }
   });
 }

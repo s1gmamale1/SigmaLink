@@ -5,10 +5,25 @@
 import { describe, expect, it } from 'vitest';
 import {
   PROTOCOL_VERBS,
+  ProtocolLineBuffer,
   envelopeToInsert,
   isPromptPayload,
   parseProtocolLine,
 } from './protocol';
+
+describe('ProtocolLineBuffer', () => {
+  it('retains only the newest 64 KiB of an unterminated line', () => {
+    const maxUnterminatedChars = 64 * 1024;
+    const buffer = new ProtocolLineBuffer();
+    const emitted: string[] = [];
+    const input = 'old-prefix' + 'x'.repeat(maxUnterminatedChars) + 'new-tail';
+
+    buffer.push(input, (line) => emitted.push(line));
+    buffer.flush((line) => emitted.push(line));
+
+    expect(emitted).toEqual([input.slice(-maxUnterminatedChars)]);
+  });
+});
 
 describe('protocol — PROMPT verb', () => {
   it('exposes PROMPT in the verb list', () => {
