@@ -31,13 +31,13 @@
 - Modify: `app/src/main/core/notifications/manager.test.ts`
 - Modify: `app/src/main/core/notifications/manager.ts`
 
-- [ ] **Step 1: Add a failing protected-severity regression**
+- [x] **Step 1: Add a failing protected-severity regression**
 
   Seed the oldest 50 rows as alternating `error`/`critical`, seed at least 201 later `info` rows
   in the same workspace/kind, trigger collapse, and assert every protected ID remains while the
   oldest eligible info rows are removed.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
   Run:
   `pnpm exec vitest run src/main/core/notifications/manager.test.ts -t "preserves protected unread rows during soft-cap collapse"`
@@ -45,41 +45,41 @@
   Expected: FAIL because the current victim query has no severity predicate and removes the oldest
   protected rows.
 
-- [ ] **Step 3: Implement the minimum severity filter**
+- [x] **Step 3: Implement the minimum severity filter**
 
   Add `severity IN ('info', 'warn')` to both workspace and global victim queries. Update the focused
   test database parser to model that predicate.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
   Rerun the focused test. Expected: PASS.
 
-- [ ] **Step 5: Add a failing summary-delta regression**
+- [x] **Step 5: Add a failing summary-delta regression**
 
   Trigger collapse and assert `emitted[0].added` contains both the triggering row and the generated
   `<kind>-summary` row, while `removed` contains the victim IDs.
 
-- [ ] **Step 6: Verify RED**
+- [x] **Step 6: Verify RED**
 
   Run:
   `pnpm exec vitest run src/main/core/notifications/manager.test.ts -t "emits the soft-cap summary in the added lane"`
 
   Expected: FAIL because `softCapCollapse()` returns only victim IDs.
 
-- [ ] **Step 7: Return the complete collapse result**
+- [x] **Step 7: Return the complete collapse result**
 
   Change the private helper to return `{ removed: string[]; added: Notification[] }`. Construct the
   summary row once, insert it, convert it with `rowToNotification`, and append it to the outer
   `added` lane. Empty/no-eligible collapse returns empty lanes.
 
-- [ ] **Step 8: Verify task**
+- [x] **Step 8: Verify task**
 
   Run:
   `pnpm exec vitest run src/main/core/notifications/manager.test.ts`
 
   Expected: all manager tests pass.
 
-- [ ] **Step 9: Commit checkpoint**
+- [x] **Step 9: Commit checkpoint**
 
   ```bash
   git add app/src/main/core/notifications/manager.ts app/src/main/core/notifications/manager.test.ts
@@ -94,28 +94,28 @@
 - Modify: `app/src/main/core/db/migrate.ts`
 - Test: `app/src/main/core/db/__tests__/migrate.spec.ts`
 
-- [ ] **Step 1: Write migration tests first**
+- [x] **Step 1: Write migration tests first**
 
   Assert that `up()` creates the singleton `notification_state` table, seeds `(1,0)`, preserves an
   existing revision when rerun, and contains no self-managed transaction statements.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
   Run:
   `pnpm exec vitest run src/main/core/db/migrations/0043_notification_state_revision.test.ts src/main/core/db/__tests__/migrate.spec.ts`
 
   Expected: FAIL because migration 0043 does not exist or is not registered.
 
-- [ ] **Step 3: Implement and register the idempotent migration**
+- [x] **Step 3: Implement and register the idempotent migration**
 
   Follow the existing forward-only migration shape. Add `mig0043` to `ALL_MIGRATIONS` exactly once
   and keep lexical order. Do not add `BEGIN`, `COMMIT`, or `ROLLBACK` to the migration.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
   Rerun the migration tests. Expected: PASS.
 
-- [ ] **Step 5: Commit checkpoint**
+- [x] **Step 5: Commit checkpoint**
 
   ```bash
   git add app/src/main/core/db/migrations/0043_notification_state_revision.ts \
@@ -131,38 +131,38 @@
 - Modify: `app/src/main/core/notifications/manager.ts`
 - Modify: `app/src/main/core/notifications/manager.test.ts`
 
-- [ ] **Step 1: Add failing count and revision tests**
+- [x] **Step 1: Add failing count and revision tests**
 
   Add tests asserting a change set contains all four unread severity counts and that consecutive
   changing mutations advance revisions by exactly one. Add no-op tests for already-read/missing
   IDs.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
   Run:
   `pnpm exec vitest run src/main/core/notifications/manager.test.ts -t "revision|severity counts|no-op"`
 
   Expected: FAIL because the delta only exposes `unreadCount` and no revision.
 
-- [ ] **Step 3: Add shared types**
+- [x] **Step 3: Add shared types**
 
   Define `NotificationCounts`, `NotificationChangeSet`, `NotificationCursor`,
   `NotificationSnapshot`, and `NotificationPage`. Replace optional `updated` with a required array
   in the new change-set type. Keep `NotificationsDelta` as a temporary deprecated alias only if a
   staged compiler migration requires it.
 
-- [ ] **Step 4: Add manager primitives**
+- [x] **Step 4: Add manager primitives**
 
   Add private database-handle helpers to read counts, read revision, and increment revision using
   `UPDATE notification_state SET revision = revision + 1 ... RETURNING revision`. Update the test
   database fake to model revision and grouped severity counts.
 
-- [ ] **Step 5: Emit the new envelope for existing mutations**
+- [x] **Step 5: Emit the new envelope for existing mutations**
 
   Ensure all changing methods include required lanes, revision, and counts. No-op methods emit
   nothing and leave the revision unchanged.
 
-- [ ] **Step 6: Verify GREEN and typecheck**
+- [x] **Step 6: Verify GREEN and typecheck**
 
   Run:
   `pnpm exec vitest run src/main/core/notifications/manager.test.ts`
@@ -172,7 +172,7 @@
 
   Expected: PASS and exit 0.
 
-- [ ] **Step 7: Commit checkpoint**
+- [x] **Step 7: Commit checkpoint**
 
   ```bash
   git add app/src/shared/types.ts app/src/main/core/notifications/manager.ts \
@@ -186,38 +186,38 @@
 - Modify: `app/src/main/core/notifications/manager.ts`
 - Modify: `app/src/main/core/notifications/manager.test.ts`
 
-- [ ] **Step 1: Add failing rollback tests**
+- [x] **Step 1: Add failing rollback tests**
 
   Extend the focused test database with a transaction snapshot/rollback model and an injected
   failure point after collapse but before revision advancement. Assert the triggering insert,
   victims, summary, and revision all roll back and no change set emits.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
   Run:
   `pnpm exec vitest run src/main/core/notifications/manager.test.ts -t "rolls back the complete mutation"`
 
   Expected: FAIL because current SQL calls are not wrapped in one transaction.
 
-- [ ] **Step 3: Refactor mutation internals**
+- [x] **Step 3: Refactor mutation internals**
 
   Build each public changing method around a synchronous `db.transaction()` closure that returns
   either a complete change set or `null`. Pass `db` to helpers rather than calling `getRawDb()`
   repeatedly. Emit only after the closure returns successfully.
 
-- [ ] **Step 4: Add mutation matrix tests**
+- [x] **Step 4: Add mutation matrix tests**
 
   Cover `add`, dedup absorb, `markRead`, `markAllRead`, `markUnread`, `dismiss`, `clearRead`, and GC.
   Assert one revision/one event for state changes and zero for no-ops.
 
-- [ ] **Step 5: Verify task**
+- [x] **Step 5: Verify task**
 
   Run:
   `pnpm exec vitest run src/main/core/notifications/manager.test.ts`
 
   Expected: PASS.
 
-- [ ] **Step 6: Commit checkpoint**
+- [x] **Step 6: Commit checkpoint**
 
   ```bash
   git add app/src/main/core/notifications/manager.ts app/src/main/core/notifications/manager.test.ts
@@ -230,33 +230,33 @@
 - Modify: `app/src/main/core/notifications/manager.ts`
 - Modify: `app/src/main/core/notifications/manager.test.ts`
 
-- [ ] **Step 1: Add failing cursor tests**
+- [x] **Step 1: Add failing cursor tests**
 
   Seed rows with equal and unequal timestamps. Assert two pages contain every ID once in deterministic
   `(createdAt,id)` descending order. Assert malformed cursors throw a validation error.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
   Run:
   `pnpm exec vitest run src/main/core/notifications/manager.test.ts -t "cursor|snapshot"`
 
   Expected: FAIL because only offset-based `list()` exists.
 
-- [ ] **Step 3: Implement opaque cursor helpers and page query**
+- [x] **Step 3: Implement opaque cursor helpers and page query**
 
   Add private encode/decode helpers, fetch `limit + 1`, return `nextCursor`, and preserve workspace
   and severity filters. Use `id DESC` as the deterministic tie-breaker.
 
-- [ ] **Step 4: Implement `snapshot()`**
+- [x] **Step 4: Implement `snapshot()`**
 
   Read revision, counts, and first page in one deferred read transaction and return one
   `NotificationSnapshot`.
 
-- [ ] **Step 5: Verify task**
+- [x] **Step 5: Verify task**
 
   Run manager tests and `pnpm exec tsc -b --pretty false`. Expected: PASS/exit 0.
 
-- [ ] **Step 6: Commit checkpoint**
+- [x] **Step 6: Commit checkpoint**
 
   ```bash
   git add app/src/main/core/notifications/manager.ts app/src/main/core/notifications/manager.test.ts
@@ -271,28 +271,28 @@
 - Modify: `app/src/main/rpc-router.ts`
 - Modify: `app/src/main/rpc-router.wiring.test.ts`
 
-- [ ] **Step 1: Add failing RPC wiring tests**
+- [x] **Step 1: Add failing RPC wiring tests**
 
   Assert `notifications.snapshot` and `notifications.page` are registered, pass validated options to
   the manager, and return the manager response unchanged. Assert an invalid cursor is rejected.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
   Run:
   `pnpm exec vitest run src/main/rpc-router.wiring.test.ts -t "notifications snapshot|notifications page"`
 
   Expected: FAIL because the methods/channels do not exist.
 
-- [ ] **Step 3: Add typed channels and controller methods**
+- [x] **Step 3: Add typed channels and controller methods**
 
   Extend the channel allowlist and `AppRouter` shape. Wire the controller to `snapshot()`/`page()`.
   Keep `list`/`unreadCount` available during renderer migration.
 
-- [ ] **Step 4: Verify task**
+- [x] **Step 4: Verify task**
 
   Run the wiring test and `pnpm exec tsc -b --pretty false`. Expected: PASS/exit 0.
 
-- [ ] **Step 5: Commit checkpoint**
+- [x] **Step 5: Commit checkpoint**
 
   ```bash
   git add app/src/shared/rpc-channels.ts app/src/shared/router-shape.ts \
@@ -309,46 +309,46 @@
 - Modify: `app/src/renderer/app/state-hooks/use-live-events.ts`
 - Modify: `app/src/renderer/app/state-hooks/use-live-events.test.ts`
 
-- [ ] **Step 1: Add reducer tests first**
+- [x] **Step 1: Add reducer tests first**
 
   Assert stale snapshots cannot replace a newer revision, consecutive deltas apply, duplicate/old
   revisions are ignored, and gaps put state into a stale/retry state.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
   Run:
   `pnpm exec vitest run src/renderer/app/state.reducer.test.ts -t "notification revision|stale snapshot|revision gap"`
 
   Expected: FAIL because renderer state has no revision.
 
-- [ ] **Step 3: Add state and reducer actions**
+- [x] **Step 3: Add state and reducer actions**
 
   Introduce snapshot-install, change-set-apply, page-append, hydration-status, and reset actions.
   Remove the reducer's assumption that missing/invalid counts mean zero.
 
-- [ ] **Step 4: Add failing hook race tests**
+- [x] **Step 4: Add failing hook race tests**
 
   Defer the snapshot promise, emit a newer live change set, resolve the older snapshot, and assert
   the live row remains. Add a revision-gap test and fake-timer retry/backoff test.
 
-- [ ] **Step 5: Verify RED**
+- [x] **Step 5: Verify RED**
 
   Run:
   `pnpm exec vitest run src/renderer/app/state-hooks/use-live-events.test.ts -t "buffers notification changes during hydration|refetches a notification revision gap"`
 
   Expected: FAIL under the current fetch-before-safe-reconciliation behavior.
 
-- [ ] **Step 6: Implement subscribe-before-snapshot**
+- [x] **Step 6: Implement subscribe-before-snapshot**
 
   Register the listener in the same effect before starting `snapshot()`, buffer validated envelopes
   while loading, apply only consecutive revisions, and schedule a single bounded retry on failure
   or gaps. Cancel requests/timers on unmount.
 
-- [ ] **Step 7: Verify task**
+- [x] **Step 7: Verify task**
 
   Run both focused renderer tests and `pnpm exec tsc -b --pretty false`. Expected: PASS/exit 0.
 
-- [ ] **Step 8: Commit checkpoint**
+- [x] **Step 8: Commit checkpoint**
 
   ```bash
   git add app/src/renderer/app/state.types.ts app/src/renderer/app/state.reducer.ts \
@@ -366,46 +366,46 @@
 - Modify: `app/src/renderer/features/notifications/NotificationDropdown.tsx`
 - Modify: `app/src/renderer/features/notifications/NotificationDropdown.test.tsx`
 
-- [ ] **Step 1: Add the off-page critical regression**
+- [x] **Step 1: Add the off-page critical regression**
 
   Render a state whose first page contains only info rows but whose authoritative counts contain an
   unread critical. Assert the badge is critical and the bell uses critical pulse/static classes.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
   Run:
   `pnpm exec vitest run src/renderer/features/notifications/NotificationBell.test.tsx -t "uses authoritative off-page severity counts"`
 
   Expected: FAIL because severity is derived from loaded rows.
 
-- [ ] **Step 3: Drive the bell from `notificationCounts`**
+- [x] **Step 3: Drive the bell from `notificationCounts`**
 
   Keep row inspection out of urgency calculation. Preserve the existing label/color helper API or
   update its tests explicitly.
 
-- [ ] **Step 4: Add failing paging component tests**
+- [x] **Step 4: Add failing paging component tests**
 
   Mock `notifications.page`, activate “Load older,” and assert unique append, next-cursor update,
   retry state after failure, and end-of-history state.
 
-- [ ] **Step 5: Verify RED**
+- [x] **Step 5: Verify RED**
 
   Run:
   `pnpm exec vitest run src/renderer/features/notifications/NotificationDropdown.test.tsx -t "loads older notification pages"`
 
   Expected: FAIL because the dropdown never requests another page.
 
-- [ ] **Step 6: Implement the explicit paging control**
+- [x] **Step 6: Implement the explicit paging control**
 
   Add accessible loading/retry/end states. Reset paging when a server-side filter changes; until
   filter RPC migration is complete, keep local grouping/filter behavior over loaded pages and
   document the staged limitation in the component test.
 
-- [ ] **Step 7: Verify task**
+- [x] **Step 7: Verify task**
 
   Run both component tests and `pnpm exec tsc -b --pretty false`. Expected: PASS/exit 0.
 
-- [ ] **Step 8: Commit checkpoint**
+- [x] **Step 8: Commit checkpoint**
 
   ```bash
   git add app/src/renderer/features/notifications/NotificationBell.tsx \
@@ -422,7 +422,7 @@
   `app/src/shared/router-shape.ts`, `app/src/main/rpc-router.ts`
 - Modify: `WISHLIST.md`
 
-- [ ] **Step 1: Prove legacy consumer status**
+- [x] **Step 1: Prove legacy consumer status**
 
   Run:
   `rg -n "notifications\.(list|unreadCount)" app/src --glob '*.{ts,tsx}'`
@@ -430,7 +430,7 @@
   Remove the methods only if every consumer has migrated. Otherwise retain them with an explicit
   follow-up reference; do not guess.
 
-- [ ] **Step 2: Run the focused workstream gate**
+- [x] **Step 2: Run the focused workstream gate**
 
   ```bash
   cd app
@@ -448,7 +448,7 @@
 
   Expected: all selected tests pass and TypeScript exits 0.
 
-- [ ] **Step 3: Run the broader pure notification gate**
+- [x] **Step 3: Run the broader pure notification gate**
 
   ```bash
   pnpm exec vitest run \
@@ -467,13 +467,13 @@
 
   Expected: zero failures. Record counts, exit codes, and any environment-only exclusions.
 
-- [ ] **Step 4: Update the audit ledger**
+- [x] **Step 4: Update the audit ledger**
 
   Add a dated implementation subsection under the notification audit with each fixed finding,
   regression-test name, verification command/result, and remaining Electron/platform gate. Do not
   erase the original evidence.
 
-- [ ] **Step 5: Final checkpoint commit**
+- [x] **Step 5: Final checkpoint commit**
 
   ```bash
   git add WISHLIST.md docs/superpowers/specs/2026-07-25-notification-state-consistency-design.md \
