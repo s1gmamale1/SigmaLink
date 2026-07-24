@@ -16,7 +16,15 @@ import { describe, it, expect } from 'vitest';
 
 import { appStateReducer } from './state.reducer';
 import { initialAppState, type AppState } from './state.types';
-import type { AgentSession, Memory, Notification, Task, Workspace } from '../../shared/types';
+import type {
+  AgentSession,
+  Memory,
+  Notification,
+  NotificationChangeSet,
+  NotificationSnapshot,
+  Task,
+  Workspace,
+} from '../../shared/types';
 
 // ─── factories ──────────────────────────────────────────────────────────────
 
@@ -408,6 +416,135 @@ describe('NOTIFICATIONS_DELTA — `updated` read-state reconcile lane', () => {
     });
     expect(after.notifications.find((n) => n.id === 'n2')?.readAt).toBeNull();
     expect(after.notifications.map((n) => n.id)).toEqual(['n3', 'n2', 'n1']);
+  });
+});
+
+describe('versioned notification reconciliation', () => {
+  const emptyCounts = {
+    unread: 0,
+    unreadBySeverity: { info: 0, warn: 0, error: 0, critical: 0 },
+  } as const;
+
+  it('installs a fresh snapshot and rejects a later stale snapshot', () => {
+    const fresh: NotificationSnapshot = {
+      revision: 5,
+      counts: {
+        unread: 1,
+        unreadBySeverity: { ...emptyCounts.unreadBySeverity, info: 1 },
+      },
+      items: [notif('live', 20)],
+      nextCursor: 'next-page',
+    };
+    const stale: NotificationSnapshot = {
+      revision: 4,
+      counts: emptyCounts,
+      items: [notif('stale', 10)],
+      nextCursor: null,
+    };
+
+    const installed = appStateReducer(initialAppState, {
+      type: 'INSTALL_NOTIFICATION_SNAPSHOT',
+      snapshot: fresh,
+    });
+    expect(installed.notificationRevision).toBe(5);
+    expect(installed.notificationNextCursor).toBe('next-page');
+    expect(installed.notifications.map((row) => row.id)).toEqual(['live']);
+
+    const after = appStateReducer(installed, {
+      type: 'INSTALL_NOTIFICATION_SNAPSHOT',
+      snapshot: stale,
+    });
+
+    expect(after).toBe(installed);
+  });
+
+  it('applies only the next consecutive change-set revision', () => {
+    const start: AppState = {
+      ...initialAppState,
+      notifications: [notif('n1', 10)],
+      notificationRevision: 1,
+      notificationCounts: {
+        unread: 1,
+        unreadBySeverity: { ...emptyCounts.unreadBySeverity, info: 1 },
+      },
+      notificationsUnreadCount: 1,
+    };
+    const changeSet: NotificationChangeSet = {
+      revision: 2,
+      added: [notif('n2', 20, { severity: 'critical' })],
+      updated: [],
+      removed: [],
+      counts: {
+        unread: 2,
+        unreadBySeverity: { ...emptyCounts.unreadBySeverity, info: 1, critical: 1 },
+      },
+      unreadCount: 2,
+    };
+
+    const after = appStateReducer(start, {
+      type: 'APPLY_NOTIFICATION_CHANGE_SET',
+      changeSet,
+    });
+
+    expect(after.notificationRevision).toBe(2);
+    expect(after.notifications.map((row) => row.id)).toEqual(['n2', 'n1']);
+    expect(after.notificationCounts).toEqual(changeSet.counts);
+    expect(after.notificationsUnreadCount).toBe(2);
+    expect(
+      appStateReducer(after, {
+        type: 'APPLY_NOTIFICATION_CHANGE_SET',
+        changeSet,
+      }),
+    ).toBe(after);
+  });
+
+  it('marks hydration stale instead of applying a revision gap', () => {
+    const start: AppState = {
+      ...initialAppState,
+      notifications: [notif('n1', 10)],
+      notificationRevision: 2,
+      notificationHydration: 'ready',
+    };
+    const gap: NotificationChangeSet = {
+      revision: 4,
+      added: [notif('gap', 40)],
+      updated: [],
+      removed: [],
+      counts: {
+        unread: 2,
+        unreadBySeverity: { ...emptyCounts.unreadBySeverity, info: 2 },
+      },
+      unreadCount: 2,
+    };
+
+    const after = appStateReducer(start, {
+      type: 'APPLY_NOTIFICATION_CHANGE_SET',
+      changeSet: gap,
+    });
+
+    expect(after.notificationRevision).toBe(2);
+    expect(after.notifications.map((row) => row.id)).toEqual(['n1']);
+    expect(after.notificationHydration).toBe('retrying');
+  });
+
+  it('appends a notification page without duplicating already loaded rows', () => {
+    const n2 = notif('n2', 20);
+    const start: AppState = {
+      ...initialAppState,
+      notifications: [notif('n3', 30), n2],
+      notificationNextCursor: 'older-page',
+    };
+
+    const after = appStateReducer(start, {
+      type: 'APPEND_NOTIFICATION_PAGE',
+      page: {
+        items: [n2, notif('n1', 10)],
+        nextCursor: null,
+      },
+    });
+
+    expect(after.notifications.map((row) => row.id)).toEqual(['n3', 'n2', 'n1']);
+    expect(after.notificationNextCursor).toBeNull();
   });
 });
 

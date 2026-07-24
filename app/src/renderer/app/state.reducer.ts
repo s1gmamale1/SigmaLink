@@ -8,7 +8,13 @@
 // (Exception: isGlobalRoom is imported from state.types — it is shared with the
 // session-snapshot writer.)
 
-import type { AgentSession, Notification, Swarm, Workspace } from '../../shared/types';
+import type {
+  AgentSession,
+  Notification,
+  NotificationChangeSet,
+  Swarm,
+  Workspace,
+} from '../../shared/types';
 import {
   isGlobalRoom,
   selectActiveWorkspace,
@@ -55,6 +61,25 @@ function clearAttention(
     attentionSessions: nextSessions,
     attentionWorkspaces: stillGlowing ? attentionWorkspaces : omitKey(attentionWorkspaces, ws),
   };
+}
+
+function reconcileNotificationRows(
+  current: Notification[],
+  changeSet: NotificationChangeSet,
+): Notification[] {
+  const byId = new Map(current.map((notification) => [notification.id, notification]));
+  for (const notification of changeSet.updated) {
+    byId.set(notification.id, notification);
+  }
+  for (const notification of changeSet.added) {
+    byId.set(notification.id, notification);
+  }
+  for (const id of changeSet.removed) byId.delete(id);
+  return Array.from(byId.values()).sort((a, b) => {
+    if (a.createdAt !== b.createdAt) return b.createdAt - a.createdAt;
+    if (a.id === b.id) return 0;
+    return a.id > b.id ? -1 : 1;
+  });
 }
 
 // Perf audit 2026-06-10 #4 — per-swarm message thread cap. Hydrate tails 200
@@ -831,6 +856,64 @@ export function appStateReducer(state: AppState, action: Action): AppState {
         sessionsByWorkspace: regroupSessionsByWorkspace(state.sessionsByWorkspace, sessions),
       };
     }
+    case 'INSTALL_NOTIFICATION_SNAPSHOT': {
+      const { snapshot } = action;
+      if (
+        state.notificationRevision !== null &&
+        snapshot.revision < state.notificationRevision
+      ) {
+        return state;
+      }
+      return {
+        ...state,
+        notifications: snapshot.items,
+        notificationsUnreadCount: snapshot.counts.unread,
+        notificationRevision: snapshot.revision,
+        notificationCounts: snapshot.counts,
+        notificationNextCursor: snapshot.nextCursor,
+        notificationHydration: 'ready',
+      };
+    }
+    case 'APPLY_NOTIFICATION_CHANGE_SET': {
+      const { changeSet } = action;
+      const revision = state.notificationRevision;
+      if (revision !== null && changeSet.revision <= revision) return state;
+      if (revision === null || changeSet.revision !== revision + 1) {
+        return state.notificationHydration === 'retrying'
+          ? state
+          : { ...state, notificationHydration: 'retrying' };
+      }
+      return {
+        ...state,
+        notifications: reconcileNotificationRows(state.notifications, changeSet),
+        notificationsUnreadCount: changeSet.counts.unread,
+        notificationRevision: changeSet.revision,
+        notificationCounts: changeSet.counts,
+        notificationHydration: 'ready',
+      };
+    }
+    case 'APPEND_NOTIFICATION_PAGE': {
+      const byId = new Map(
+        state.notifications.map((notification) => [notification.id, notification]),
+      );
+      for (const notification of action.page.items) {
+        if (!byId.has(notification.id)) byId.set(notification.id, notification);
+      }
+      const notifications = Array.from(byId.values()).sort((a, b) => {
+        if (a.createdAt !== b.createdAt) return b.createdAt - a.createdAt;
+        if (a.id === b.id) return 0;
+        return a.id > b.id ? -1 : 1;
+      });
+      return {
+        ...state,
+        notifications,
+        notificationNextCursor: action.page.nextCursor,
+      };
+    }
+    case 'SET_NOTIFICATION_HYDRATION':
+      return state.notificationHydration === action.status
+        ? state
+        : { ...state, notificationHydration: action.status };
     case 'SET_NOTIFICATIONS':
       // v1.4.9 #07 — initial mount sets the paginated list + unreadCount.
       return {

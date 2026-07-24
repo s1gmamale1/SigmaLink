@@ -10,6 +10,10 @@ import type {
   Memory,
   MemoryGraph,
   Notification,
+  NotificationChangeSet,
+  NotificationCounts,
+  NotificationPage,
+  NotificationSnapshot,
   ReviewState,
   RufloEntry,
   Skill,
@@ -167,6 +171,10 @@ export interface AppState {
   // a markRead — the main process owns the count).
   notifications: Notification[];
   notificationsUnreadCount: number;
+  notificationRevision: number | null;
+  notificationCounts: NotificationCounts;
+  notificationNextCursor: string | null;
+  notificationHydration: 'idle' | 'loading' | 'ready' | 'retrying';
 }
 
 export type Action =
@@ -286,6 +294,13 @@ export type Action =
       updated?: Notification[];
       unreadCount: number;
     }
+  | { type: 'INSTALL_NOTIFICATION_SNAPSHOT'; snapshot: NotificationSnapshot }
+  | { type: 'APPLY_NOTIFICATION_CHANGE_SET'; changeSet: NotificationChangeSet }
+  | { type: 'APPEND_NOTIFICATION_PAGE'; page: NotificationPage }
+  | {
+      type: 'SET_NOTIFICATION_HYDRATION';
+      status: AppState['notificationHydration'];
+    }
   | { type: 'MARK_NOTIFICATION_READ'; id: string; readAt: number }
   | { type: 'DISMISS_NOTIFICATION'; id: string };
 
@@ -327,6 +342,13 @@ export const initialAppState: AppState = {
   focusedPaneId: null,
   notifications: [],
   notificationsUnreadCount: 0,
+  notificationRevision: null,
+  notificationCounts: {
+    unread: 0,
+    unreadBySeverity: { info: 0, warn: 0, error: 0, critical: 0 },
+  },
+  notificationNextCursor: null,
+  notificationHydration: 'idle',
 };
 
 export function selectActiveWorkspace(
