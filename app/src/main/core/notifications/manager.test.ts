@@ -49,6 +49,23 @@ interface Row {
 class NotificationsTestDb {
   rows: Row[] = [];
   revision = 0;
+  failRevisionUpdate = false;
+
+  transaction<TArgs extends unknown[], TResult>(
+    fn: (...args: TArgs) => TResult,
+  ): (...args: TArgs) => TResult {
+    return (...args: TArgs): TResult => {
+      const rowsBefore = this.rows.map((row) => ({ ...row }));
+      const revisionBefore = this.revision;
+      try {
+        return fn(...args);
+      } catch (error) {
+        this.rows = rowsBefore;
+        this.revision = revisionBefore;
+        throw error;
+      }
+    };
+  }
 
   prepare(sql: string) {
     const s = sql.replace(/\s+/g, ' ').trim();
@@ -170,7 +187,10 @@ class NotificationsTestDb {
       s.includes('RETURNING revision')
     ) {
       return {
-        get: (): { revision: number } => ({ revision: ++this.revision }),
+        get: (): { revision: number } => {
+          if (this.failRevisionUpdate) throw new Error('forced revision failure');
+          return { revision: ++this.revision };
+        },
       };
     }
     // ── COUNT all ────────────────────────────────────────────────────
@@ -1104,4 +1124,118 @@ describe('NotificationsManager soft-cap collapse (D2.2)', () => {
     ]);
     expect(emitted[0].removed).toHaveLength(SOFT_CAP_COLLAPSE_BATCH);
   });
+
+  it('rolls back the complete mutation when revision advancement fails', () => {
+    for (let i = 0; i < SOFT_CAP_PER_KIND_WS + 1; i++) {
+      seedUnreadRow(fakeDb, {
+        id: `r-${i.toString().padStart(4, '0')}`,
+        created_at: 100 + i,
+      });
+    }
+    const before = fakeDb.rows.map((row) => ({ ...row }));
+    fakeDb.failRevisionUpdate = true;
+    const mgr = makeManager();
+    now = 3_000_000;
+
+    expect(() =>
+      mgr.add({
+        workspaceId: 'ws-1',
+        kind: 'pty-exit',
+        severity: 'info',
+        title: 'trigger',
+        dedupKey: 'dk-rollback-trigger',
+      }),
+    ).toThrow('forced revision failure');
+
+    expect(fakeDb.rows).toEqual(before);
+    expect(fakeDb.revision).toBe(0);
+    expect(emitted).toHaveLength(0);
+  });
+});
+
+describe('NotificationsManager atomic mutations', () => {
+  const cases: Array<{
+    name: string;
+    prepare: (manager: NotificationsManager) => () => unknown;
+  }> = [
+    {
+      name: 'markRead',
+      prepare: (manager) => {
+        const row = manager.add({
+          workspaceId: 'ws-1', kind: 'a', severity: 'info', title: 't', dedupKey: 'atomic-read',
+        });
+        return () => manager.markRead(row.id);
+      },
+    },
+    {
+      name: 'markAllRead',
+      prepare: (manager) => {
+        manager.add({
+          workspaceId: 'ws-1', kind: 'a', severity: 'info', title: 'a', dedupKey: 'atomic-all-a',
+        });
+        manager.add({
+          workspaceId: 'ws-1', kind: 'b', severity: 'warn', title: 'b', dedupKey: 'atomic-all-b',
+        });
+        return () => manager.markAllRead();
+      },
+    },
+    {
+      name: 'markUnread',
+      prepare: (manager) => {
+        const row = manager.add({
+          workspaceId: 'ws-1', kind: 'a', severity: 'info', title: 't', dedupKey: 'atomic-unread',
+        });
+        manager.markRead(row.id);
+        return () => manager.markUnread(row.id);
+      },
+    },
+    {
+      name: 'dismiss',
+      prepare: (manager) => {
+        const row = manager.add({
+          workspaceId: 'ws-1', kind: 'a', severity: 'info', title: 't', dedupKey: 'atomic-dismiss',
+        });
+        return () => manager.dismiss(row.id);
+      },
+    },
+    {
+      name: 'clearRead',
+      prepare: (manager) => {
+        const row = manager.add({
+          workspaceId: 'ws-1', kind: 'a', severity: 'info', title: 't', dedupKey: 'atomic-clear',
+        });
+        manager.markRead(row.id);
+        return () => manager.clearRead();
+      },
+    },
+    {
+      name: 'gc',
+      prepare: (manager) => {
+        const row = manager.add({
+          workspaceId: 'ws-1', kind: 'a', severity: 'info', title: 't', dedupKey: 'atomic-gc',
+        });
+        manager.markRead(row.id);
+        now += READ_TTL_MS + 1;
+        return () => manager.gc();
+      },
+    },
+  ];
+
+  it.each(cases)(
+    '$name rolls back state when revision advancement fails',
+    ({ prepare }) => {
+      const manager = makeManager();
+      const mutate = prepare(manager);
+      const rowsBefore = fakeDb.rows.map((row) => ({ ...row }));
+      const revisionBefore = fakeDb.revision;
+      emitted.length = 0;
+      fakeDb.failRevisionUpdate = true;
+
+      expect(mutate).toThrow('forced revision failure');
+
+      expect(fakeDb.rows).toEqual(rowsBefore);
+      expect(fakeDb.revision).toBe(revisionBefore);
+      expect(emitted).toHaveLength(0);
+    },
+  );
 });

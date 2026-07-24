@@ -95,6 +95,8 @@ interface SoftCapCollapseResult {
   added: Notification[];
 }
 
+type NotificationsDb = ReturnType<typeof getRawDb>;
+
 const VALID_SEVERITIES = new Set<NotificationSeverity>([
   'info',
   'warn',
@@ -159,120 +161,131 @@ export class NotificationsManager {
       throw new Error(`NotificationsManager.add: invalid severity ${input.severity}`);
     }
     const db = getRawDb();
-    const now = this.now();
-    const removed: string[] = [];
+    const result = db.transaction(() => {
+      const now = this.now();
+      const removed: string[] = [];
 
-    // D3 — critical bypasses dedup; every critical event gets its own row.
-    let absorbed: Notification | null = null;
-    if (input.severity !== 'critical') {
-      const since = now - DEDUP_WINDOW_MS;
-      // Workspace match uses IS NULL for global rows; SQL's `=` rejects NULLs.
-      const match = (input.workspaceId === null
-        ? db
-            .prepare(
-              `SELECT * FROM notifications
-               WHERE workspace_id IS NULL
-                 AND dedup_key = ?
-                 AND read_at IS NULL
-                 AND created_at >= ?
-               ORDER BY created_at DESC
-               LIMIT 1`,
-            )
-            .get(input.dedupKey, since)
-        : db
-            .prepare(
-              `SELECT * FROM notifications
-               WHERE workspace_id = ?
-                 AND dedup_key = ?
-                 AND read_at IS NULL
-                 AND created_at >= ?
-               ORDER BY created_at DESC
-               LIMIT 1`,
-            )
-            .get(input.workspaceId, input.dedupKey, since)) as
-        | NotificationRowSql
-        | undefined;
-      if (match) {
-        const dupCount = match.dup_count + 1;
-        // Severity bump: a warn arriving on top of an info dup should reflect
-        // the higher severity so the badge colour escalates as more dups
-        // accumulate. error/critical bumps follow the same rule.
-        const newSeverity = pickHigherSeverity(
-          match.severity as NotificationSeverity,
-          input.severity,
-        );
-        const baseBody =
-          stripDupSuffix(match.body) ?? stripDupSuffix(input.body ?? null) ?? null;
-        const newBody = baseBody ? `${baseBody} (×${dupCount})` : `(×${dupCount})`;
-        db.prepare(
-          `UPDATE notifications
-           SET dup_count = ?,
-               created_at = ?,
-               body = ?,
-               severity = ?,
-               title = ?
-           WHERE id = ?`,
-        ).run(dupCount, now, newBody, newSeverity, input.title, match.id);
-        const refreshed = db
-          .prepare(`SELECT * FROM notifications WHERE id = ?`)
-          .get(match.id) as NotificationRowSql;
-        absorbed = rowToNotification(refreshed);
+      // D3 — critical bypasses dedup; every critical event gets its own row.
+      let absorbed: Notification | null = null;
+      if (input.severity !== 'critical') {
+        const since = now - DEDUP_WINDOW_MS;
+        // Workspace match uses IS NULL for global rows; SQL's `=` rejects NULLs.
+        const match = (input.workspaceId === null
+          ? db
+              .prepare(
+                `SELECT * FROM notifications
+                 WHERE workspace_id IS NULL
+                   AND dedup_key = ?
+                   AND read_at IS NULL
+                   AND created_at >= ?
+                 ORDER BY created_at DESC
+                 LIMIT 1`,
+              )
+              .get(input.dedupKey, since)
+          : db
+              .prepare(
+                `SELECT * FROM notifications
+                 WHERE workspace_id = ?
+                   AND dedup_key = ?
+                   AND read_at IS NULL
+                   AND created_at >= ?
+                 ORDER BY created_at DESC
+                 LIMIT 1`,
+              )
+              .get(input.workspaceId, input.dedupKey, since)) as
+          | NotificationRowSql
+          | undefined;
+        if (match) {
+          const dupCount = match.dup_count + 1;
+          // Severity bump: a warn arriving on top of an info dup should reflect
+          // the higher severity so the badge colour escalates as more dups
+          // accumulate. error/critical bumps follow the same rule.
+          const newSeverity = pickHigherSeverity(
+            match.severity as NotificationSeverity,
+            input.severity,
+          );
+          const baseBody =
+            stripDupSuffix(match.body) ??
+            stripDupSuffix(input.body ?? null) ??
+            null;
+          const newBody = baseBody
+            ? `${baseBody} (×${dupCount})`
+            : `(×${dupCount})`;
+          db.prepare(
+            `UPDATE notifications
+             SET dup_count = ?,
+                 created_at = ?,
+                 body = ?,
+                 severity = ?,
+                 title = ?
+             WHERE id = ?`,
+          ).run(dupCount, now, newBody, newSeverity, input.title, match.id);
+          const refreshed = db
+            .prepare(`SELECT * FROM notifications WHERE id = ?`)
+            .get(match.id) as NotificationRowSql;
+          absorbed = rowToNotification(refreshed);
+        }
       }
-    }
 
-    let inserted: Notification;
-    if (absorbed) {
-      inserted = absorbed;
-      // No new id — the delta surfaces the absorbing row as `added` so the
-      // renderer reconciles via the reducer's id-keyed upsert.
-    } else {
-      const id = randomUUID();
-      const row: NotificationRowSql = {
-        id,
-        workspace_id: input.workspaceId,
-        kind: input.kind,
-        severity: input.severity,
-        title: input.title,
-        body: input.body ?? null,
-        payload: input.payload ? JSON.stringify(input.payload) : null,
-        source_event: input.sourceEvent ?? null,
-        dedup_key: input.dedupKey,
-        dup_count: 1,
-        created_at: now,
-        read_at: null,
-      };
-      db.prepare(
-        `INSERT INTO notifications
-          (id, workspace_id, kind, severity, title, body, payload, source_event, dedup_key, dup_count, created_at, read_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(
-        row.id,
-        row.workspace_id,
-        row.kind,
-        row.severity,
-        row.title,
-        row.body,
-        row.payload,
-        row.source_event,
-        row.dedup_key,
-        row.dup_count,
-        row.created_at,
-        row.read_at,
-      );
-      inserted = rowToNotification(row);
-    }
+      let inserted: Notification;
+      if (absorbed) {
+        inserted = absorbed;
+        // No new id — the delta surfaces the absorbing row as `added` so the
+        // renderer reconciles via the reducer's id-keyed upsert.
+      } else {
+        const id = randomUUID();
+        const row: NotificationRowSql = {
+          id,
+          workspace_id: input.workspaceId,
+          kind: input.kind,
+          severity: input.severity,
+          title: input.title,
+          body: input.body ?? null,
+          payload: input.payload ? JSON.stringify(input.payload) : null,
+          source_event: input.sourceEvent ?? null,
+          dedup_key: input.dedupKey,
+          dup_count: 1,
+          created_at: now,
+          read_at: null,
+        };
+        db.prepare(
+          `INSERT INTO notifications
+            (id, workspace_id, kind, severity, title, body, payload, source_event, dedup_key, dup_count, created_at, read_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ).run(
+          row.id,
+          row.workspace_id,
+          row.kind,
+          row.severity,
+          row.title,
+          row.body,
+          row.payload,
+          row.source_event,
+          row.dedup_key,
+          row.dup_count,
+          row.created_at,
+          row.read_at,
+        );
+        inserted = rowToNotification(row);
+      }
 
-    // D2.2 — soft-cap collapse. Run after dedup/insert but before hard-cap
-    // eviction so the summary row itself counts toward the hard cap.
-    const collapsed = this.softCapCollapse(input.workspaceId, input.kind);
-    removed.push(...collapsed.removed);
+      // D2.2 — soft-cap collapse. Run after dedup/insert but before hard-cap
+      // eviction so the summary row itself counts toward the hard cap.
+      const collapsed = this.softCapCollapse(db, input.workspaceId, input.kind);
+      removed.push(...collapsed.removed);
 
-    // D2 — hard-cap eviction. Run synchronously so the emitted unreadCount
-    // matches the post-eviction state.
-    removed.push(...this.evictOverHardCap());
+      // D2 — hard-cap eviction. Run synchronously so the emitted unreadCount
+      // matches the post-eviction state.
+      removed.push(...this.evictOverHardCap(db));
 
-    this.broadcast({ added: [inserted, ...collapsed.added], removed });
-    return inserted;
+      const delta = this.buildChangeSet(db, {
+        added: [inserted, ...collapsed.added],
+        removed,
+      });
+      return { inserted, delta };
+    })();
+    this.emitCommitted(result.delta);
+    return result.inserted;
   }
 
   /** D2 — paginated list for the dropdown initial mount. */
@@ -321,7 +334,11 @@ export class NotificationsManager {
   /** Authoritative unread totals, including severities outside the renderer's
    *  currently loaded page. */
   unreadCounts(): NotificationCounts {
-    const rows = getRawDb()
+    return this.readUnreadCounts(getRawDb());
+  }
+
+  private readUnreadCounts(db: NotificationsDb): NotificationCounts {
+    const rows = db
       .prepare(
         `SELECT severity, COUNT(*) AS n
          FROM notifications
@@ -343,8 +360,8 @@ export class NotificationsManager {
   }
 
   /** Advance and return the persisted ordering token for a changing mutation. */
-  private nextRevision(): number {
-    const row = getRawDb()
+  private nextRevision(db: NotificationsDb): number {
+    const row = db
       .prepare(
         `UPDATE notification_state
          SET revision = revision + 1
@@ -363,12 +380,18 @@ export class NotificationsManager {
    *  so every window reconciles the row's styling, not just the badge. */
   markRead(id: string): void {
     const now = this.now();
-    const res = getRawDb()
-      .prepare(
-        `UPDATE notifications SET read_at = ? WHERE id = ? AND read_at IS NULL`,
-      )
-      .run(now, id);
-    if (res.changes > 0) this.broadcast({ updated: this.rowById(id) });
+    const db = getRawDb();
+    const delta = db.transaction(() => {
+      const res = db
+        .prepare(
+          `UPDATE notifications SET read_at = ? WHERE id = ? AND read_at IS NULL`,
+        )
+        .run(now, id);
+      return res.changes > 0
+        ? this.buildChangeSet(db, { updated: this.rowById(db, id) })
+        : null;
+    })();
+    if (delta) this.emitCommitted(delta);
   }
 
   /** D4 — mark every unread row read. Snapshot the unread rows FIRST so the
@@ -376,34 +399,45 @@ export class NotificationsManager {
   markAllRead(): void {
     const now = this.now();
     const db = getRawDb();
-    const unread = db
-      .prepare(`SELECT * FROM notifications WHERE read_at IS NULL`)
-      .all() as NotificationRowSql[];
-    const res = db
-      .prepare(`UPDATE notifications SET read_at = ? WHERE read_at IS NULL`)
-      .run(now);
-    if (res.changes > 0) {
-      this.broadcast({
-        updated: unread.map((r) => rowToNotification({ ...r, read_at: now })),
-      });
-    }
+    const delta = db.transaction(() => {
+      const unread = db
+        .prepare(`SELECT * FROM notifications WHERE read_at IS NULL`)
+        .all() as NotificationRowSql[];
+      const res = db
+        .prepare(`UPDATE notifications SET read_at = ? WHERE read_at IS NULL`)
+        .run(now);
+      return res.changes > 0
+        ? this.buildChangeSet(db, {
+            updated: unread.map((r) =>
+              rowToNotification({ ...r, read_at: now }),
+            ),
+          })
+        : null;
+    })();
+    if (delta) this.emitCommitted(delta);
   }
 
   /** D5 — clear `read_at` on a single row (operator "Mark unread"). Rides the
    *  `updated` lane — NOT `added` — so re-opening a row never re-alerts. */
   markUnread(id: string): void {
-    const res = getRawDb()
-      .prepare(
-        `UPDATE notifications SET read_at = NULL WHERE id = ? AND read_at IS NOT NULL`,
-      )
-      .run(id);
-    if (res.changes > 0) this.broadcast({ updated: this.rowById(id) });
+    const db = getRawDb();
+    const delta = db.transaction(() => {
+      const res = db
+        .prepare(
+          `UPDATE notifications SET read_at = NULL WHERE id = ? AND read_at IS NOT NULL`,
+        )
+        .run(id);
+      return res.changes > 0
+        ? this.buildChangeSet(db, { updated: this.rowById(db, id) })
+        : null;
+    })();
+    if (delta) this.emitCommitted(delta);
   }
 
   /** Fetch one row as a single-element Notification array (empty if the row
    *  vanished between the UPDATE and the read-back — never emit stale data). */
-  private rowById(id: string): Notification[] {
-    const row = getRawDb()
+  private rowById(db: NotificationsDb, id: string): Notification[] {
+    const row = db
       .prepare(`SELECT * FROM notifications WHERE id = ?`)
       .get(id) as NotificationRowSql | undefined;
     return row ? [rowToNotification(row)] : [];
@@ -411,41 +445,59 @@ export class NotificationsManager {
 
   /** D5 — DELETE the row outright. The dropdown removes it from view. */
   dismiss(id: string): void {
-    const res = getRawDb()
-      .prepare(`DELETE FROM notifications WHERE id = ?`)
-      .run(id);
-    if (res.changes > 0) this.broadcast({ removed: [id] });
+    const db = getRawDb();
+    const delta = db.transaction(() => {
+      const res = db.prepare(`DELETE FROM notifications WHERE id = ?`).run(id);
+      return res.changes > 0
+        ? this.buildChangeSet(db, { removed: [id] })
+        : null;
+    })();
+    if (delta) this.emitCommitted(delta);
   }
 
   /** D2 — bulk DELETE every read row. Operator "Clear read". */
   clearRead(): string[] {
     const db = getRawDb();
-    const rows = db
-      .prepare(`SELECT id FROM notifications WHERE read_at IS NOT NULL`)
-      .all() as { id: string }[];
-    if (rows.length === 0) return [];
-    db.prepare(`DELETE FROM notifications WHERE read_at IS NOT NULL`).run();
-    const removed = rows.map((r) => r.id);
-    this.broadcast({ removed });
-    return removed;
+    const result = db.transaction(() => {
+      const rows = db
+        .prepare(`SELECT id FROM notifications WHERE read_at IS NOT NULL`)
+        .all() as { id: string }[];
+      if (rows.length === 0) return null;
+      db.prepare(`DELETE FROM notifications WHERE read_at IS NOT NULL`).run();
+      const removed = rows.map((r) => r.id);
+      return {
+        removed,
+        delta: this.buildChangeSet(db, { removed }),
+      };
+    })();
+    if (!result) return [];
+    this.emitCommitted(result.delta);
+    return result.removed;
   }
 
   /** D2 — boot-time GC. Drops read rows older than `READ_TTL_MS`. */
   gc(): string[] {
     const cutoff = this.now() - READ_TTL_MS;
     const db = getRawDb();
-    const rows = db
-      .prepare(
-        `SELECT id FROM notifications WHERE read_at IS NOT NULL AND created_at < ?`,
-      )
-      .all(cutoff) as { id: string }[];
-    if (rows.length === 0) return [];
-    db.prepare(
-      `DELETE FROM notifications WHERE read_at IS NOT NULL AND created_at < ?`,
-    ).run(cutoff);
-    const removed = rows.map((r) => r.id);
-    this.broadcast({ removed });
-    return removed;
+    const result = db.transaction(() => {
+      const rows = db
+        .prepare(
+          `SELECT id FROM notifications WHERE read_at IS NOT NULL AND created_at < ?`,
+        )
+        .all(cutoff) as { id: string }[];
+      if (rows.length === 0) return null;
+      db.prepare(
+        `DELETE FROM notifications WHERE read_at IS NOT NULL AND created_at < ?`,
+      ).run(cutoff);
+      const removed = rows.map((r) => r.id);
+      return {
+        removed,
+        delta: this.buildChangeSet(db, { removed }),
+      };
+    })();
+    if (!result) return [];
+    this.emitCommitted(result.delta);
+    return result.removed;
   }
 
   /**
@@ -458,10 +510,10 @@ export class NotificationsManager {
    * can publish a delta that exactly matches the committed database state.
    */
   private softCapCollapse(
+    db: NotificationsDb,
     workspaceId: string | null,
     kind: string,
   ): SoftCapCollapseResult {
-    const db = getRawDb();
     const countRow = (
       workspaceId === null
         ? db
@@ -554,8 +606,7 @@ export class NotificationsManager {
 
   /** D2 — hard-cap eviction. Returns deleted ids. Severity-aware: never
    *  auto-drops `error` or `critical` (operator must dismiss). */
-  private evictOverHardCap(): string[] {
-    const db = getRawDb();
+  private evictOverHardCap(db: NotificationsDb): string[] {
     const { n } = db
       .prepare(`SELECT COUNT(*) as n FROM notifications`)
       .get() as { n: number };
@@ -632,26 +683,31 @@ export class NotificationsManager {
 
   /** Build + emit the versioned envelope. Lanes default to empty and counts
    *  are queried from authoritative unread rows. */
-  private broadcast(
+  private buildChangeSet(
+    db: NotificationsDb,
     partial: Partial<
       Omit<NotificationChangeSet, 'revision' | 'counts' | 'unreadCount'>
     >,
-  ): void {
-    const counts = this.unreadCounts();
-    const delta: NotificationChangeSet = {
-      revision: this.nextRevision(),
+  ): NotificationChangeSet {
+    const counts = this.readUnreadCounts(db);
+    return {
+      revision: this.nextRevision(db),
       added: partial.added ?? [],
       removed: partial.removed ?? [],
       updated: partial.updated ?? [],
       counts,
       unreadCount: counts.unread,
     };
+  }
+
+  private emitCommitted(delta: NotificationChangeSet): void {
     try {
       this.emit(delta);
     } catch {
       /* renderer broadcast is fire-and-forget; never block on it */
     }
   }
+
 }
 
 /** Compare two severities and return the higher. Used during dedup absorb
