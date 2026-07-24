@@ -27,7 +27,9 @@ import type {
   Notification,
   NotificationChangeSet,
   NotificationCounts,
+  NotificationPage,
   NotificationSeverity,
+  NotificationSnapshot,
 } from '../../../shared/types';
 
 /** D3 — 30 second collapse window. Outside this window a duplicate becomes a
@@ -83,6 +85,15 @@ export interface ListOptions {
   /** When set, restricts to severity in this set. */
   severities?: NotificationSeverity[];
 }
+
+export interface PageOptions {
+  limit?: number;
+  cursor?: string | null;
+  workspaceId?: string | null;
+  severities?: NotificationSeverity[];
+}
+
+export type SnapshotOptions = Omit<PageOptions, 'cursor'>;
 
 export interface NotificationsManagerDeps {
   emit: (delta: NotificationChangeSet) => void;
@@ -321,6 +332,79 @@ export class NotificationsManager {
       )
       .all(...params, limit, offset) as NotificationRowSql[];
     return rows.map(rowToNotification);
+  }
+
+  /** Stable keyset page ordered by `(created_at, id)` descending. */
+  page(opts: PageOptions = {}): NotificationPage {
+    return this.readPage(getRawDb(), opts);
+  }
+
+  /** Revision, counts, and first page from one SQLite read transaction. */
+  snapshot(opts: SnapshotOptions = {}): NotificationSnapshot {
+    const db = getRawDb();
+    return db.transaction(() => {
+      const page = this.readPage(db, opts);
+      return {
+        revision: this.readRevision(db),
+        counts: this.readUnreadCounts(db),
+        ...page,
+      };
+    })();
+  }
+
+  private readPage(db: NotificationsDb, opts: PageOptions): NotificationPage {
+    const limit = Math.max(1, Math.min(opts.limit ?? 100, 500));
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+
+    if (opts.workspaceId !== undefined) {
+      if (opts.workspaceId === null) {
+        clauses.push('workspace_id IS NULL');
+      } else {
+        clauses.push('workspace_id = ?');
+        params.push(opts.workspaceId);
+      }
+    }
+    if (opts.severities && opts.severities.length > 0) {
+      const placeholders = opts.severities.map(() => '?').join(',');
+      clauses.push(`severity IN (${placeholders})`);
+      params.push(...opts.severities);
+    }
+    if (opts.cursor) {
+      const cursor = decodeCursor(opts.cursor);
+      clauses.push('(created_at < ? OR (created_at = ? AND id < ?))');
+      params.push(cursor.createdAt, cursor.createdAt, cursor.id);
+    }
+
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    const rows = db
+      .prepare(
+        `SELECT * FROM notifications
+         ${where}
+         ORDER BY created_at DESC, id DESC
+         LIMIT ?`,
+      )
+      .all(...params, limit + 1) as NotificationRowSql[];
+    const hasMore = rows.length > limit;
+    const pageRows = hasMore ? rows.slice(0, limit) : rows;
+    const last = pageRows.at(-1);
+    return {
+      items: pageRows.map(rowToNotification),
+      nextCursor:
+        hasMore && last ? encodeCursor(last.created_at, last.id) : null,
+    };
+  }
+
+  private readRevision(db: NotificationsDb): number {
+    const row = db
+      .prepare(
+        `SELECT revision FROM notification_state WHERE singleton = 1`,
+      )
+      .get() as { revision: number } | undefined;
+    if (!row) {
+      throw new Error('NotificationsManager: notification state revision is missing');
+    }
+    return row.revision;
   }
 
   /** Current unread count (for badge math + boot snapshot). */
@@ -726,4 +810,29 @@ function stripDupSuffix(body: string | null): string | null {
   if (!body) return body;
   const m = body.match(/^(.*?)\s*\(×\d+\)\s*$/);
   return m ? m[1] : body;
+}
+
+function encodeCursor(createdAt: number, id: string): string {
+  return Buffer.from(JSON.stringify([createdAt, id]), 'utf8').toString('base64url');
+}
+
+function decodeCursor(cursor: string): { createdAt: number; id: string } {
+  try {
+    const parsed: unknown = JSON.parse(
+      Buffer.from(cursor, 'base64url').toString('utf8'),
+    );
+    if (
+      !Array.isArray(parsed) ||
+      parsed.length !== 2 ||
+      !Number.isSafeInteger(parsed[0]) ||
+      (parsed[0] as number) < 0 ||
+      typeof parsed[1] !== 'string' ||
+      parsed[1].length === 0
+    ) {
+      throw new Error('invalid shape');
+    }
+    return { createdAt: parsed[0] as number, id: parsed[1] };
+  } catch {
+    throw new Error('NotificationsManager.page: invalid notification cursor');
+  }
 }

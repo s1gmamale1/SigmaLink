@@ -193,6 +193,11 @@ class NotificationsTestDb {
         },
       };
     }
+    if (s === 'SELECT revision FROM notification_state WHERE singleton = 1') {
+      return {
+        get: (): { revision: number } => ({ revision: this.revision }),
+      };
+    }
     // ── COUNT all ────────────────────────────────────────────────────
     if (s === 'SELECT COUNT(*) as n FROM notifications') {
       return {
@@ -439,6 +444,49 @@ class NotificationsTestDb {
             .sort((a, b) => a.created_at - b.created_at)
             .slice(0, lim);
           return sorted.map((r) => ({ id: r.id }));
+        },
+      };
+    }
+
+    // ── KEYSET PAGE query ────────────────────────────────────────────
+    if (
+      s.startsWith('SELECT * FROM notifications') &&
+      s.includes('ORDER BY created_at DESC, id DESC')
+    ) {
+      return {
+        all: (...args: unknown[]): Row[] => {
+          let pos = 0;
+          let filtered = this.rows.slice();
+          if (s.includes('workspace_id = ?')) {
+            const wsId = args[pos++] as string;
+            filtered = filtered.filter((r) => r.workspace_id === wsId);
+          } else if (s.includes('workspace_id IS NULL')) {
+            filtered = filtered.filter((r) => r.workspace_id === null);
+          }
+          const sevMatch = s.match(/severity IN \(([^)]+)\)/);
+          if (sevMatch) {
+            const count = sevMatch[1].split(',').length;
+            const severities = args.slice(pos, pos + count) as NotificationSeverity[];
+            pos += count;
+            filtered = filtered.filter((r) => severities.includes(r.severity));
+          }
+          if (s.includes('(created_at < ? OR (created_at = ? AND id < ?))')) {
+            const createdAt = args[pos++] as number;
+            pos++;
+            const id = args[pos++] as string;
+            filtered = filtered.filter(
+              (row) =>
+                row.created_at < createdAt ||
+                (row.created_at === createdAt && row.id < id),
+            );
+          }
+          const limit = args[pos] as number;
+          filtered.sort((a, b) => {
+            if (a.created_at !== b.created_at) return b.created_at - a.created_at;
+            if (a.id === b.id) return 0;
+            return a.id > b.id ? -1 : 1;
+          });
+          return filtered.slice(0, limit);
         },
       };
     }
@@ -968,6 +1016,95 @@ describe('NotificationsManager.list', () => {
     mgr.add({ workspaceId: 'ws-1', kind: 'a', severity: 'critical', title: 'd', dedupKey: 'k4' });
     const errs = mgr.list({ severities: ['error', 'critical'] });
     expect(errs.map((n: Notification) => n.title).sort()).toEqual(['c', 'd']);
+  });
+});
+
+describe('NotificationsManager cursor pages', () => {
+  function seedCursorRow(id: string, createdAt: number, severity: NotificationSeverity = 'info') {
+    fakeDb.rows.push({
+      id,
+      workspace_id: 'ws-1',
+      kind: 'cursor-test',
+      severity,
+      title: id,
+      body: null,
+      payload: null,
+      source_event: null,
+      dedup_key: `cursor-${id}`,
+      dup_count: 1,
+      created_at: createdAt,
+      read_at: null,
+    });
+  }
+
+  it('pages equal timestamps deterministically without gaps or duplicates', () => {
+    for (const id of ['a', 'b', 'c', 'd', 'e']) seedCursorRow(id, 100);
+    const manager = makeManager();
+
+    const first = manager.page({ limit: 2 });
+    const second = manager.page({ limit: 2, cursor: first.nextCursor });
+    const third = manager.page({ limit: 2, cursor: second.nextCursor });
+
+    expect(first.items.map((row) => row.id)).toEqual(['e', 'd']);
+    expect(second.items.map((row) => row.id)).toEqual(['c', 'b']);
+    expect(third.items.map((row) => row.id)).toEqual(['a']);
+    expect(third.nextCursor).toBeNull();
+    expect(
+      new Set([...first.items, ...second.items, ...third.items].map((row) => row.id)),
+    ).toEqual(new Set(['a', 'b', 'c', 'd', 'e']));
+  });
+
+  it('rejects a malformed cursor', () => {
+    const manager = makeManager();
+
+    expect(() => manager.page({ cursor: 'not-a-valid-cursor' })).toThrow(
+      'invalid notification cursor',
+    );
+  });
+
+  it('reapplies workspace and severity filters to cursor pages', () => {
+    seedCursorRow('ws-info', 100, 'info');
+    seedCursorRow('ws-error', 101, 'error');
+    seedCursorRow('ws-critical', 102, 'critical');
+    fakeDb.rows.push({
+      ...fakeDb.rows[2],
+      id: 'other-critical',
+      workspace_id: 'ws-2',
+      dedup_key: 'cursor-other-critical',
+      created_at: 103,
+    });
+    const manager = makeManager();
+
+    const page = manager.page({
+      workspaceId: 'ws-1',
+      severities: ['error', 'critical'],
+      limit: 10,
+    });
+
+    expect(page.items.map((row) => row.id)).toEqual(['ws-critical', 'ws-error']);
+  });
+});
+
+describe('NotificationsManager.snapshot', () => {
+  it('returns one internally consistent revision, count set, and first page', () => {
+    const manager = makeManager();
+    manager.add({
+      workspaceId: 'ws-1', kind: 'a', severity: 'info', title: 'a', dedupKey: 'snapshot-a',
+    });
+    now += 1;
+    manager.add({
+      workspaceId: 'ws-1', kind: 'b', severity: 'critical', title: 'b', dedupKey: 'snapshot-b',
+    });
+
+    const snapshot = manager.snapshot({ limit: 1 });
+
+    expect(snapshot.revision).toBe(2);
+    expect(snapshot.counts).toEqual({
+      unread: 2,
+      unreadBySeverity: { info: 1, warn: 0, error: 0, critical: 1 },
+    });
+    expect(snapshot.items.map((row) => row.title)).toEqual(['b']);
+    expect(snapshot.nextCursor).not.toBeNull();
   });
 });
 

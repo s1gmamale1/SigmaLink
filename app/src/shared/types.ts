@@ -809,6 +809,19 @@ export interface NotificationChangeSet {
  *  versioned `NotificationChangeSet` terminology. */
 export type NotificationsDelta = NotificationChangeSet;
 
+/** Opaque keyset cursor returned by the main process. */
+export type NotificationCursor = string;
+
+export interface NotificationPage {
+  items: Notification[];
+  nextCursor: NotificationCursor | null;
+}
+
+export interface NotificationSnapshot extends NotificationPage {
+  revision: number;
+  counts: NotificationCounts;
+}
+
 // ──────────────────────────────────────────────────────────────────────────
 // Cross-machine sync (v1.5.0 packet 09)
 // ──────────────────────────────────────────────────────────────────────────
