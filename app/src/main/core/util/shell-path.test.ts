@@ -2,8 +2,12 @@
 // injected (no electron, no real shell spawn). Real timers — async settling
 // is driven by resolving the injected promises.
 
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
+  defaultResolveShellPath,
   mergeShellPath,
   startShellPathBootstrap,
   whenShellPathReady,
@@ -24,6 +28,37 @@ describe('mergeShellPath', () => {
 
   it('drops empty segments', () => {
     expect(mergeShellPath(':/a::', '/b:', ':')).toBe('/a:/b');
+  });
+});
+
+describe('defaultResolveShellPath', () => {
+  it('ignores login-shell startup output outside the PATH payload', async () => {
+    const tempDir = mkdtempSync(path.join(tmpdir(), 'sigmalink-shell-path-'));
+    const fakeShell = path.join(tempDir, 'fake-shell');
+    writeFileSync(
+      fakeShell,
+      [
+        `#!${process.execPath}`,
+        "const marker = process.argv[3].match(/__SIGMALINK_PATH_[a-f0-9-]+__/i)?.[0];",
+        "process.stdout.write('startup banner\\n');",
+        "if (marker) process.stdout.write(`${marker}\\n${process.env.PATH}\\n${marker}\\n`);",
+        "else process.stdout.write(process.env.PATH);",
+        "process.stdout.write('\\nlogout banner\\n');",
+      ].join('\n'),
+    );
+    chmodSync(fakeShell, 0o700);
+
+    const originalPath = process.env.PATH;
+    process.env.PATH = '/fixture/bin:/usr/bin';
+    try {
+      await expect(defaultResolveShellPath(fakeShell, 1_000)).resolves.toBe(
+        '/fixture/bin:/usr/bin',
+      );
+    } finally {
+      if (originalPath === undefined) delete process.env.PATH;
+      else process.env.PATH = originalPath;
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });
 

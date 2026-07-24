@@ -22,6 +22,7 @@
 // No electron imports here — everything is injected so vitest can cover it.
 
 import { execFile } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 
 export interface ShellPathDeps {
   platform: NodeJS.Platform;
@@ -61,14 +62,19 @@ export function mergeShellPath(fromShell: string, existing: string, delimiter: s
  * TERM=dumb prevents prompt-theme work. Resolves null on any failure.
  */
 export function defaultResolveShellPath(shell: string, timeoutMs: number): Promise<string | null> {
+  const marker = `__SIGMALINK_PATH_${randomUUID()}__`;
   return new Promise((resolve) => {
     execFile(
       shell,
-      ['-ilc', 'printf %s "$PATH"'],
+      ['-ilc', `printf '%s\\n' '${marker}' "$PATH" '${marker}'`],
       { timeout: timeoutMs, encoding: 'utf8', env: { ...process.env, TERM: 'dumb' } },
       (err, stdout) => {
-        if (err || !stdout || !stdout.trim()) return resolve(null);
-        resolve(stdout.trim());
+        if (err || !stdout) return resolve(null);
+        const start = stdout.indexOf(marker);
+        const end = start < 0 ? -1 : stdout.indexOf(marker, start + marker.length);
+        if (start < 0 || end < 0) return resolve(null);
+        const shellPath = stdout.slice(start + marker.length, end).trim();
+        resolve(shellPath || null);
       },
     );
   });

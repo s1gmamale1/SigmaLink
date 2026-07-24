@@ -137,12 +137,12 @@ describe('isNativeWinVoiceAvailable — mocked module', () => {
     vi.resetModules();
   });
 
-  it('returns false when isAvailable() returns false', async () => {
-    // Spy on loadNativeWin via re-exporting via the module's own references.
-    // Since we cannot intercept CJS require calls in Vitest ESM mode,
-    // we test isNativeWinVoiceAvailable indirectly: on any non-win32 host
-    // it must return false regardless of any native binary.
+  afterEach(() => {
     Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+  });
+
+  it('returns false for the bundled Windows fallback stub', async () => {
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
     const { isNativeWinVoiceAvailable } = await import('./native-win');
     expect(isNativeWinVoiceAvailable()).toBe(false);
   });
