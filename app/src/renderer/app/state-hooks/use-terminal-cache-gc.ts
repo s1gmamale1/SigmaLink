@@ -30,6 +30,13 @@ export function useTerminalCacheGc(state: AppState): void {
   // cache destroy. Set-of-strings instead of comparing arrays so we don't
   // pay an O(n^2) diff cost on workspaces with many panes.
   const everSeen = useRef<Set<string>>(new Set());
+  // Label-side stores (pane label, prompt draft, title-orchestrator state)
+  // must survive a TRANSIENT session-list miss (e.g. a refetch racing a PTY
+  // burst) — clearing them on the first absent tick resurrects the default
+  // floor label, which reads as "the rename was reset". Only clear after two
+  // consecutive absent ticks. Terminal-cache destroy stays first-tick: the
+  // 5s exited-grace upstream already covers real closes.
+  const missCount = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     const seenNow = new Set<string>();
@@ -48,14 +55,23 @@ export function useTerminalCacheGc(state: AppState): void {
     // finding 1: scratch ids never appear in state, so they must be reaped
     // via their PARENT id here.
     for (const id of everSeen.current) {
-      if (seenNow.has(id)) continue;
+      if (seenNow.has(id)) {
+        missCount.current.delete(id);
+        continue;
+      }
       if (hasCached(id)) destroy(id);
       closeScratchForParent(id);
       disposePromptWatcher(id); // 2026-06-10 finding 4 — no-op if never watched
       detachLabelReader(id);
-      clearAgentLabel(id);
-      clearPromptDraft(id);
-      clearPaneTitle(id);
+      const misses = (missCount.current.get(id) ?? 0) + 1;
+      if (misses >= 2) {
+        missCount.current.delete(id);
+        clearAgentLabel(id);
+        clearPromptDraft(id);
+        clearPaneTitle(id);
+      } else {
+        missCount.current.set(id, misses);
+      }
     }
     // Defence in depth: scratch parents the store knows about that are not
     // in state at all (e.g. state slices replaced wholesale) get swept too.
