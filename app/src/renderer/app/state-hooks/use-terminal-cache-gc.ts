@@ -17,6 +17,7 @@
 import { useEffect, useRef } from 'react';
 import type { AppState } from '../state.types';
 import { destroy, hasCached } from '@/renderer/lib/terminal-cache';
+import { destroyEngine } from '@/renderer/lib/engine-cache';
 import { closeScratchForParent, getScratchParentIds } from '@/renderer/lib/scratch-tabs';
 import { disposePromptWatcher } from '@/renderer/lib/prompt-watcher';
 import { detachLabelReader } from '@/renderer/lib/label-reader';
@@ -50,6 +51,7 @@ export function useTerminalCacheGc(state: AppState): void {
     for (const id of everSeen.current) {
       if (seenNow.has(id)) continue;
       if (hasCached(id)) destroy(id);
+      destroyEngine(id);
       closeScratchForParent(id);
       disposePromptWatcher(id); // 2026-06-10 finding 4 — no-op if never watched
       detachLabelReader(id);

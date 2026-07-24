@@ -224,6 +224,35 @@ export class TerminalEngine {
     return out;
   }
 
+  /** Extract the newest logical lines by walking backward from the buffer tail. */
+  tailLogicalLines(maxLines: number): LogicalLine[] {
+    const limit = Math.max(0, Math.floor(maxLines));
+    if (limit === 0) return [];
+
+    const buf = this.term.buffer.active;
+    const starts: number[] = [];
+    let row = buf.length - 1;
+    while (row >= 0 && starts.length < limit) {
+      while (row > 0 && buf.getLine(row)?.isWrapped) row--;
+      starts.push(row);
+      row--;
+    }
+
+    const out: LogicalLine[] = [];
+    for (const startRow of starts.reverse()) {
+      const head = buf.getLine(startRow);
+      if (!head) continue;
+      let text = head.translateToString(true);
+      let next = startRow + 1;
+      while (next < buf.length && buf.getLine(next)?.isWrapped) {
+        text += buf.getLine(next)!.translateToString(true);
+        next++;
+      }
+      out.push({ startRow, text });
+    }
+    return out;
+  }
+
   /** Rows currently in the active buffer (screen + scrollback). Lets a consumer
    *  bound a recent-rows scan without materializing the whole buffer. */
   get bufferLength(): number {
