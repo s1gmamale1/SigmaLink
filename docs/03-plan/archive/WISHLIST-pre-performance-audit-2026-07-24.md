@@ -1,3 +1,11 @@
+# Archived SigmaLink Wishlist — pre-performance audit
+
+> Verbatim snapshot of the active `WISHLIST.md` before the 2026-07-24 evidence-gated
+> performance, reliability, and platform audit. Preserved for history; active items
+> were re-evaluated rather than carried forward automatically.
+
+---
+
 # SigmaLink — Wishlist
 
 > **Capture inbox for future / nice-to-have / explicitly-deferred items.** Low ceremony.

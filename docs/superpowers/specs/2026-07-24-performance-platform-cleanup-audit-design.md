@@ -1,7 +1,7 @@
 # SigmaLink Performance, Reliability, and Platform Audit Design
 
-**Date:** 2026-07-24  
-**Branch:** `audit/performance-platform-cleanup-2026-07-24`  
+**Date:** 2026-07-24
+**Branch:** `audit/performance-platform-cleanup-2026-07-24`
 **Scope:** SigmaLink desktop app and the repository-level configuration that governs its build, packaging, tests, and active product surface.
 
 ## Objective
