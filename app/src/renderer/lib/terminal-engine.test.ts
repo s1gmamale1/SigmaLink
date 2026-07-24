@@ -339,3 +339,35 @@ describe('TerminalEngine — OSC-133 prompt marks (P2)', () => {
     expect(engine.promptMarks.length).toBeLessThanOrEqual(2048);
   });
 });
+
+describe('TerminalEngine — synchronized output (DECSET 2026)', () => {
+  it('holds buffer-change notify between BSU and ESU, then fires once', async () => {
+    const { engine } = makeEngine({ cols: 40, rows: 10 });
+    track(engine);
+    let notifies = 0;
+    engine.onBufferChanged(() => notifies++);
+
+    await flushWrite(engine, '\x1b[?2026h'); // BSU — frame opens
+    await flushWrite(engine, '\r\x1b[2Kpartial'); // erased intermediate state
+    await new Promise((r) => setTimeout(r, 20)); // let any scheduled notify fire
+    expect(notifies).toBe(0); // nothing painted mid-frame
+
+    await flushWrite(engine, 'complete frame\x1b[?2026l'); // ESU — frame closes
+    await new Promise((r) => setTimeout(r, 20));
+    expect(notifies).toBe(1); // exactly one coalesced paint
+  });
+
+  it('paints anyway via watchdog when the app dies mid-frame (no ESU)', async () => {
+    const { engine } = makeEngine({ cols: 40, rows: 10 });
+    track(engine);
+    let notifies = 0;
+    engine.onBufferChanged(() => notifies++);
+    await flushWrite(engine, '\x1b[?2026h');
+    await flushWrite(engine, 'orphaned frame');
+    await new Promise((r) => setTimeout(r, 1200)); // > 1000ms watchdog, real timers
+    expect(notifies).toBeGreaterThan(0);
+    // NOTE: do NOT use vi.useFakeTimers() here — xterm's write queue is
+    // timer-driven, so fake timers can hang flushWrite before the watchdog
+    // is even armed. The 1.2s real-time wait stays under vitest's 5s default.
+  });
+});
