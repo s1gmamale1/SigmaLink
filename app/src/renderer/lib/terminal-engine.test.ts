@@ -371,3 +371,34 @@ describe('TerminalEngine — synchronized output (DECSET 2026)', () => {
     // is even armed. The 1.2s real-time wait stays under vitest's 5s default.
   });
 });
+
+describe('TerminalEngine — OSC title sink', () => {
+  it('emits OSC 2 titles to subscribers', async () => {
+    const { engine } = makeEngine();
+    track(engine);
+    const titles: string[] = [];
+    engine.onTitleChange((t) => titles.push(t));
+    await flushWrite(engine, '\x1b]2;School Account Fix-Agent\x07');
+    expect(titles).toEqual(['School Account Fix-Agent']);
+  });
+
+  it('emits OSC 0 titles and ignores empty ones', async () => {
+    const { engine } = makeEngine();
+    track(engine);
+    const titles: string[] = [];
+    engine.onTitleChange((t) => titles.push(t));
+    await flushWrite(engine, '\x1b]0;\x07'); // empty — dropped
+    await flushWrite(engine, '\x1b]0;renamed session\x07');
+    expect(titles).toEqual(['renamed session']);
+  });
+
+  it('unsubscribe stops delivery', async () => {
+    const { engine } = makeEngine();
+    track(engine);
+    const titles: string[] = [];
+    const off = engine.onTitleChange((t) => titles.push(t));
+    off();
+    await flushWrite(engine, '\x1b]2;never seen\x07');
+    expect(titles).toEqual([]);
+  });
+});

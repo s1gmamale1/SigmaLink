@@ -90,6 +90,7 @@ export class TerminalEngine {
 
   private readonly disposers: Disposer[] = [];
   private readonly changeSubs = new Set<() => void>();
+  private readonly titleSubs = new Set<(title: string) => void>();
   private notifyScheduled = false;
   private syncWatchdog: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
@@ -154,6 +155,25 @@ export class TerminalEngine {
         return true;
       }),
     );
+    // OSC 0/2 (icon+window / window title): agent-initiated session renames
+    // (Kimi Code, claude /rename). xterm tracks the title internally but
+    // nothing surfaces it — sink it to subscribers so the pane label can
+    // follow. Return false: xterm's own title bookkeeping still runs.
+    const onOscTitle = (data: string): boolean => {
+      const title = data.trim();
+      if (title) {
+        for (const cb of Array.from(this.titleSubs)) {
+          try {
+            cb(title);
+          } catch {
+            /* one broken subscriber must never starve the others */
+          }
+        }
+      }
+      return false;
+    };
+    this.disposers.push(this.term.parser.registerOscHandler(0, onOscTitle));
+    this.disposers.push(this.term.parser.registerOscHandler(2, onOscTitle));
   }
 
   write(data: string): void {
@@ -173,6 +193,15 @@ export class TerminalEngine {
     this.changeSubs.add(cb);
     return () => {
       this.changeSubs.delete(cb);
+    };
+  }
+
+  /** Subscribe to OSC 0/2 window-title sets (Kimi/claude rename the session
+   *  this way). Raw payload; consumers sanitize. Returns the unsubscribe. */
+  onTitleChange(cb: (title: string) => void): () => void {
+    this.titleSubs.add(cb);
+    return () => {
+      this.titleSubs.delete(cb);
     };
   }
 
@@ -354,6 +383,7 @@ export class TerminalEngine {
       this.syncWatchdog = null;
     }
     this.changeSubs.clear();
+    this.titleSubs.clear();
     for (const d of this.disposers) d.dispose();
     this.term.dispose();
   }

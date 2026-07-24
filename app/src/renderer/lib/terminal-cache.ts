@@ -63,6 +63,7 @@ import {
 } from './terminal-palette';
 import { ctrlWheelShouldBubble } from './wheel-zoom';
 import { attachXtermLabelReader, detachLabelReader } from './label-reader';
+import { onAgentLabel } from './pane-title-orchestrator';
 
 /** Maximum number of cached xterm instances before LRU eviction. */
 export const TERMINAL_CACHE_LIMIT = 32;
@@ -134,6 +135,9 @@ export interface CacheEntry {
    *  message gets written exactly once into the scrollback, regardless of
    *  whether the terminal happened to be mounted at exit time. */
   offExit: () => void;
+  /** xterm `onTitleChange` disposer — sinks agent-initiated renames (OSC 0/2)
+   *  into the pane-label override. Owned by the cache, torn down on destroy. */
+  offTitle: { dispose: () => void };
   /** Last time this entry was mounted into a real DOM host. Used by LRU. */
   lastAccessed: number;
   /** True once the underlying PTY emitted `pty:exit`. Resize observers
@@ -437,6 +441,11 @@ export function getOrCreateTerminal(
     term.write(`\r\n\x1b[2;90m[session exited code=${payload.exitCode}]\x1b[0m\r\n`);
   });
 
+  // Agent-initiated renames (OSC 0/2) → same override sink as SIGMA::LABEL.
+  const offTitle = term.onTitleChange((t) => {
+    if (t.trim()) onAgentLabel(sessionId, t);
+  });
+
   const entry: CacheEntry = {
     sessionId,
     terminal: term,
@@ -445,6 +454,7 @@ export function getOrCreateTerminal(
     onDataDispose,
     onSelectionDispose,
     offExit,
+    offTitle,
     lastAccessed: Date.now(),
     ptyExited: false,
     snapshotReady: false,
@@ -591,6 +601,11 @@ export function destroy(sessionId: string): void {
   }
   try {
     entry.onDataDispose.dispose();
+  } catch {
+    /* same */
+  }
+  try {
+    entry.offTitle.dispose();
   } catch {
     /* same */
   }
