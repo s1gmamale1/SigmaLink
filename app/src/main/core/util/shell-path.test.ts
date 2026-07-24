@@ -51,7 +51,9 @@ describe('defaultResolveShellPath', () => {
     const originalPath = process.env.PATH;
     process.env.PATH = '/fixture/bin:/usr/bin';
     try {
-      await expect(defaultResolveShellPath(fakeShell, 1_000)).resolves.toBe(
+      // Process startup can exceed 1s when the full Vitest pool is saturated;
+      // this test exercises payload parsing, not timeout policy.
+      await expect(defaultResolveShellPath(fakeShell, 5_000)).resolves.toBe(
         '/fixture/bin:/usr/bin',
       );
     } finally {
