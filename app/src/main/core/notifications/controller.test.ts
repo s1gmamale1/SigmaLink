@@ -7,6 +7,13 @@ import { buildNotificationsController } from './controller';
 import type { NotificationsManager } from './manager';
 
 describe('notifications RPC snapshot/page controller', () => {
+  it('does not expose the superseded list/unreadCount hydration pair', () => {
+    const controller = buildNotificationsController({} as NotificationsManager);
+
+    expect(controller).not.toHaveProperty('list');
+    expect(controller).not.toHaveProperty('unreadCount');
+  });
+
   it('forwards snapshot options and returns the manager snapshot', async () => {
     const expected: NotificationSnapshot = {
       revision: 7,

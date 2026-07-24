@@ -289,8 +289,6 @@ const TYPED_ROUTER_CHANNELS: ReadonlyArray<string> = [
   // notifications (notificationsCtl — from buildNotificationsController)
   'notifications.snapshot',
   'notifications.page',
-  'notifications.list',
-  'notifications.unreadCount',
   'notifications.markRead',
   'notifications.markAllRead',
   'notifications.markUnread',

@@ -106,8 +106,8 @@ describe('rpc-router broadcast events — every literal is in EVENTS', () => {
   it('notification channels in CHANNELS', () => {
     expect(CHANNELS.has('notifications.snapshot')).toBe(true);
     expect(CHANNELS.has('notifications.page')).toBe(true);
-    expect(CHANNELS.has('notifications.list')).toBe(true);
-    expect(CHANNELS.has('notifications.unreadCount')).toBe(true);
+    expect(CHANNELS.has('notifications.list')).toBe(false);
+    expect(CHANNELS.has('notifications.unreadCount')).toBe(false);
     expect(CHANNELS.has('notifications.markRead')).toBe(true);
   });
 });

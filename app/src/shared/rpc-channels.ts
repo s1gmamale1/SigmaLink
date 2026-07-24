@@ -346,8 +346,6 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   // event registered in EVENTS below.
   'notifications.snapshot',
   'notifications.page',
-  'notifications.list',
-  'notifications.unreadCount',
   'notifications.markRead',
   'notifications.markAllRead',
   'notifications.markUnread',

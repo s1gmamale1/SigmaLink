@@ -3233,8 +3233,8 @@ async function buildRouter() {
     emit: (event, payload) => broadcast(event, payload),
   });
 
-  // Notifications controller. Versioned hydration uses notifications.snapshot
-  // + notifications.page; list/unreadCount remain during renderer migration.
+  // Notifications controller. Versioned hydration uses the authoritative
+  // notifications.snapshot + notifications.page pair.
   const notificationsCtl = buildNotificationsController(notificationsManager, {
     osTest: () => osNotifier.notifyTest(),
   });

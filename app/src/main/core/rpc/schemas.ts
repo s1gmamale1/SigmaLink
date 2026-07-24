@@ -930,8 +930,33 @@ export const CHANNEL_SCHEMAS: Record<string, ChannelSchema> = {
     }),
   },
   // ── notifications (v1.4.9 #07) ────────────────────────────────────────
-  'notifications.list': stub,
-  'notifications.unreadCount': stub,
+  'notifications.snapshot': {
+    input: z
+      .object({
+        limit: z.number().int().positive().max(500).optional(),
+        workspaceId: z.string().min(1).max(200).nullable().optional(),
+        severities: z
+          .array(z.enum(['info', 'warn', 'error', 'critical']))
+          .max(4)
+          .optional(),
+      })
+      .optional(),
+    output: any,
+  },
+  'notifications.page': {
+    input: z
+      .object({
+        limit: z.number().int().positive().max(500).optional(),
+        cursor: z.string().min(1).max(4096).nullable().optional(),
+        workspaceId: z.string().min(1).max(200).nullable().optional(),
+        severities: z
+          .array(z.enum(['info', 'warn', 'error', 'critical']))
+          .max(4)
+          .optional(),
+      })
+      .optional(),
+    output: any,
+  },
   'notifications.markRead': stub,
   'notifications.markAllRead': stub,
   'notifications.markUnread': stub,

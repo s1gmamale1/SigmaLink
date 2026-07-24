@@ -26,10 +26,8 @@ import type {
   MemoryHubStatus,
   MemoryConnectionSuggestion,
   MemoryUnlinkedMention,
-  Notification,
   NotificationPage,
   NotificationPageInput,
-  NotificationSeverity,
   NotificationSnapshot,
   NotificationSnapshotInput,
   ReviewState,
@@ -1274,13 +1272,6 @@ export interface AppRouter {
   notifications: {
     snapshot: (input?: NotificationSnapshotInput) => Promise<NotificationSnapshot>;
     page: (input?: NotificationPageInput) => Promise<NotificationPage>;
-    list: (input?: {
-      limit?: number;
-      offset?: number;
-      workspaceId?: string | null;
-      severities?: NotificationSeverity[];
-    }) => Promise<Notification[]>;
-    unreadCount: () => Promise<number>;
     markRead: (id: string) => Promise<void>;
     markAllRead: () => Promise<void>;
     markUnread: (id: string) => Promise<void>;
