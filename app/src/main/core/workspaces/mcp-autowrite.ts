@@ -132,7 +132,15 @@ export function writeWorkspaceMcpConfig(
   const claudeTarget = path.join(root, '.mcp.json');
   const codexTarget = path.join(home, '.codex', 'config.toml');
   const geminiTarget = path.join(home, '.gemini', 'settings.json');
-  const kimiTarget = path.join(home, '.kimi', 'mcp.json');
+  // 2026-07 kimi-code migration: the single-binary kimi moved its home from
+  // ~/.kimi to ~/.kimi-code. Prefer the modern target; keep writing legacy
+  // only when it is the only one that exists (pre-migration installs).
+  const kimiModernTarget = path.join(home, '.kimi-code', 'mcp.json');
+  const kimiLegacyTarget = path.join(home, '.kimi', 'mcp.json');
+  const kimiTarget =
+    fs.existsSync(kimiModernTarget) || !fs.existsSync(kimiLegacyTarget)
+      ? kimiModernTarget
+      : kimiLegacyTarget;
   const opencodeTarget = path.join(home, '.config', 'opencode', 'opencode.json');
   // R-2 — Cursor reads workspace-scoped `<root>/.cursor/mcp.json` (it also
   // honours `~/.cursor/mcp.json`, but we write the workspace-scoped file to
@@ -143,7 +151,8 @@ export function writeWorkspaceMcpConfig(
   // v1.3.5 — Kimi + OpenCode targets are gated by soft detection. If the user
   // doesn't have those CLIs installed AND no existing config file, skip
   // silently so we don't pollute their home dir with empty config dirs.
-  const kimiActive = fs.existsSync(kimiTarget) || detectCli('kimi');
+  const kimiActive =
+    fs.existsSync(kimiModernTarget) || fs.existsSync(kimiLegacyTarget) || detectCli('kimi');
   const opencodeActive = fs.existsSync(opencodeTarget) || detectCli('opencode');
 
   const customEntries: string[] = [];
@@ -513,8 +522,10 @@ function writeFileAtomic(target: string, content: string): void {
 }
 
 // v1.3.5 — PATH-or-`.cmd` probe for Kimi / OpenCode CLI binaries. Used to
-// decide whether to write `~/.kimi/mcp.json` and `~/.config/opencode/opencode.json`
-// for users who don't have those CLIs installed.
+// decide whether to write the kimi MCP config (`~/.kimi-code/mcp.json`, with
+// `~/.kimi/mcp.json` kept as the legacy fallback) and
+// `~/.config/opencode/opencode.json` for users who don't have those CLIs
+// installed.
 function defaultDetectCli(name: 'kimi' | 'opencode'): boolean {
   const pathEntries = (process.env.PATH ?? '').split(path.delimiter);
   const candidates =
