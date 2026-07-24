@@ -812,6 +812,15 @@ export type NotificationsDelta = NotificationChangeSet;
 /** Opaque keyset cursor returned by the main process. */
 export type NotificationCursor = string;
 
+export interface NotificationPageInput {
+  limit?: number;
+  cursor?: NotificationCursor | null;
+  workspaceId?: WorkspaceId | null;
+  severities?: NotificationSeverity[];
+}
+
+export type NotificationSnapshotInput = Omit<NotificationPageInput, 'cursor'>;
+
 export interface NotificationPage {
   items: Notification[];
   nextCursor: NotificationCursor | null;

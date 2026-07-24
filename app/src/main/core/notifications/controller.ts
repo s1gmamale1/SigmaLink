@@ -4,7 +4,14 @@
 // event independently via `useLiveEvents`.
 
 import { defineController } from '../../../shared/rpc';
-import type { Notification, NotificationSeverity } from '../../../shared/types';
+import type {
+  Notification,
+  NotificationPage,
+  NotificationPageInput,
+  NotificationSeverity,
+  NotificationSnapshot,
+  NotificationSnapshotInput,
+} from '../../../shared/types';
 import type { NotificationsManager } from './manager';
 
 interface ListInput {
@@ -25,6 +32,14 @@ export function buildNotificationsController(
   deps: NotificationsControllerDeps = {},
 ) {
   return defineController({
+    snapshot: async (
+      input?: NotificationSnapshotInput,
+    ): Promise<NotificationSnapshot> => {
+      return manager.snapshot(input ?? {});
+    },
+    page: async (input?: NotificationPageInput): Promise<NotificationPage> => {
+      return manager.page(input ?? {});
+    },
     list: async (input?: ListInput): Promise<Notification[]> => {
       return manager.list(input ?? {});
     },

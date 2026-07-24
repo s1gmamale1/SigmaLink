@@ -344,6 +344,8 @@ export const CHANNELS: ReadonlySet<string> = new Set<string>([
   // owner of all reads/writes; renderer exclusively goes through these
   // channels. Live updates arrive on the `notifications:changed` one-way
   // event registered in EVENTS below.
+  'notifications.snapshot',
+  'notifications.page',
   'notifications.list',
   'notifications.unreadCount',
   'notifications.markRead',

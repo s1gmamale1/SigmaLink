@@ -27,7 +27,11 @@ import type {
   MemoryConnectionSuggestion,
   MemoryUnlinkedMention,
   Notification,
+  NotificationPage,
+  NotificationPageInput,
   NotificationSeverity,
+  NotificationSnapshot,
+  NotificationSnapshotInput,
   ReviewState,
   ReviewDiff,
   ReviewConflict,
@@ -1268,6 +1272,8 @@ export interface AppRouter {
    * unreadCount}`, never the full list).
    */
   notifications: {
+    snapshot: (input?: NotificationSnapshotInput) => Promise<NotificationSnapshot>;
+    page: (input?: NotificationPageInput) => Promise<NotificationPage>;
     list: (input?: {
       limit?: number;
       offset?: number;

@@ -3233,10 +3233,8 @@ async function buildRouter() {
     emit: (event, payload) => broadcast(event, payload),
   });
 
-  // v1.4.9 #07 — Notifications controller. Channels: notifications.list,
-  // notifications.unreadCount, notifications.markRead, notifications.markAllRead,
-  // notifications.markUnread, notifications.dismiss, notifications.clearRead,
-  // notifications.osTest (2026-07-03 — delivery self-check).
+  // Notifications controller. Versioned hydration uses notifications.snapshot
+  // + notifications.page; list/unreadCount remain during renderer migration.
   const notificationsCtl = buildNotificationsController(notificationsManager, {
     osTest: () => osNotifier.notifyTest(),
   });

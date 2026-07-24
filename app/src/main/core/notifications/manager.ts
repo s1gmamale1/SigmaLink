@@ -28,8 +28,10 @@ import type {
   NotificationChangeSet,
   NotificationCounts,
   NotificationPage,
+  NotificationPageInput,
   NotificationSeverity,
   NotificationSnapshot,
+  NotificationSnapshotInput,
 } from '../../../shared/types';
 
 /** D3 — 30 second collapse window. Outside this window a duplicate becomes a
@@ -86,14 +88,8 @@ export interface ListOptions {
   severities?: NotificationSeverity[];
 }
 
-export interface PageOptions {
-  limit?: number;
-  cursor?: string | null;
-  workspaceId?: string | null;
-  severities?: NotificationSeverity[];
-}
-
-export type SnapshotOptions = Omit<PageOptions, 'cursor'>;
+export type PageOptions = NotificationPageInput;
+export type SnapshotOptions = NotificationSnapshotInput;
 
 export interface NotificationsManagerDeps {
   emit: (delta: NotificationChangeSet) => void;
