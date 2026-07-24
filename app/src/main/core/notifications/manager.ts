@@ -89,6 +89,11 @@ export interface NotificationsManagerDeps {
   now?: () => number;
 }
 
+interface SoftCapCollapseResult {
+  removed: string[];
+  added: Notification[];
+}
+
 const VALID_SEVERITIES = new Set<NotificationSeverity>([
   'info',
   'warn',
@@ -258,13 +263,14 @@ export class NotificationsManager {
 
     // D2.2 — soft-cap collapse. Run after dedup/insert but before hard-cap
     // eviction so the summary row itself counts toward the hard cap.
-    removed.push(...this.softCapCollapse(input.workspaceId, input.kind));
+    const collapsed = this.softCapCollapse(input.workspaceId, input.kind);
+    removed.push(...collapsed.removed);
 
     // D2 — hard-cap eviction. Run synchronously so the emitted unreadCount
     // matches the post-eviction state.
     removed.push(...this.evictOverHardCap());
 
-    this.broadcast({ added: [inserted], removed });
+    this.broadcast({ added: [inserted, ...collapsed.added], removed });
     return inserted;
   }
 
@@ -407,11 +413,13 @@ export class NotificationsManager {
    * unread rows and INSERT a single `<kind>-summary` row describing how many
    * were collapsed.
    *
-   * Returns the ids of the collapsed rows (to include in the broadcast delta).
-   * The summary row is NOT included in the returned ids — it is emitted via
-   * the caller's `added` payload.
+   * Returns both the collapsed ids and the inserted summary row so the caller
+   * can publish a delta that exactly matches the committed database state.
    */
-  private softCapCollapse(workspaceId: string | null, kind: string): string[] {
+  private softCapCollapse(
+    workspaceId: string | null,
+    kind: string,
+  ): SoftCapCollapseResult {
     const db = getRawDb();
     const countRow = (
       workspaceId === null
@@ -429,7 +437,7 @@ export class NotificationsManager {
             .get(workspaceId, kind)
     ) as { n: number };
 
-    if (countRow.n <= SOFT_CAP_PER_KIND_WS) return [];
+    if (countRow.n <= SOFT_CAP_PER_KIND_WS) return { removed: [], added: [] };
 
     // Find the oldest SOFT_CAP_COLLAPSE_BATCH unread rows for this (ws, kind).
     const victims = (
@@ -438,6 +446,7 @@ export class NotificationsManager {
             .prepare(
               `SELECT id FROM notifications
                WHERE workspace_id IS NULL AND kind = ? AND read_at IS NULL
+                 AND severity IN ('info', 'warn')
                ORDER BY created_at ASC LIMIT ?`,
             )
             .all(kind, SOFT_CAP_COLLAPSE_BATCH)
@@ -445,12 +454,13 @@ export class NotificationsManager {
             .prepare(
               `SELECT id FROM notifications
                WHERE workspace_id = ? AND kind = ? AND read_at IS NULL
+                 AND severity IN ('info', 'warn')
                ORDER BY created_at ASC LIMIT ?`,
             )
             .all(workspaceId, kind, SOFT_CAP_COLLAPSE_BATCH)
     ) as { id: string }[];
 
-    if (victims.length === 0) return [];
+    if (victims.length === 0) return { removed: [], added: [] };
 
     const victimIds = victims.map((v) => v.id);
     const placeholders = victimIds.map(() => '?').join(',');
@@ -465,26 +475,40 @@ export class NotificationsManager {
     const collapsed = victims.length;
     const summaryId = randomUUID();
     const now = this.now();
+    const summaryRow: NotificationRowSql = {
+      id: summaryId,
+      workspace_id: workspaceId,
+      kind: `${kind}-summary`,
+      severity: 'info',
+      title: `${collapsed} ${kind} notifications collapsed`,
+      body: `${collapsed} more ${kind} notifications collapsed`,
+      payload: null,
+      source_event: null,
+      dedup_key: `${kind}-summary:${now}`,
+      dup_count: 1,
+      created_at: now,
+      read_at: null,
+    };
     db.prepare(
       `INSERT INTO notifications
         (id, workspace_id, kind, severity, title, body, payload, source_event, dedup_key, dup_count, created_at, read_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
-      summaryId,
-      workspaceId,
-      `${kind}-summary`,
-      'info',
-      `${collapsed} ${kind} notifications collapsed`,
-      `${collapsed} more ${kind} notifications collapsed`,
-      null,
-      null,
-      `${kind}-summary:${now}`,
-      1,
-      now,
-      null,
+      summaryRow.id,
+      summaryRow.workspace_id,
+      summaryRow.kind,
+      summaryRow.severity,
+      summaryRow.title,
+      summaryRow.body,
+      summaryRow.payload,
+      summaryRow.source_event,
+      summaryRow.dedup_key,
+      summaryRow.dup_count,
+      summaryRow.created_at,
+      summaryRow.read_at,
     );
 
-    return victimIds;
+    return { removed: victimIds, added: [rowToNotification(summaryRow)] };
   }
 
   /** D2 — hard-cap eviction. Returns deleted ids. Severity-aware: never

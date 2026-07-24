@@ -368,7 +368,8 @@ class NotificationsTestDb {
               (r) =>
                 r.workspace_id === workspaceId &&
                 r.kind === kind &&
-                r.read_at === null,
+                r.read_at === null &&
+                (r.severity === 'info' || r.severity === 'warn'),
             )
             .sort((a, b) => a.created_at - b.created_at)
             .slice(0, lim);
@@ -387,7 +388,13 @@ class NotificationsTestDb {
       return {
         all: (kind: string, lim: number): { id: string }[] => {
           const sorted = this.rows
-            .filter((r) => r.workspace_id === null && r.kind === kind && r.read_at === null)
+            .filter(
+              (r) =>
+                r.workspace_id === null &&
+                r.kind === kind &&
+                r.read_at === null &&
+                (r.severity === 'info' || r.severity === 'warn'),
+            )
             .sort((a, b) => a.created_at - b.created_at)
             .slice(0, lim);
           return sorted.map((r) => ({ id: r.id }));
@@ -969,5 +976,65 @@ describe('NotificationsManager soft-cap collapse (D2.2)', () => {
     const summaryRows = fakeDb.rows.filter((r) => r.kind === 'pty-exit-summary');
     expect(summaryRows).toHaveLength(1);
     expect(summaryRows[0].body).toContain('collapsed');
+  });
+
+  it('preserves protected unread rows during soft-cap collapse', () => {
+    const protectedIds: string[] = [];
+    for (let i = 0; i < SOFT_CAP_COLLAPSE_BATCH; i++) {
+      const id = `protected-${i.toString().padStart(4, '0')}`;
+      protectedIds.push(id);
+      seedUnreadRow(fakeDb, {
+        id,
+        created_at: 100 + i,
+        severity: i % 2 === 0 ? 'error' : 'critical',
+      });
+    }
+    for (let i = 0; i < SOFT_CAP_PER_KIND_WS - SOFT_CAP_COLLAPSE_BATCH + 1; i++) {
+      seedUnreadRow(fakeDb, {
+        id: `eligible-${i.toString().padStart(4, '0')}`,
+        created_at: 1_000 + i,
+        severity: 'info',
+      });
+    }
+
+    const mgr = makeManager();
+    now = 3_000_000;
+    mgr.add({
+      workspaceId: 'ws-1',
+      kind: 'pty-exit',
+      severity: 'info',
+      title: 'trigger',
+      dedupKey: 'dk-protected-trigger',
+    });
+
+    expect(
+      protectedIds.filter((id) => fakeDb.rows.some((row) => row.id === id)),
+    ).toEqual(protectedIds);
+  });
+
+  it('emits the soft-cap summary in the added lane', () => {
+    for (let i = 0; i < SOFT_CAP_PER_KIND_WS + 1; i++) {
+      seedUnreadRow(fakeDb, {
+        id: `r-${i.toString().padStart(4, '0')}`,
+        created_at: 100 + i,
+      });
+    }
+    const mgr = makeManager();
+    now = 3_000_000;
+
+    mgr.add({
+      workspaceId: 'ws-1',
+      kind: 'pty-exit',
+      severity: 'info',
+      title: 'trigger',
+      dedupKey: 'dk-summary-trigger',
+    });
+
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].added.map((row) => row.kind)).toEqual([
+      'pty-exit',
+      'pty-exit-summary',
+    ]);
+    expect(emitted[0].removed).toHaveLength(SOFT_CAP_COLLAPSE_BATCH);
   });
 });
