@@ -25,8 +25,9 @@ import { randomUUID } from 'node:crypto';
 import { getRawDb } from '../db/client';
 import type {
   Notification,
+  NotificationChangeSet,
+  NotificationCounts,
   NotificationSeverity,
-  NotificationsDelta,
 } from '../../../shared/types';
 
 /** D3 — 30 second collapse window. Outside this window a duplicate becomes a
@@ -84,7 +85,7 @@ export interface ListOptions {
 }
 
 export interface NotificationsManagerDeps {
-  emit: (delta: NotificationsDelta) => void;
+  emit: (delta: NotificationChangeSet) => void;
   /** Override for the wall-clock; tests inject a fixed clock. */
   now?: () => number;
 }
@@ -135,7 +136,7 @@ function rowToNotification(row: NotificationRowSql): Notification {
 }
 
 export class NotificationsManager {
-  private readonly emit: (delta: NotificationsDelta) => void;
+  private readonly emit: (delta: NotificationChangeSet) => void;
   private readonly now: () => number;
 
   constructor(deps: NotificationsManagerDeps) {
@@ -315,6 +316,46 @@ export class NotificationsManager {
       .prepare(`SELECT COUNT(*) as n FROM notifications WHERE read_at IS NULL`)
       .get() as { n: number };
     return row.n;
+  }
+
+  /** Authoritative unread totals, including severities outside the renderer's
+   *  currently loaded page. */
+  unreadCounts(): NotificationCounts {
+    const rows = getRawDb()
+      .prepare(
+        `SELECT severity, COUNT(*) AS n
+         FROM notifications
+         WHERE read_at IS NULL
+         GROUP BY severity`,
+      )
+      .all() as { severity: string; n: number }[];
+    const counts: NotificationCounts = {
+      unread: 0,
+      unreadBySeverity: { info: 0, warn: 0, error: 0, critical: 0 },
+    };
+    for (const row of rows) {
+      if (!VALID_SEVERITIES.has(row.severity as NotificationSeverity)) continue;
+      const severity = row.severity as NotificationSeverity;
+      counts.unreadBySeverity[severity] = row.n;
+      counts.unread += row.n;
+    }
+    return counts;
+  }
+
+  /** Advance and return the persisted ordering token for a changing mutation. */
+  private nextRevision(): number {
+    const row = getRawDb()
+      .prepare(
+        `UPDATE notification_state
+         SET revision = revision + 1
+         WHERE singleton = 1
+         RETURNING revision`,
+      )
+      .get() as { revision: number } | undefined;
+    if (!row) {
+      throw new Error('NotificationsManager: notification state revision is missing');
+    }
+    return row.revision;
   }
 
   /** D4 — mark a single row read (no-op if already read).
@@ -589,15 +630,21 @@ export class NotificationsManager {
     return removed;
   }
 
-  /** Build + emit the delta envelope. `added`/`removed`/`updated` default to
-   *  []; the unreadCount is always queried fresh so the renderer reducer can
-   *  trust it as the source of truth. */
-  private broadcast(partial: Partial<Omit<NotificationsDelta, 'unreadCount'>>): void {
-    const delta: NotificationsDelta = {
+  /** Build + emit the versioned envelope. Lanes default to empty and counts
+   *  are queried from authoritative unread rows. */
+  private broadcast(
+    partial: Partial<
+      Omit<NotificationChangeSet, 'revision' | 'counts' | 'unreadCount'>
+    >,
+  ): void {
+    const counts = this.unreadCounts();
+    const delta: NotificationChangeSet = {
+      revision: this.nextRevision(),
       added: partial.added ?? [],
       removed: partial.removed ?? [],
       updated: partial.updated ?? [],
-      unreadCount: this.unreadCount(),
+      counts,
+      unreadCount: counts.unread,
     };
     try {
       this.emit(delta);

@@ -48,6 +48,7 @@ interface Row {
 
 class NotificationsTestDb {
   rows: Row[] = [];
+  revision = 0;
 
   prepare(sql: string) {
     const s = sql.replace(/\s+/g, ' ').trim();
@@ -145,11 +146,31 @@ class NotificationsTestDb {
       };
     }
     // ── COUNT unread ──────────────────────────────────────────────────
+    if (s.includes('SELECT severity, COUNT(*) AS n') && s.includes('GROUP BY severity')) {
+      return {
+        all: (): { severity: NotificationSeverity; n: number }[] => {
+          const counts = new Map<NotificationSeverity, number>();
+          for (const row of this.rows) {
+            if (row.read_at !== null) continue;
+            counts.set(row.severity, (counts.get(row.severity) ?? 0) + 1);
+          }
+          return Array.from(counts, ([severity, n]) => ({ severity, n }));
+        },
+      };
+    }
     if (s.includes('COUNT(*) as n FROM notifications WHERE read_at IS NULL')) {
       return {
         get: (): { n: number } => ({
           n: this.rows.filter((r) => r.read_at === null).length,
         }),
+      };
+    }
+    if (
+      s.startsWith('UPDATE notification_state SET revision = revision + 1') &&
+      s.includes('RETURNING revision')
+    ) {
+      return {
+        get: (): { revision: number } => ({ revision: ++this.revision }),
       };
     }
     // ── COUNT all ────────────────────────────────────────────────────
@@ -610,6 +631,52 @@ describe('NotificationsManager.add', () => {
     // First row is read — the new event creates a fresh row, not absorbed.
     expect(fakeDb.rows).toHaveLength(2);
     expect(second.id).not.toBe(first.id);
+  });
+
+  it('emits authoritative unread counts for every severity', () => {
+    const mgr = makeManager();
+    const severities: NotificationSeverity[] = [
+      'info',
+      'warn',
+      'error',
+      'critical',
+    ];
+    for (const severity of severities) {
+      mgr.add({
+        workspaceId: 'ws-1',
+        kind: `kind-${severity}`,
+        severity,
+        title: severity,
+        dedupKey: `counts-${severity}`,
+      });
+      now += 1;
+    }
+
+    expect(emitted.at(-1)?.counts).toEqual({
+      unread: 4,
+      unreadBySeverity: {
+        info: 1,
+        warn: 1,
+        error: 1,
+        critical: 1,
+      },
+    });
+  });
+
+  it('advances revision exactly once per changing mutation and never for no-ops', () => {
+    const mgr = makeManager();
+    const row = mgr.add({
+      workspaceId: 'ws-1',
+      kind: 'pty-exit',
+      severity: 'info',
+      title: 'shell exited',
+      dedupKey: 'revision-row',
+    });
+    mgr.markRead(row.id);
+    mgr.markRead(row.id);
+    mgr.dismiss('missing-id');
+
+    expect(emitted.map((delta) => delta.revision)).toEqual([1, 2]);
   });
 });
 
