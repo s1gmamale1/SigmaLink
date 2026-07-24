@@ -17,6 +17,7 @@ import { stripDeviceAttributesResponses } from './terminal-cache';
 import { computeSnapshotOverlap } from './snapshot-overlap';
 import { attachEngineLabelReader, detachLabelReader } from './label-reader';
 import { onAgentLabel } from './pane-title-orchestrator';
+import { shouldFollowTitle } from './pane-title-follow';
 
 export const ENGINE_CACHE_LIMIT = 32;
 
@@ -88,8 +89,12 @@ export function getOrCreateEngine(sessionId: string): EngineCacheEntry {
   });
 
   // Agent-initiated renames (OSC 0/2) follow the same override sink as
-  // SIGMA::LABEL — supersedes any in-flight prompt summary.
-  const offTitle = engine.onTitleChange((t) => onAgentLabel(sessionId, t));
+  // SIGMA::LABEL — supersedes any in-flight prompt summary. Gated at fire
+  // time (providerId resolves async): plain-shell panes must not forward
+  // shell auto-titles (oh-my-zsh precmd) into the label.
+  const offTitle = engine.onTitleChange((t) => {
+    if (shouldFollowTitle(sessionId)) onAgentLabel(sessionId, t);
+  });
 
   const entry: EngineCacheEntry = {
     sessionId,

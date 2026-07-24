@@ -18,6 +18,7 @@ import { countsTowardAgentCap } from '@/shared/providers';
 import { encodeSgrMouse, shouldReportMouse } from './mouse-encoder';
 import { getPlatform } from '@/renderer/lib/platform';
 import { useAppStateSelector } from '@/renderer/app/state';
+import { setTitleFollow } from '@/renderer/lib/pane-title-follow';
 import { useRightRail } from '@/renderer/features/right-rail/RightRailContext.data';
 import { routeLinkClick } from './route-link-click';
 import { FlowView, MAX_RENDER_LINES } from './FlowView';
@@ -126,6 +127,13 @@ export function DomTerminalView({
   // capture — so a secret/command typed into a terminal is never sent to the
   // cloud titler. A plain terminal has no "task" to title anyway.
   const titleCaptureEnabled = !!providerId && countsTowardAgentCap(providerId);
+  // OSC title-follow gate: plain-shell panes must not forward shell auto-titles
+  // (oh-my-zsh precmd emits OSC 0/2 at every prompt) into the pane label.
+  // Evaluated live in engine-cache/terminal-cache; cleanup restores FOLLOW.
+  useEffect(() => {
+    setTitleFollow(sessionId, providerId !== 'shell');
+    return () => setTitleFollow(sessionId, true);
+  }, [sessionId, providerId]);
   useEffect(() => {
     wsIdRef.current = activeWorkspaceId;
   }, [activeWorkspaceId]);

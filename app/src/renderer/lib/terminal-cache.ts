@@ -64,6 +64,7 @@ import {
 import { ctrlWheelShouldBubble } from './wheel-zoom';
 import { attachXtermLabelReader, detachLabelReader } from './label-reader';
 import { onAgentLabel } from './pane-title-orchestrator';
+import { shouldFollowTitle } from './pane-title-follow';
 
 /** Maximum number of cached xterm instances before LRU eviction. */
 export const TERMINAL_CACHE_LIMIT = 32;
@@ -442,8 +443,10 @@ export function getOrCreateTerminal(
   });
 
   // Agent-initiated renames (OSC 0/2) → same override sink as SIGMA::LABEL.
+  // Gated at fire time (providerId resolves async): plain-shell panes must
+  // not forward shell auto-titles (oh-my-zsh precmd) into the label.
   const offTitle = term.onTitleChange((t) => {
-    if (t.trim()) onAgentLabel(sessionId, t);
+    if (t.trim() && shouldFollowTitle(sessionId)) onAgentLabel(sessionId, t);
   });
 
   const entry: CacheEntry = {
