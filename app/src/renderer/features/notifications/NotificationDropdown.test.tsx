@@ -9,7 +9,7 @@
 //   (the Popover handles dismissal). ARIA is now role="dialog" + role="list".
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { NotificationDropdown } from './NotificationDropdown';
 import { applyFilter, groupBySource, maxSeverity } from './helpers';
 import type { AppState } from '@/renderer/app/state.types';
@@ -27,6 +27,7 @@ vi.mock('@/renderer/lib/rpc', () => {
     markRead: vi.fn().mockResolvedValue(undefined),
     dismiss: vi.fn().mockResolvedValue(undefined),
     markUnread: vi.fn().mockResolvedValue(undefined),
+    page: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
   };
   const obj = { notifications: fns };
   return { rpc: obj, rpcSilent: obj };
@@ -290,5 +291,72 @@ describe('NotificationDropdown', () => {
     fireEvent.click(screen.getByTestId('notification-filter-errors'));
     expect(screen.queryByTestId('notification-item-a')).toBeNull();
     expect(screen.queryByTestId('notification-item-b')).toBeTruthy();
+  });
+
+  it('loads and appends the next notification page', async () => {
+    // Staged limitation: filter chips still apply locally to all loaded pages;
+    // server-side filtered cursors belong to the later UX workstream.
+    const older = makeN({ id: 'older', severity: 'info', createdAt: 1 });
+    const notificationsApi = (mockRpc as unknown as {
+      notifications: Record<string, ReturnType<typeof vi.fn>>;
+    }).notifications;
+    notificationsApi.page.mockResolvedValueOnce({
+      items: [older],
+      nextCursor: null,
+    });
+    mockState = {
+      ...initialAppState,
+      notifications: [makeN({ id: 'newer', severity: 'warn', createdAt: 2 })],
+      notificationNextCursor: 'cursor-1',
+    };
+    render(<NotificationDropdown onClose={() => undefined} />);
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Load older notifications' }),
+    );
+
+    await waitFor(() => {
+      expect(notificationsApi.page).toHaveBeenCalledWith({
+        cursor: 'cursor-1',
+        limit: 100,
+      });
+    });
+    expect(dispatchSpy).toHaveBeenCalledWith({
+      type: 'APPEND_NOTIFICATION_PAGE',
+      page: { items: [older], nextCursor: null },
+    });
+  });
+
+  it('offers a retry control when loading an older page fails', async () => {
+    const notificationsApi = (mockRpc as unknown as {
+      notifications: Record<string, ReturnType<typeof vi.fn>>;
+    }).notifications;
+    notificationsApi.page.mockRejectedValueOnce(new Error('temporary page failure'));
+    mockState = {
+      ...initialAppState,
+      notifications: [makeN({ id: 'newer', severity: 'warn' })],
+      notificationNextCursor: 'cursor-1',
+    };
+    render(<NotificationDropdown onClose={() => undefined} />);
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Load older notifications' }),
+    );
+
+    expect(
+      await screen.findByRole('button', { name: 'Retry loading older notifications' }),
+    ).toBeTruthy();
+  });
+
+  it('announces the end of history after the final non-empty page', () => {
+    mockState = {
+      ...initialAppState,
+      notifications: [makeN({ id: 'only', severity: 'info' })],
+      notificationNextCursor: null,
+    };
+
+    render(<NotificationDropdown onClose={() => undefined} />);
+
+    expect(screen.getByText('End of notification history')).toBeTruthy();
   });
 });

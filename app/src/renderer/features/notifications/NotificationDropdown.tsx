@@ -13,6 +13,9 @@
 // scrollable list of items. Mark-all-read and Clear-read controls live in
 // the header. Per D4, opening the dropdown does NOT auto-mark-read — the
 // operator must click items or hit "Mark all read".
+// Older retained rows are reachable through explicit cursor paging. Filters
+// remain local to the pages loaded so far until filtered snapshot/page RPC is
+// introduced; changing a chip resets any transient paging error.
 //
 // P3 / NTF-2 — the filtered list is now bucketed by source (`groupBySource`)
 // into collapsible sections rendered in the canonical NOTIFICATION_SOURCES
@@ -42,6 +45,8 @@ interface DropdownProps {
   onClose: () => void;
 }
 
+type PageState = 'idle' | 'loading' | 'error';
+
 export function NotificationDropdown({ onClose }: DropdownProps) {
   // PERF-3 — granular selectors + stable dispatch. `s.notifications` is a
   // referentially-stable slice; `s.activeWorkspace?.id` is a primitive — both
@@ -49,8 +54,10 @@ export function NotificationDropdown({ onClose }: DropdownProps) {
   // re-renders.
   const dispatch = useAppDispatch();
   const notifications = useAppStateSelector((s) => s.notifications);
+  const notificationNextCursor = useAppStateSelector((s) => s.notificationNextCursor);
   const activeWorkspaceId = useAppStateSelector((s) => s.activeWorkspace?.id ?? null);
   const [chip, setChip] = useState<FilterChip>('all');
+  const [pageState, setPageState] = useState<PageState>('idle');
   // NTF-2 — sections collapsed by the operator. Default: empty = all expanded.
   const [collapsed, setCollapsed] = useState<Set<NotificationSource>>(new Set());
 
@@ -140,6 +147,24 @@ export function NotificationDropdown({ onClose }: DropdownProps) {
     }
   };
 
+  const handleLoadOlder = async () => {
+    if (notificationNextCursor === null || pageState === 'loading') return;
+
+    setPageState('loading');
+    try {
+      const page = await rpc.notifications.page({
+        cursor: notificationNextCursor,
+        limit: 100,
+      });
+      dispatch({ type: 'APPEND_NOTIFICATION_PAGE', page });
+      setPageState('idle');
+    } catch {
+      // The shared RPC client already reports the failure. Keep an inline retry
+      // affordance because older history is otherwise unreachable.
+      setPageState('error');
+    }
+  };
+
   return (
     <div
       role="dialog"
@@ -192,7 +217,10 @@ export function NotificationDropdown({ onClose }: DropdownProps) {
             key={id}
             type="button"
             data-testid={`notification-filter-${id}`}
-            onClick={() => setChip(id)}
+            onClick={() => {
+              setChip(id);
+              setPageState('idle');
+            }}
             className={cn(
               'rounded px-2 py-0.5 text-xs',
               chip === id
@@ -269,6 +297,33 @@ export function NotificationDropdown({ onClose }: DropdownProps) {
             );
           })
         )}
+        {notificationNextCursor !== null ? (
+          <div className="border-t border-border px-3 py-2 text-center">
+            <button
+              type="button"
+              onClick={handleLoadOlder}
+              disabled={pageState === 'loading'}
+              aria-label={
+                pageState === 'error'
+                  ? 'Retry loading older notifications'
+                  : pageState === 'loading'
+                    ? 'Loading older notifications'
+                    : 'Load older notifications'
+              }
+              className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted/40 hover:text-foreground disabled:cursor-wait disabled:opacity-60"
+            >
+              {pageState === 'error'
+                ? 'Retry loading older notifications'
+                : pageState === 'loading'
+                  ? 'Loading older notifications…'
+                  : 'Load older notifications'}
+            </button>
+          </div>
+        ) : notifications.length > 0 ? (
+          <p className="border-t border-border px-3 py-2 text-center text-xs text-muted-foreground">
+            End of notification history
+          </p>
+        ) : null}
       </div>
     </div>
   );
