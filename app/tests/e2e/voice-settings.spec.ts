@@ -20,25 +20,29 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function dismissOnboarding(win: Page): Promise<void> {
-  // Persist onboarded=1 directly so we don't depend on the (timing-sensitive)
-  // multi-step onboarding flow. Same approach as smoke.spec.ts.
-  await win
-    .evaluate(async () => {
-      try {
-        // @ts-expect-error sigma is exposed by the preload bridge
-        await window.sigma.invoke('kv.set', 'app.onboarded', '1');
-        await window.sigma.invoke('kv.set', 'coachmark.featureSpotlight.seen', '1');
-      } catch {
-        /* swallow */
-      }
-    })
-    .catch(() => undefined);
-  await win.waitForTimeout(300);
-  // Close any visible modal X-button defensively.
-  const closeBtn = win.locator('button[aria-label="Close"]').first();
-  if (await closeBtn.count()) {
-    await closeBtn.click({ timeout: 1500 }).catch(() => undefined);
+  const onboarding = win
+    .getByRole('dialog')
+    .filter({ hasText: 'Welcome to SigmaLink' });
+  if (await onboarding.isVisible({ timeout: 5000 }).catch(() => false)) {
+    await onboarding.getByRole('button', { name: 'Skip', exact: true }).click();
+    await onboarding.waitFor({ state: 'hidden', timeout: 4000 });
   }
+
+  await win.evaluate(async () => {
+    // @ts-expect-error sigma is exposed by the preload bridge
+    await window.sigma.invoke('kv.set', 'app.onboarded', '1');
+    await window.sigma.invoke('kv.set', 'coachmark.featureSpotlight.seen', '1');
+  });
+
+  const tour = win.getByRole('dialog').filter({ hasText: 'quick tour of SigmaLink' });
+  if (await tour.isVisible({ timeout: 4000 }).catch(() => false)) {
+    await tour.getByRole('button', { name: 'Skip', exact: true }).click();
+    await tour.waitFor({ state: 'hidden', timeout: 4000 });
+  }
+  await win
+    .locator('[data-slot="dialog-overlay"][data-state="open"]')
+    .first()
+    .waitFor({ state: 'hidden', timeout: 4000 });
 }
 
 test('Settings → Voice diagnostics render four indicator dots', async () => {

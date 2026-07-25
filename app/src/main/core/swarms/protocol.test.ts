@@ -12,7 +12,7 @@ import {
 } from './protocol';
 
 describe('ProtocolLineBuffer', () => {
-  it('drops an unterminated line after 64 KiB instead of emitting a partial suffix', () => {
+  it('drops an unterminated line after 65,536 UTF-16 code units instead of emitting a partial suffix', () => {
     const maxUnterminatedChars = 64 * 1024;
     const buffer = new ProtocolLineBuffer();
     const emitted: string[] = [];

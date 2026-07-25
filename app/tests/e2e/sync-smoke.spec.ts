@@ -14,7 +14,13 @@
 // Keep this minimal and fast — its only job is to verify the sync IPC surface
 // is reachable through the preload bridge without allowlist rejection.
 
-import { test, _electron as electron, expect, type ElectronApplication } from '@playwright/test';
+import {
+  test,
+  _electron as electron,
+  expect,
+  type ElectronApplication,
+  type Page,
+} from '@playwright/test';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createElectronTestProfile } from '../../src/test-utils/electron-test-profile';
@@ -24,6 +30,32 @@ const __dirname = path.dirname(__filename);
 
 // One automatic retry on infra flakes (Electron launch races, display hiccups).
 test.describe.configure({ retries: 1 });
+
+async function dismissOnboarding(win: Page): Promise<void> {
+  const onboarding = win
+    .getByRole('dialog')
+    .filter({ hasText: 'Welcome to SigmaLink' });
+  if (await onboarding.isVisible({ timeout: 5000 }).catch(() => false)) {
+    await onboarding.getByRole('button', { name: 'Skip', exact: true }).click();
+    await onboarding.waitFor({ state: 'hidden', timeout: 4000 });
+  }
+
+  await win.evaluate(async () => {
+    // @ts-expect-error sigma is injected by preload
+    await window.sigma.invoke('kv.set', 'app.onboarded', '1');
+    await window.sigma.invoke('kv.set', 'coachmark.featureSpotlight.seen', '1');
+  });
+
+  const tour = win.getByRole('dialog').filter({ hasText: 'quick tour of SigmaLink' });
+  if (await tour.isVisible({ timeout: 4000 }).catch(() => false)) {
+    await tour.getByRole('button', { name: 'Skip', exact: true }).click();
+    await tour.waitFor({ state: 'hidden', timeout: 4000 });
+  }
+  await win
+    .locator('[data-slot="dialog-overlay"][data-state="open"]')
+    .first()
+    .waitFor({ state: 'hidden', timeout: 4000 });
+}
 
 test('sync IPC channels are reachable — no "IPC channel not allowed" on Settings → Sync', async () => {
   test.setTimeout(90_000);
@@ -44,29 +76,8 @@ test('sync IPC channels are reachable — no "IPC channel not allowed" on Settin
   await win.waitForLoadState('domcontentloaded').catch(() => undefined);
   await win.waitForTimeout(2000);
 
-  // Dismiss onboarding if present, then navigate to Settings.
-  await win
-    .evaluate(async () => {
-      try {
-        // @ts-expect-error sigma is injected by preload
-        await window.sigma.invoke('kv.set', 'app.onboarded', '1');
-        await window.sigma.invoke('kv.set', 'coachmark.featureSpotlight.seen', '1');
-      } catch {
-        // non-fatal — onboarding modal may already be dismissed
-      }
-    })
-    .catch(() => undefined);
-  // ONB-1 — close the feature-spotlight Dialog if it opened this session (its
-  // overlay would intercept the Settings → Sync tab click below). The Dialog
-  // opens ASYNCHRONOUSLY after onboarded + uiBoot + coachmark-loaded, and the
-  // seed above races useCoachmark's read — so wait for the Dialog, Escape it
-  // (onOpenChange → markSeen), and confirm it is gone. No-op if the seed won.
-  const tour = win.getByRole('dialog').filter({ hasText: 'quick tour of SigmaLink' });
-  if (await tour.isVisible({ timeout: 4000 }).catch(() => false)) {
-    await win.keyboard.press('Escape').catch(() => undefined);
-    await tour.waitFor({ state: 'hidden', timeout: 4000 }).catch(() => undefined);
-  }
-  await win.waitForTimeout(300);
+  // Dismiss first-run dialogs before navigating to Settings.
+  await dismissOnboarding(win);
 
   // Navigate to Settings via the test-event API used by the dogfood suite.
   await win

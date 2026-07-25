@@ -1,5 +1,6 @@
 // Stdio MCP server for the SigmaLink Memory hub. This file is the entry
-// point for the child process spawned by `mcp-supervisor.ts`. It speaks
+// point launched by each configured MCP client using the command registered
+// by `mcp-supervisor.ts`. It speaks
 // newline-delimited JSON-RPC 2.0 — the format used by MCP's stdio transport
 // — over its own stdin/stdout. Diagnostics go to stderr only so they never
 // pollute the wire.
@@ -8,7 +9,7 @@
 //   1. The repo policy is to keep new deps to a minimum.
 //   2. The set of methods we need (initialize, tools/list, tools/call) is
 //      ~150 lines of boilerplate.
-//   3. The supervisor injects two env vars — `SIGMALINK_DB_PATH` and
+//   3. The registered client command supplies two env vars — `SIGMALINK_DB_PATH` and
 //      `SIGMALINK_WORKSPACE_ID` — which keep the child stateless except for
 //      its DB handle. The full MCP SDK would not buy anything here.
 //

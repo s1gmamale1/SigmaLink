@@ -220,7 +220,7 @@ Specialist count: eight read-only specialists across three waves, followed by a 
 
 ### Process, protocol, and persistence — `289136e`
 
-- **C-003:** `ProtocolLineBuffer` bounds an unterminated logical line at 64 KiB and, once exceeded, discards that entire line through its newline. It never emits a retained suffix as a new protocol boundary, and later lines recover normally. Initial TDD receipt: 1 failing / 10 passing before the bound; adversarial follow-up: 12/12 protocol tests passed.
+- **C-003:** `ProtocolLineBuffer` bounds an unterminated logical line at 65,536 UTF-16 code units and, once exceeded, discards that entire line through its newline. It never emits a retained suffix as a new protocol boundary, and later lines recover normally. Initial TDD receipt: 1 failing / 10 passing before the bound; adversarial follow-up: 12/12 protocol tests passed.
 - **C-004:** both Ruflo supervisors now use exit state/events for TERM→KILL escalation, not Node's signal-sent `child.killed` flag. One existing fake was corrected to Node semantics and a missing stdio-supervisor suite was added.
 - **C-006:** `stopProcessTrees` takes one point-in-time process-table snapshot per batch. TDD receipt observed two Windows enumeration calls before and one after.
 - **C-021:** scrollback persistence takes a valid UTF-8 tail at or below 256 KiB without splitting a code point.
@@ -279,14 +279,14 @@ gates are recorded below after a fresh rerun.
 
 ## Final verification
 
-- `pnpm test`: 484 files passed; 5,036 tests passed and 2 skipped out of 5,038 in 50.38 s. This is a fresh post-review run and includes the new protocol and deferred-Windows-probe regressions. The suite emitted its pre-existing jsdom canvas and `NO_COLOR`/`FORCE_COLOR` warnings but no test failure.
+- Shipping-candidate verification after synchronization with `origin/main` and the sigma-check test-harness repairs: `pnpm test` passed 484 files with 5,001 tests passed and 3 skipped out of 5,004 in 73.20 s. The suite emitted its pre-existing jsdom canvas and `NO_COLOR`/`FORCE_COLOR` warnings but no test failure.
 - `pnpm lint`: passed with no ESLint findings.
-- `pnpm build`: TypeScript and Vite passed; 2,131 modules transformed in 4.74 s. The emitted renderer includes a 350.24 kB entry chunk, 607.27 kB xterm chunk, and route/feature chunks. These are artifact sizes, not a measured runtime-memory improvement.
+- `pnpm build`: TypeScript and Vite passed; 2,131 modules transformed in 5.58 s. The emitted renderer includes a 349.48 kB entry chunk, 607.27 kB xterm chunk, and route/feature chunks. These are artifact sizes, not a measured runtime-memory improvement.
 - `pnpm electron:compile`: passed; emitted the 4.1 MB main bundle plus preload and three MCP server bundles.
-- `pnpm exec playwright test tests/e2e/min-window.spec.ts --project=e2e`: 1/1 passed in 5.6 s through the disposable Electron profile, directly exercising the launch guard and normal cleanup path.
+- `pnpm exec playwright test tests/e2e/min-window.spec.ts --project=e2e`: 1/1 passed in 5.7 s through the disposable Electron profile, directly exercising the launch guard and normal cleanup path. The sigma-check reproducer for the newly isolated Sync and Voice settings specs failed 2/2 before deterministic onboarding dismissal and passed 2/2 afterward in 10.4 s.
 - Playwright discovery found 14 E2E tests in 11 files. `PERF=1 pnpm exec playwright test --list --project=perf` found the one opt-in performance spec; omitting `PERF=1` correctly rejects the absent project by design.
 - Wishlist metadata validation found 41/41 action items with evidence/severity/effort, concrete action, and verification/build trigger. Every cited current-worktree file and numeric line range exists, and every unresolved accepted/hypothesis ID is present.
-- The archive body from line 9 has SHA-256 `75e171b4d75de156562fadcaa64eed50d2052d3e98b0d785fe268802ecd0b3f8`, exactly matching the original checkout's pre-audit `WISHLIST.md`.
+- The archive body from line 9 has SHA-256 `50de5462ac1f5a3b39334d79fafd439a8739a1a1f6a6d8194b5f62a3027418c0`, exactly matching `origin/main`'s pre-audit `WISHLIST.md`; unrelated wishlist content from the original checkout's unmerged pane branch is excluded.
 - `rg` found no remaining E2E/perf write to `docs/08-bugs/OPEN.md`; remaining result roots are disposable or ignored. `git diff --check 80065c3` passed after documentation reconciliation.
 
 The full gate supports the implemented remediations on this macOS host. It does not close the explicitly device-, package-, or budget-gated candidates in the rebuilt wishlist.

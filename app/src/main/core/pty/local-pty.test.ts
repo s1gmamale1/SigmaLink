@@ -835,9 +835,14 @@ describe('spawnLocalPty: win32 shell-first mode (Phase 5)', () => {
       fireData('PS> ');
       expect(written).toHaveLength(1);
 
+      // Production writes CR as the ConPTY Enter key. This harness executes
+      // the same generated input as noninteractive PowerShell source, where
+      // newline-delimited statements reliably run the command, sentinel, and
+      // cleanup in sequence.
+      const nonInteractiveScript = written[0]!.split('\r').join('\n');
       const output = execFileSync(
         String(spawnCommand),
-        ['-NoLogo', '-NoProfile', '-Command', written[0]!],
+        ['-NoLogo', '-NoProfile', '-Command', nonInteractiveScript],
         {
           encoding: 'utf8',
           env: spawnEnv,

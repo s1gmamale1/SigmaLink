@@ -31,7 +31,10 @@ describe('mergeShellPath', () => {
   });
 });
 
-describe('defaultResolveShellPath', () => {
+// This real-shell fixture is an extensionless shebang executable, which is
+// valid on POSIX only. Production calls this resolver from the darwin-only
+// bootstrap; Windows no-op behavior is covered below with injected deps.
+describe.skipIf(process.platform === 'win32')('defaultResolveShellPath', () => {
   it('ignores login-shell startup output outside the PATH payload', async () => {
     const tempDir = mkdtempSync(path.join(tmpdir(), 'sigmalink-shell-path-'));
     const fakeShell = path.join(tempDir, 'fake-shell');
