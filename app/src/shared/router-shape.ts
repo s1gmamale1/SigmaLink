@@ -1266,8 +1266,8 @@ export interface AppRouter {
    * v1.4.9 #07 — Notifications + top-right bell. Owned by
    * `core/notifications/manager.ts`; the renderer reaches it via the
    * `notifications.*` IPC channels. Live updates arrive on the
-   * `notifications:changed` event (delta envelope `{added, removed,
-   * unreadCount}`, never the full list).
+   * `notifications:changed` event (versioned change set `{revision, added,
+   * updated, removed, counts}`, never the full list).
    */
   notifications: {
     snapshot: (input?: NotificationSnapshotInput) => Promise<NotificationSnapshot>;

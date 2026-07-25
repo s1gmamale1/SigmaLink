@@ -169,15 +169,19 @@ producer semantics, durable attention, or digest/accessibility findings.
   source cursor and authoritative revision, filter changes cannot unlock an active page request,
   and equal-revision recovery replaces the authoritative first-page window without discarding
   pages already loaded below it. Failed optimistic mark-read/dismiss RPCs now restore the original
-  row only if no newer authoritative revision has arrived. Per-row write guards survive dropdown
-  close/reopen cycles, preventing overlapping mark-read/dismiss compensation chains; rollback also
-  verifies that the exact failed optimistic state is still current before restoring a row. Snapshot,
+  row unless an authoritative change for that same row has superseded it. Per-row write guards
+  survive dropdown close/reopen cycles, preventing overlapping mark-read/dismiss compensation
+  chains; reducer-owned per-row mutation tokens let unrelated revisions advance without suppressing
+  compensation and still reject stale same-row rollback. Snapshot,
   live-change, and older-page responses now share complete runtime row validation; severity buckets
   must sum to the aggregate unread count, and legacy unknown database severities normalize to `info`
-  without being dropped. Duplicate-revision tracking now reuses the bounded pending-change buffer
-  instead of retaining every applied revision for the renderer lifetime. Raw severity filters and
-  retention lanes use the same normalization, so legacy unknown rows remain pageable and eligible
-  for `info` retention. Gap refetches retain the `retrying` hydration state throughout recovery.
+  without being dropped. The pending live-change buffer is capped at 256 entries; overflow drops an
+  old revision so the existing gap detector forces snapshot recovery instead of allowing unbounded
+  growth. Navigation is immediate and remains available while row mutation controls are locked.
+  Dead pre-versioning reducer actions and obsolete envelope documentation were removed. Raw severity
+  filters and retention lanes use the same normalization, so legacy unknown rows remain pageable
+  and eligible for `info` retention. Gap refetches retain the `retrying` hydration state throughout
+  recovery.
   Regression coverage exercises malformed rows and counts, live mutation and recovery during
   pagination, duplicate loads across filter changes, divergent equal-revision
   snapshots, failed/overlapping optimistic writes, and unknown legacy severities. PR #244.
@@ -185,7 +189,8 @@ producer semantics, durable attention, or digest/accessibility findings.
   `.ps1` path both mutates quote/empty argv while forwarding to Node and closes its nested output
   collector slowly. Legacy PowerShell now deliberately uses the existing direct `.cmd` path, whose
   two-pass escaping preserves argv without a nested collector; PowerShell 7 keeps shell-first mode.
-  The hosted Windows smoke remains the required proof because these paths are platform-specific.
+  The hosted assertion accepts Windows' case-insensitive `.CMD` resolution. The hosted Windows smoke
+  remains the required proof because these paths are platform-specific.
 - **Verification receipts.** Focused gate: **10 files / 233 tests / 0 failures**. Broader pure
   notification gate: **23 files / 366 tests / 0 failures**. `pnpm exec tsc -b --pretty false`,
   focused ESLint, and `git diff --check` all exited 0. The original fresh-worktree dependency-build

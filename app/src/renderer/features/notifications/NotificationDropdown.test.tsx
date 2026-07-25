@@ -253,7 +253,6 @@ describe('NotificationDropdown', () => {
       expect(dispatchSpy).toHaveBeenCalledWith({
         type: 'ROLLBACK_NOTIFICATION_OPTIMISTIC',
         notification,
-        sourceRevision: 7,
         expected: { kind: 'mark-read', readAt: expect.any(Number) },
       });
     });
@@ -280,7 +279,6 @@ describe('NotificationDropdown', () => {
       expect(dispatchSpy).toHaveBeenCalledWith({
         type: 'ROLLBACK_NOTIFICATION_OPTIMISTIC',
         notification,
-        sourceRevision: 9,
         expected: { kind: 'dismiss' },
       });
     });
@@ -326,7 +324,6 @@ describe('NotificationDropdown', () => {
       expect(dispatchSpy).toHaveBeenCalledWith({
         type: 'ROLLBACK_NOTIFICATION_OPTIMISTIC',
         notification,
-        sourceRevision: 11,
         expected: { kind: 'mark-read', readAt: expect.any(Number) },
       });
     });

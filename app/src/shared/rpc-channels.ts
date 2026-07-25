@@ -567,11 +567,9 @@ export const EVENTS: ReadonlySet<string> = new Set<string>([
   // Linux auto-update UX — AppImage manual handoff
   'app:update-linux-progress',
   'app:update-linux-ready',
-  // v1.4.9 #07 — Notification delta stream. Payload shape:
-  // `{ added: Notification[], removed: string[], unreadCount: number }`.
-  // The renderer reconciles via the reducer's `NOTIFICATIONS_DELTA` action;
-  // NEVER push the full list on every change (the original v1.4.7 brief's
-  // approach would saturate IPC under broadcast flood).
+  // Notification change stream. Payload is a versioned change set
+  // `{ revision, added, updated, removed, counts }`; the renderer accepts only
+  // consecutive revisions and recovers gaps from an authoritative snapshot.
   'notifications:changed',
   // v1.5.0 (v1.5.2 reviewer DEFER) — sync controller emits this on every
   // status transition; adding to the allowlist here for forward-compat even

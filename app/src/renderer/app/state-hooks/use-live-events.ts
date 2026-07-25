@@ -48,6 +48,7 @@ const ATTENTION_SOUND_THROTTLE_MS = 2000;
 let lastAttentionSoundAt = 0;
 
 const NOTIFICATION_RETRY_DELAYS_MS = [250, 1_000, 4_000, 10_000] as const;
+const NOTIFICATION_CHANGE_BUFFER_MAX = 256;
 
 export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void {
   // Current-state ref so event callbacks (which subscribe with stable deps) see
@@ -579,6 +580,20 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     const buffered = new Map<number, NotificationChangeSet>();
 
+    const bufferChangeSet = (changeSet: NotificationChangeSet): void => {
+      if (
+        !buffered.has(changeSet.revision) &&
+        buffered.size >= NOTIFICATION_CHANGE_BUFFER_MAX
+      ) {
+        // Dropping the oldest buffered event deliberately creates a revision
+        // gap. Hydration detects that gap and refetches an authoritative
+        // snapshot, while memory stays bounded during a prolonged outage.
+        const oldestRevision = buffered.keys().next().value;
+        if (oldestRevision !== undefined) buffered.delete(oldestRevision);
+      }
+      buffered.set(changeSet.revision, changeSet);
+    };
+
     const scheduleRetry = (): void => {
       if (!alive || retryTimer !== null) return;
       dispatch({ type: 'SET_NOTIFICATION_HYDRATION', status: 'retrying' });
@@ -620,7 +635,7 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
         for (const changeSet of pending) {
           if (changeSet.revision <= currentRevision) continue;
           if (changeSet.revision !== currentRevision + 1) {
-            buffered.set(changeSet.revision, changeSet);
+            bufferChangeSet(changeSet);
             continue;
           }
           dispatch({ type: 'APPLY_NOTIFICATION_CHANGE_SET', changeSet });
@@ -684,13 +699,13 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
       }
 
       if (buffering || currentRevision === null) {
-        buffered.set(changeSet.revision, changeSet);
+        bufferChangeSet(changeSet);
       } else if (changeSet.revision === currentRevision + 1) {
         dispatch({ type: 'APPLY_NOTIFICATION_CHANGE_SET', changeSet });
         currentRevision = changeSet.revision;
       } else {
         buffering = true;
-        buffered.set(changeSet.revision, changeSet);
+        bufferChangeSet(changeSet);
         dispatch({ type: 'SET_NOTIFICATION_HYDRATION', status: 'retrying' });
         void hydrate(true);
       }

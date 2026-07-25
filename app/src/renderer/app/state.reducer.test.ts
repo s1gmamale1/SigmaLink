@@ -5,8 +5,7 @@
 //   referentially identical (===) so identity-memoised consumers don't
 //   re-render. The affected workspace's array is rebuilt and correct.
 //
-// PERF-10 — the delta reducers (NOTIFICATIONS_DELTA single-add fast path,
-//   UPSERT_MEMORY, UPSERT_TASK) binary-insert into the already-sorted array
+// PERF-10 — UPSERT_MEMORY and UPSERT_TASK binary-insert into sorted arrays
 //   instead of `[...arr, x].sort()`. The observable ordering must be IDENTICAL
 //   to the old full-sort for newest / middle / oldest insertions (and ties).
 //
@@ -256,169 +255,6 @@ describe('PERF-10 — UPSERT_TASK binary insert preserves order', () => {
   });
 });
 
-describe('PERF-10 — NOTIFICATIONS_DELTA single-add fast path preserves order', () => {
-  const base = [notif('n3', 30), notif('n2', 20), notif('n1', 10)];
-
-  /** Old behaviour oracle for the delta: Map merge + full sort desc by createdAt. */
-  function oldDelta(
-    list: Notification[],
-    added: Notification[],
-    removed: string[],
-  ): Notification[] {
-    const byId = new Map(list.map((n) => [n.id, n]));
-    for (const n of added) byId.set(n.id, n);
-    for (const id of removed) byId.delete(id);
-    return Array.from(byId.values()).sort((a, b) => b.createdAt - a.createdAt);
-  }
-
-  function run(createdAt: number) {
-    const start: AppState = { ...initialAppState, notifications: base };
-    const added = notif('nx', createdAt);
-    const after = appStateReducer(start, {
-      type: 'NOTIFICATIONS_DELTA',
-      added: [added],
-      removed: [],
-      unreadCount: 4,
-    });
-    return { got: after.notifications, oracle: oldDelta(base, [added], []) };
-  }
-
-  it('newest insertion lands at the head and matches the oracle', () => {
-    const { got, oracle } = run(40);
-    expect(got.map((n) => n.id)).toEqual(['nx', 'n3', 'n2', 'n1']);
-    expect(got.map((n) => n.id)).toEqual(oracle.map((n) => n.id));
-  });
-
-  it('middle insertion matches the oracle', () => {
-    const { got, oracle } = run(25);
-    expect(got.map((n) => n.id)).toEqual(['n3', 'nx', 'n2', 'n1']);
-    expect(got.map((n) => n.id)).toEqual(oracle.map((n) => n.id));
-  });
-
-  it('oldest insertion lands at the tail and matches the oracle', () => {
-    const { got, oracle } = run(5);
-    expect(got.map((n) => n.id)).toEqual(['n3', 'n2', 'n1', 'nx']);
-    expect(got.map((n) => n.id)).toEqual(oracle.map((n) => n.id));
-  });
-
-  it('tie createdAt: new item lands BEHIND equal-key existing (matches Map+sort oracle)', () => {
-    const { got, oracle } = run(20); // ties with n2
-    expect(got.map((n) => n.id)).toEqual(oracle.map((n) => n.id));
-    // The (appended-then-stable-sorted) new item sits behind the equal-key n2.
-    expect(got.findIndex((n) => n.id === 'n2')).toBeLessThan(
-      got.findIndex((n) => n.id === 'nx'),
-    );
-  });
-
-  it('unread count is taken from the delta authoritatively', () => {
-    const { got } = run(40);
-    expect(got).toHaveLength(4);
-  });
-
-  it('updates unreadCount from the delta', () => {
-    const start: AppState = { ...initialAppState, notifications: base };
-    const after = appStateReducer(start, {
-      type: 'NOTIFICATIONS_DELTA',
-      added: [notif('nx', 40)],
-      removed: [],
-      unreadCount: 7,
-    });
-    expect(after.notificationsUnreadCount).toBe(7);
-  });
-
-  it('re-inserting an existing id (dedup-absorb) via the single-add path matches the oracle', () => {
-    const start: AppState = { ...initialAppState, notifications: base };
-    // n2 absorbs a dup → same id, bumped createdAt to the newest.
-    const absorbed = notif('n2', 50, { dupCount: 2 });
-    const after = appStateReducer(start, {
-      type: 'NOTIFICATIONS_DELTA',
-      added: [absorbed],
-      removed: [],
-      unreadCount: 3,
-    });
-    const oracle = oldDelta(base, [absorbed], []);
-    expect(after.notifications.map((n) => n.id)).toEqual(oracle.map((n) => n.id));
-    expect(after.notifications.map((n) => n.id)).toEqual(['n2', 'n3', 'n1']);
-    expect(after.notifications.find((n) => n.id === 'n2')?.dupCount).toBe(2);
-  });
-
-  it('batched delta (multiple adds + a removal) falls back to the full sort and matches the oracle', () => {
-    const start: AppState = { ...initialAppState, notifications: base };
-    const added = [notif('nx', 25), notif('ny', 35)];
-    const removed = ['n1'];
-    const after = appStateReducer(start, {
-      type: 'NOTIFICATIONS_DELTA',
-      added,
-      removed,
-      unreadCount: 4,
-    });
-    const oracle = oldDelta(base, added, removed);
-    expect(after.notifications.map((n) => n.id)).toEqual(oracle.map((n) => n.id));
-    expect(after.notifications.map((n) => n.id)).toEqual(['ny', 'n3', 'nx', 'n2']);
-  });
-});
-
-// 2026-07-02 review fix A — the delta's `updated` lane reconciles read-state
-// on existing rows (mark-read / mark-all-read / mark-unread) without the
-// alerting semantics of `added`.
-describe('NOTIFICATIONS_DELTA — `updated` read-state reconcile lane', () => {
-  const base = [notif('n3', 30), notif('n2', 20), notif('n1', 10)];
-
-  it('reconciles readAt on an existing row without duplicating it', () => {
-    const start: AppState = {
-      ...initialAppState,
-      notifications: base,
-      notificationsUnreadCount: 3,
-    };
-    const after = appStateReducer(start, {
-      type: 'NOTIFICATIONS_DELTA',
-      added: [],
-      removed: [],
-      updated: [{ ...base[1]!, readAt: 99 }],
-      unreadCount: 2,
-    });
-    expect(after.notifications).toHaveLength(3);
-    expect(after.notifications.find((n) => n.id === 'n2')?.readAt).toBe(99);
-    expect(after.notificationsUnreadCount).toBe(2);
-  });
-
-  it('mark-all-read reconcile flips every carried row to read, order preserved', () => {
-    const start: AppState = {
-      ...initialAppState,
-      notifications: base,
-      notificationsUnreadCount: 3,
-    };
-    const after = appStateReducer(start, {
-      type: 'NOTIFICATIONS_DELTA',
-      added: [],
-      removed: [],
-      updated: base.map((n) => ({ ...n, readAt: 77 })),
-      unreadCount: 0,
-    });
-    expect(after.notifications.map((n) => n.id)).toEqual(['n3', 'n2', 'n1']);
-    expect(after.notifications.every((n) => n.readAt === 77)).toBe(true);
-    expect(after.notificationsUnreadCount).toBe(0);
-  });
-
-  it('mark-unread reconcile clears readAt in place', () => {
-    const read = notif('n2', 20, { readAt: 55 });
-    const start: AppState = {
-      ...initialAppState,
-      notifications: [notif('n3', 30), read, notif('n1', 10)],
-      notificationsUnreadCount: 2,
-    };
-    const after = appStateReducer(start, {
-      type: 'NOTIFICATIONS_DELTA',
-      added: [],
-      removed: [],
-      updated: [{ ...read, readAt: null }],
-      unreadCount: 3,
-    });
-    expect(after.notifications.find((n) => n.id === 'n2')?.readAt).toBeNull();
-    expect(after.notifications.map((n) => n.id)).toEqual(['n3', 'n2', 'n1']);
-  });
-});
-
 describe('versioned notification reconciliation', () => {
   const emptyCounts = {
     unread: 0,
@@ -484,22 +320,26 @@ describe('versioned notification reconciliation', () => {
     expect(after.notificationHydration).toBe('ready');
   });
 
-  it('rolls back an optimistic notification mutation only at its source revision', () => {
+  it('rolls back after unrelated revisions but not after same-row authoritative changes', () => {
     const original = notif('rollback', 20, { readAt: null });
-    const optimistic: AppState = {
+    const start: AppState = {
       ...initialAppState,
-      notifications: [{ ...original, readAt: 123 }],
-      notificationsUnreadCount: 0,
+      notifications: [original],
+      notificationsUnreadCount: 1,
       notificationRevision: 5,
       notificationCounts: {
         unread: 1,
         unreadBySeverity: { ...emptyCounts.unreadBySeverity, info: 1 },
       },
     };
+    const optimistic = appStateReducer(start, {
+      type: 'MARK_NOTIFICATION_READ',
+      id: original.id,
+      readAt: 123,
+    });
     const action = {
       type: 'ROLLBACK_NOTIFICATION_OPTIMISTIC' as const,
       notification: original,
-      sourceRevision: 5,
       expected: { kind: 'mark-read' as const, readAt: 123 },
     };
 
@@ -507,26 +347,80 @@ describe('versioned notification reconciliation', () => {
     expect(restored.notifications).toEqual([original]);
     expect(restored.notificationsUnreadCount).toBe(1);
 
-    const advanced = { ...optimistic, notificationRevision: 6 };
-    expect(appStateReducer(advanced, action)).toBe(advanced);
+    const unrelated = notif('unrelated', 30);
+    const advanced = appStateReducer(optimistic, {
+      type: 'APPLY_NOTIFICATION_CHANGE_SET',
+      changeSet: {
+        revision: 6,
+        added: [unrelated],
+        updated: [],
+        removed: [],
+        counts: {
+          unread: 2,
+          unreadBySeverity: { ...emptyCounts.unreadBySeverity, info: 2 },
+        },
+        unreadCount: 2,
+      },
+    });
+    expect(appStateReducer(advanced, action).notifications).toEqual([unrelated, original]);
 
-    const superseded = {
-      ...optimistic,
-      notifications: [{ ...original, readAt: 456 }],
-    };
+    const superseded = appStateReducer(optimistic, {
+      type: 'APPLY_NOTIFICATION_CHANGE_SET',
+      changeSet: {
+        revision: 6,
+        added: [],
+        updated: [{ ...original, readAt: 123 }],
+        removed: [],
+        counts: emptyCounts,
+        unreadCount: 0,
+      },
+    });
     expect(appStateReducer(superseded, action)).toBe(superseded);
 
-    const dismissed = { ...optimistic, notifications: [] };
+    const dismissed = appStateReducer(start, {
+      type: 'DISMISS_NOTIFICATION',
+      id: original.id,
+    });
     const dismissAction = {
       type: 'ROLLBACK_NOTIFICATION_OPTIMISTIC' as const,
       notification: original,
-      sourceRevision: 5,
       expected: { kind: 'dismiss' as const },
     };
     expect(appStateReducer(dismissed, dismissAction).notifications).toEqual([original]);
 
-    const independentlyRestored = { ...dismissed, notifications: [original] };
-    expect(appStateReducer(independentlyRestored, dismissAction)).toBe(independentlyRestored);
+    const dismissedAfterUnrelated = appStateReducer(dismissed, {
+      type: 'APPLY_NOTIFICATION_CHANGE_SET',
+      changeSet: {
+        revision: 6,
+        added: [unrelated],
+        updated: [],
+        removed: [],
+        counts: {
+          unread: 2,
+          unreadBySeverity: { ...emptyCounts.unreadBySeverity, info: 2 },
+        },
+        unreadCount: 2,
+      },
+    });
+    expect(appStateReducer(dismissedAfterUnrelated, dismissAction).notifications).toEqual([
+      unrelated,
+      original,
+    ]);
+
+    const authoritativelyDismissed = appStateReducer(dismissed, {
+      type: 'APPLY_NOTIFICATION_CHANGE_SET',
+      changeSet: {
+        revision: 6,
+        added: [],
+        updated: [],
+        removed: [original.id],
+        counts: emptyCounts,
+        unreadCount: 0,
+      },
+    });
+    expect(appStateReducer(authoritativelyDismissed, dismissAction)).toBe(
+      authoritativelyDismissed,
+    );
   });
 
   it('applies only the next consecutive change-set revision', () => {

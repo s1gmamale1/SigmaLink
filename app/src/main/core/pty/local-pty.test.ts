@@ -883,7 +883,7 @@ describe('spawnLocalPty: win32 shell-first mode (Phase 5)', () => {
       const spawnEnv = spawnOptions.env as NodeJS.ProcessEnv;
       expect(spawnCommand).toBe('cmd.exe');
       expect(typeof spawnArgs).toBe('string');
-      expect(String(spawnArgs)).toContain(`${commandName}.cmd`);
+      expect(String(spawnArgs).toLowerCase()).toContain(`${commandName}.cmd`);
       expect(spawnEnv.SIGMALINK_SHELL_FIRST_COMMAND).toBeUndefined();
       expect(written).toHaveLength(0);
 

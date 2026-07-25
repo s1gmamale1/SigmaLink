@@ -78,6 +78,26 @@ function reconcileNotificationRows(
   return Array.from(byId.values()).sort(compareNotificationsNewestFirst);
 }
 
+function clearOptimisticNotificationMutations(
+  current: AppState['notificationOptimisticMutations'],
+  ids: Iterable<string>,
+): AppState['notificationOptimisticMutations'] {
+  let next = current;
+  for (const id of ids) next = omitKey(next, id);
+  return next;
+}
+
+function sameOptimisticNotificationMutation(
+  current: AppState['notificationOptimisticMutations'][string] | undefined,
+  expected: AppState['notificationOptimisticMutations'][string],
+): boolean {
+  return (
+    current?.kind === expected.kind &&
+    (expected.kind === 'dismiss' ||
+      (current.kind === 'mark-read' && current.readAt === expected.readAt))
+  );
+}
+
 function compareNotificationsNewestFirst(a: Notification, b: Notification): number {
   if (a.createdAt !== b.createdAt) return b.createdAt - a.createdAt;
   if (a.id === b.id) return 0;
@@ -886,6 +906,10 @@ export function appStateReducer(state: AppState, action: Action): AppState {
       if (state.notificationRevision !== null) {
         if (snapshot.revision < state.notificationRevision) return state;
         if (snapshot.revision === state.notificationRevision) {
+          const notificationOptimisticMutations = clearOptimisticNotificationMutations(
+            state.notificationOptimisticMutations,
+            snapshot.items.map((notification) => notification.id),
+          );
           return {
             ...state,
             notifications: reconcileSameRevisionSnapshot(
@@ -898,6 +922,7 @@ export function appStateReducer(state: AppState, action: Action): AppState {
             notificationNextCursor:
               snapshot.nextCursor === null ? null : state.notificationNextCursor,
             notificationHydration: 'ready',
+            notificationOptimisticMutations,
           };
         }
       }
@@ -909,6 +934,7 @@ export function appStateReducer(state: AppState, action: Action): AppState {
         notificationCounts: snapshot.counts,
         notificationNextCursor: snapshot.nextCursor,
         notificationHydration: 'ready',
+        notificationOptimisticMutations: {},
       };
     }
     case 'APPLY_NOTIFICATION_CHANGE_SET': {
@@ -920,6 +946,14 @@ export function appStateReducer(state: AppState, action: Action): AppState {
           ? state
           : { ...state, notificationHydration: 'retrying' };
       }
+      const notificationOptimisticMutations = clearOptimisticNotificationMutations(
+        state.notificationOptimisticMutations,
+        [
+          ...changeSet.added.map((notification) => notification.id),
+          ...changeSet.updated.map((notification) => notification.id),
+          ...changeSet.removed,
+        ],
+      );
       return {
         ...state,
         notifications: reconcileNotificationRows(state.notifications, changeSet),
@@ -927,6 +961,7 @@ export function appStateReducer(state: AppState, action: Action): AppState {
         notificationRevision: changeSet.revision,
         notificationCounts: changeSet.counts,
         notificationHydration: 'ready',
+        notificationOptimisticMutations,
       };
     }
     case 'APPEND_NOTIFICATION_PAGE': {
@@ -962,7 +997,8 @@ export function appStateReducer(state: AppState, action: Action): AppState {
         ? state
         : { ...state, notificationHydration: action.status };
     case 'ROLLBACK_NOTIFICATION_OPTIMISTIC': {
-      if (state.notificationRevision !== action.sourceRevision) return state;
+      const pending = state.notificationOptimisticMutations[action.notification.id];
+      if (!sameOptimisticNotificationMutation(pending, action.expected)) return state;
       const current = state.notifications.find(
         (notification) => notification.id === action.notification.id,
       );
@@ -982,65 +1018,18 @@ export function appStateReducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         notifications,
-        // Versioned counts are deliberately not changed optimistically, so
-        // they remain the authoritative value for this unchanged revision.
+        // Counts are deliberately not changed by compensation, so they remain
+        // the authoritative value from the latest accepted revision.
         notificationsUnreadCount: state.notificationCounts.unread,
-      };
-    }
-    case 'SET_NOTIFICATIONS':
-      // v1.4.9 #07 — initial mount sets the paginated list + unreadCount.
-      return {
-        ...state,
-        notifications: action.notifications,
-        notificationsUnreadCount: action.unreadCount,
-      };
-    case 'NOTIFICATIONS_DELTA': {
-      // v1.4.9 #07 — main process owns the delta. Upsert by id (added rows
-      // may overwrite an absorbing dedup row — same id, updated dup_count /
-      // severity / body), then drop any ids in `removed`.
-      //
-      // PERF-10 — `state.notifications` is already sorted newest-first by
-      // createdAt. The overwhelmingly common delta is a SINGLE added row and no
-      // removals; that collapses to one remove-by-id + one binary insert
-      // (O(log n)) instead of rebuilding + full-sorting the whole list. The
-      // 'after' tie policy reproduces the prior `Array.from(map.values())
-      // .sort()` output exactly: the added/re-inserted row sat at the END of the
-      // pre-sort array, so a stable sort left it behind equal-createdAt rows.
-      const updated = action.updated ?? [];
-      if (action.removed.length === 0 && action.added.length === 1 && updated.length === 0) {
-        const added = action.added[0]!;
-        const base =
-          state.notifications.some((n) => n.id === added.id)
-            ? state.notifications.filter((n) => n.id !== added.id)
-            : state.notifications;
-        const merged = insertSortedDesc(base, added, (n) => n.createdAt, 'after');
-        return {
-          ...state,
-          notifications: merged,
-          notificationsUnreadCount: action.unreadCount,
-        };
-      }
-      // Fallback for batched / mixed deltas (multiple adds, removals, read-state
-      // reconciles, or dedup-absorbing re-inserts) — keep the authoritative Map
-      // + full sort. `updated` rows (2026-07-02 fix A) apply first so a
-      // co-delivered `added` for the same id stays authoritative.
-      const byId = new Map(state.notifications.map((n) => [n.id, n]));
-      for (const n of updated) byId.set(n.id, n);
-      for (const n of action.added) byId.set(n.id, n);
-      for (const id of action.removed) byId.delete(id);
-      // Sort newest-first by createdAt so the dropdown render stays stable.
-      const merged: Notification[] = Array.from(byId.values()).sort(
-        (a, b) => b.createdAt - a.createdAt,
-      );
-      return {
-        ...state,
-        notifications: merged,
-        notificationsUnreadCount: action.unreadCount,
+        notificationOptimisticMutations: omitKey(
+          state.notificationOptimisticMutations,
+          action.notification.id,
+        ),
       };
     }
     case 'MARK_NOTIFICATION_READ': {
-      // Optimistic local update; the NOTIFICATIONS_DELTA echo reconciles
-      // unreadCount authoritatively.
+      // Optimistic local update; the versioned change-set echo reconciles the
+      // row and counts authoritatively.
       let transitioned = false;
       const next = state.notifications.map((n) => {
         if (n.id === action.id && n.readAt === null) {
@@ -1055,11 +1044,24 @@ export function appStateReducer(state: AppState, action: Action): AppState {
         notificationsUnreadCount: transitioned
           ? Math.max(0, state.notificationsUnreadCount - 1)
           : state.notificationsUnreadCount,
+        notificationOptimisticMutations: transitioned
+          ? {
+              ...state.notificationOptimisticMutations,
+              [action.id]: { kind: 'mark-read', readAt: action.readAt },
+            }
+          : state.notificationOptimisticMutations,
       };
     }
     case 'DISMISS_NOTIFICATION': {
+      const transitioned = state.notifications.some((n) => n.id === action.id);
       const next = state.notifications.filter((n) => n.id !== action.id);
-      return { ...state, notifications: next };
+      return {
+        ...state,
+        notifications: next,
+        notificationOptimisticMutations: transitioned
+          ? { ...state.notificationOptimisticMutations, [action.id]: { kind: 'dismiss' } }
+          : state.notificationOptimisticMutations,
+      };
     }
     default:
       return state;

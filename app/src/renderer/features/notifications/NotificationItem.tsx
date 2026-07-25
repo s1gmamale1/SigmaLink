@@ -77,8 +77,7 @@ export function NotificationItem({
       <button
         type="button"
         onClick={onClick}
-        disabled={disabled}
-        className="flex flex-1 items-start gap-2 text-left hover:opacity-80 disabled:cursor-wait"
+        className="flex flex-1 items-start gap-2 text-left hover:opacity-80"
         // UX-9 — severity word prepended to the accessible name so VoiceOver
         // announces e.g. "Critical: Process exited, Open".
         aria-label={`${sevLabel}: ${notification.title}`}

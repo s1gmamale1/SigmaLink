@@ -159,6 +159,10 @@ export function NotificationDropdown({ onClose }: DropdownProps) {
       // lint rule which flags any impure call reachable from a render path.
       const readAt = Date.now();
       dispatch({ type: 'MARK_NOTIFICATION_READ', id: notification.id, readAt });
+      // Navigation is local and does not depend on the persistence round trip.
+      // Keeping it immediate also lets a second click navigate while the
+      // per-row write lock blocks duplicate mutation RPCs.
+      navigateToNotification(notification, dispatch);
       try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await (rpc as any).notifications.markRead(notification.id);
@@ -166,20 +170,16 @@ export function NotificationDropdown({ onClose }: DropdownProps) {
         dispatch({
           type: 'ROLLBACK_NOTIFICATION_OPTIMISTIC',
           notification,
-          sourceRevision: notificationRevision,
           expected: { kind: 'mark-read', readAt },
         });
       } finally {
         finishNotificationMutation(notification.id);
       }
 
-      // D5 — deep-link to the source context (shared with the toast handoff).
-      navigateToNotification(notification, dispatch);
-
       // We do NOT close the dropdown on click — operator may want to triage
       // multiple items in sequence.
     },
-    [dispatch, notificationRevision],
+    [dispatch],
   );
 
   const handleDismiss = async (notification: Notification) => {
@@ -192,7 +192,6 @@ export function NotificationDropdown({ onClose }: DropdownProps) {
       dispatch({
         type: 'ROLLBACK_NOTIFICATION_OPTIMISTIC',
         notification,
-        sourceRevision: notificationRevision,
         expected: { kind: 'dismiss' },
       });
     } finally {

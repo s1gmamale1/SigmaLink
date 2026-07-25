@@ -568,6 +568,56 @@ describe('useLiveEvents — versioned notification hydration', () => {
     expect(applyIndex).toBeGreaterThan(installIndex);
   });
 
+  it('bounds the live buffer and recovers from a snapshot after overflow', async () => {
+    vi.useFakeTimers();
+    try {
+      let resolveFirstSnapshot!: (snapshot: NotificationSnapshot) => void;
+      notificationSnapshotMock
+        .mockReturnValueOnce(
+          new Promise((resolve) => {
+            resolveFirstSnapshot = resolve;
+          }),
+        )
+        .mockResolvedValueOnce({
+          revision: 257,
+          counts: notificationCounts(0),
+          items: [],
+          nextCursor: null,
+        });
+      await renderLiveEvents(stateWith([]));
+      await act(async () => {
+        await Promise.resolve();
+        for (let revision = 1; revision <= 257; revision += 1) {
+          sigma.emit('notifications:changed', changeSet(revision));
+        }
+        resolveFirstSnapshot({
+          revision: 0,
+          counts: notificationCounts(0),
+          items: [],
+          nextCursor: null,
+        });
+        await flushAsync();
+      });
+
+      expect(notificationSnapshotMock).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(250);
+        await flushAsync();
+      });
+
+      expect(notificationSnapshotMock).toHaveBeenCalledTimes(2);
+      expect(dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'INSTALL_NOTIFICATION_SNAPSHOT',
+          snapshot: expect.objectContaining({ revision: 257 }),
+        }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('refetches one snapshot after a live revision gap', async () => {
     notificationSnapshotMock
       .mockResolvedValueOnce({
