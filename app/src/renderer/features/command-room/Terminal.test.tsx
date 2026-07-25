@@ -80,8 +80,11 @@ vi.mock('@/renderer/lib/rpc', () => ({
 }));
 
 vi.mock('@/renderer/app/state', () => ({
-  useAppStateSelector: (selector: (s: { activeWorkspace?: { id?: string } }) => unknown) =>
-    selector({ activeWorkspace: { id: 'ws-1' } }),
+  useAppStateSelector: (selector: (s: { activeWorkspace?: { id?: string }; sessions: unknown[] }) => unknown) =>
+    // `sessions: []` — Terminal.tsx's providerId selector does
+    // `s.sessions.find(...)`, so the mocked state must carry the array
+    // (yields undefined providerId → title-follow default, no behavior change).
+    selector({ activeWorkspace: { id: 'ws-1' }, sessions: [] }),
 }));
 
 const setActiveTabMock = vi.fn();

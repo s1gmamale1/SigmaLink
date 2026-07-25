@@ -660,27 +660,37 @@ function buildWindowsShellFirstScript(withSentinel: boolean): string {
 }
 
 function spawnShellFirstPty(input: SpawnInput): PtyHandle {
-  // H-9 (Wave-2 hardening): synchronous ENOENT pre-flight for shell-first mode.
+  // H-9 (Wave-2 hardening) + 2026-07 kimi-code migration fix:
   //
-  // In direct mode, `spawnLocalPty` pre-resolves the command against PATH and
-  // throws a synchronous ENOENT when it is missing, which lets the launcher's
-  // `[command, ...altCommands]` walk fall through to the next candidate. In
-  // shell-first mode the binary is INJECTED as text into a shell that always
-  // exists, so a missing binary used to surface only as shell "command not
-  // found" output + the exit-code sentinel — never a synchronous throw — and
-  // the altCommands fallback was therefore dead.
+  // The pre-flight resolves the command against ELECTRON's PATH so a missing
+  // candidate can throw synchronously and drive the launcher's altCommands
+  // walk (mirroring direct mode). But Electron's PATH is the WRONG oracle on
+  // POSIX shell-first: a dev-launched app never runs the login-shell PATH
+  // bootstrap (shell-path.ts isDev no-op) and a packaged warm boot applies a
+  // possibly-stale cache — while the pane's own login shell (`zsh -l`,
+  // `bash -l`) sources ~/.zshrc / profile and sees user additions like
+  // ~/.kimi-code/bin that Electron cannot. A pre-flight miss here used to
+  // hard-fail the launch before any PTY existed ("No usable command found
+  // for provider kimi") even though typing the same command in a plain
+  // terminal pane works fine.
   //
-  // Resolve the binary here, BEFORE building the shell command line, mirroring
-  // the direct-mode pre-flight. On a miss we throw the same ENOENT shape so the
-  // launcher walks to the next alt-command in BOTH modes. Windows transports
-  // the resolved path through the protected child-command environment value;
-  // POSIX keeps injecting the original command name.
+  // POSIX: a miss now degrades to injecting the BARE command — the login
+  // shell resolves it if it exists anywhere on the user's real PATH, and a
+  // genuine not-found still surfaces via the shell's own "command not found"
+  // + the exit-127 sentinel (the launcher-level error path that predates
+  // H-9). altCommands on POSIX are Windows shims (*.cmd) in practice, so
+  // skipping the fallback walk on a POSIX miss loses nothing.
+  //
+  // win32: keep the synchronous throw — shell-first degrades to direct on
+  // win32 end-to-end (H-6), and the resolved path is REQUIRED there: Windows
+  // transports it through the protected child-command environment value,
+  // while POSIX keeps injecting the original command name.
   const baseEnv = input.env ?? process.env;
   const resolvedCommand =
     process.platform === 'win32'
       ? resolveWindowsCommand(input.command, baseEnv)
       : resolvePosixCommand(input.command, baseEnv);
-  if (!resolvedCommand) {
+  if (!resolvedCommand && process.platform === 'win32') {
     const err = new Error(
       `spawn ${input.command} ENOENT`,
     ) as Error & { code: string; errno: number; syscall: string; path: string };
@@ -689,6 +699,12 @@ function spawnShellFirstPty(input: SpawnInput): PtyHandle {
     err.syscall = 'spawn';
     err.path = input.command;
     throw err;
+  }
+  if (!resolvedCommand) {
+    console.warn(
+      `[pty] shell-first: "${input.command}" not on Electron's PATH; ` +
+        `deferring to the pane's login shell (exit 127 sentinel covers a genuine miss)`,
+    );
   }
 
   const resolvedCwd =
@@ -719,8 +735,10 @@ function spawnShellFirstPty(input: SpawnInput): PtyHandle {
       ? buildWindowsShellFirstScript(true)
       : buildShellCommandLine(input.command, input.args, true);
   if (process.platform === 'win32') {
+    // Non-null here: a win32 pre-flight miss threw above (the resolved path is
+    // required — it is transported through the protected env value).
     env[WINDOWS_SHELL_FIRST_COMMAND_ENV] = buildWindowsShellFirstCommand(
-      resolvedCommand,
+      resolvedCommand!,
       input.args,
       shell.command,
     );

@@ -8,6 +8,14 @@ const labelReaderMock = vi.hoisted(() => ({
 }));
 vi.mock('@/renderer/lib/label-reader', () => labelReaderMock);
 
+const orchestratorMock = vi.hoisted(() => ({
+  onAgentLabel: vi.fn(),
+  onPrompt: vi.fn(),
+  clearPaneTitle: vi.fn(),
+  __resetPaneTitleOrchestrator: vi.fn(),
+}));
+vi.mock('@/renderer/lib/pane-title-orchestrator', () => orchestratorMock);
+
 const rpcMock = vi.hoisted(() => ({
   pty: {
     snapshot: vi.fn(async () => ({ buffer: '' })),
@@ -33,6 +41,7 @@ vi.mock('@/renderer/lib/pty-exit-bus', () => ({
 }));
 
 import { __resetEngineCache, destroyEngine, getCachedEngine, getOrCreateEngine } from './engine-cache';
+import { __resetTitleFollow, setTitleFollow } from './pane-title-follow';
 
 function engineText(entry: ReturnType<typeof getOrCreateEngine>): string {
   return entry.engine.logicalLines().map((l) => l.text).join('\n').trimEnd();
@@ -49,7 +58,10 @@ beforeEach(() => {
   exitSubs.clear();
   rpcMock.pty.snapshot.mockImplementation(async () => ({ buffer: '' }));
 });
-afterEach(() => __resetEngineCache());
+afterEach(() => {
+  __resetEngineCache();
+  __resetTitleFollow();
+});
 
 describe('engine-cache', () => {
   it('seeds from snapshot then drains pending without duplicating the overlap', async () => {
@@ -113,5 +125,37 @@ describe('engine-cache label-reader wiring', () => {
     expect(labelReaderMock.attachEngineLabelReader).toHaveBeenCalledWith('lbl-1', entry.engine);
     destroyEngine('lbl-1');
     expect(labelReaderMock.detachLabelReader).toHaveBeenCalledWith('lbl-1', entry.engine);
+  });
+});
+
+describe('engine-cache OSC title sink (pane-title-follow gate)', () => {
+  it('forwards an OSC 2 title to onAgentLabel by default (agent panes)', async () => {
+    getOrCreateEngine('title-1');
+    await settle();
+    dataSubs.get('title-1')!({ sessionId: 'title-1', data: '\x1b]2;agent rename\x07' });
+    await settle();
+    expect(orchestratorMock.onAgentLabel).toHaveBeenCalledWith('title-1', 'agent rename');
+  });
+
+  it('does NOT forward an OSC 2 title when title-follow is disabled (shell panes)', async () => {
+    setTitleFollow('title-2', false);
+    getOrCreateEngine('title-2');
+    await settle();
+    dataSubs.get('title-2')!({ sessionId: 'title-2', data: '\x1b]2;shell auto-title\x07' });
+    await settle();
+    expect(orchestratorMock.onAgentLabel).not.toHaveBeenCalled();
+  });
+
+  it('gate is evaluated at fire time — disabling after creation stops forwarding', async () => {
+    getOrCreateEngine('title-3');
+    await settle();
+    dataSubs.get('title-3')!({ sessionId: 'title-3', data: '\x1b]2;first\x07' });
+    await settle();
+    expect(orchestratorMock.onAgentLabel).toHaveBeenCalledWith('title-3', 'first');
+    orchestratorMock.onAgentLabel.mockClear();
+    setTitleFollow('title-3', false);
+    dataSubs.get('title-3')!({ sessionId: 'title-3', data: '\x1b]2;second\x07' });
+    await settle();
+    expect(orchestratorMock.onAgentLabel).not.toHaveBeenCalled();
   });
 });

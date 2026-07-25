@@ -163,6 +163,10 @@ describe('useTerminalCacheGc — pane-label reaping', () => {
     expect(getAgentLabel('gone-1')).toBe('Reviewing auth');
 
     rerender({ s: stateWith({ 'ws-1': [] }) });
+    // First absent tick is treated as a possible transient miss — label survives.
+    expect(getAgentLabel('gone-1')).toBe('Reviewing auth');
+
+    rerender({ s: stateWith({ 'ws-1': [] }) });
     expect(getAgentLabel('gone-1')).toBeNull();
   });
 
@@ -173,5 +177,36 @@ describe('useTerminalCacheGc — pane-label reaping', () => {
     rerender({ s: stateWith({ 'ws-1': [session('s1')] }) });
     expect(detachLabelReaderMock).toHaveBeenCalledWith('s2');
     expect(detachLabelReaderMock).not.toHaveBeenCalledWith('s1');
+  });
+
+  it('keeps the pane label through a single transient miss; clears after two', () => {
+    const id = 'sess-transient';
+    setAgentLabel(id, 'School Account Fix-Agent');
+    hasCachedMock.mockReturnValue(true);
+
+    const { rerender } = renderHook(({ state }) => useTerminalCacheGc(state), {
+      initialProps: { state: stateWith({ 'ws-1': [session(id)] }) },
+    });
+
+    rerender({ state: stateWith({}) }); // tick 1: transient miss
+    expect(getAgentLabel(id)).toBe('School Account Fix-Agent');
+
+    rerender({ state: stateWith({}) }); // tick 2: still absent — genuinely gone
+    expect(getAgentLabel(id)).toBeNull();
+  });
+
+  it('a session that reappears resets the miss counter', () => {
+    const id = 'sess-flap';
+    setAgentLabel(id, 'kept');
+    hasCachedMock.mockReturnValue(true);
+
+    const { rerender } = renderHook(({ state }) => useTerminalCacheGc(state), {
+      initialProps: { state: stateWith({ 'ws-1': [session(id)] }) },
+    });
+
+    rerender({ state: stateWith({}) });                  // miss 1
+    rerender({ state: stateWith({ 'ws-1': [session(id)] }) }); // reappears — counter resets
+    rerender({ state: stateWith({}) });                  // miss 1 again (not 2)
+    expect(getAgentLabel(id)).toBe('kept');
   });
 });
