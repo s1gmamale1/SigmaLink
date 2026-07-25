@@ -177,8 +177,9 @@ producer semantics, durable attention, or digest/accessibility findings.
   without being dropped. Duplicate-revision tracking now reuses the bounded pending-change buffer
   instead of retaining every applied revision for the renderer lifetime. Raw severity filters and
   retention lanes use the same normalization, so legacy unknown rows remain pageable and eligible
-  for `info` retention. Regression coverage exercises malformed rows and counts, live mutation and
-  recovery during pagination, duplicate loads across filter changes, divergent equal-revision
+  for `info` retention. Gap refetches retain the `retrying` hydration state throughout recovery.
+  Regression coverage exercises malformed rows and counts, live mutation and recovery during
+  pagination, duplicate loads across filter changes, divergent equal-revision
   snapshots, failed/overlapping optimistic writes, and unknown legacy severities. PR #244.
 - **Windows argv-smoke path — hardened.** Hosted Windows proved that Windows PowerShell 5.1's npm
   `.ps1` path both mutates quote/empty argv while forwarding to Node and closes its nested output

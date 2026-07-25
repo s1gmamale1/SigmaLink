@@ -692,7 +692,7 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
         buffering = true;
         buffered.set(changeSet.revision, changeSet);
         dispatch({ type: 'SET_NOTIFICATION_HYDRATION', status: 'retrying' });
-        void hydrate();
+        void hydrate(true);
       }
 
       const { added } = changeSet;

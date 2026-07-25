@@ -586,6 +586,7 @@ describe('useLiveEvents — versioned notification hydration', () => {
     await act(async () => {
       await flushAsync();
     });
+    dispatch.mockClear();
 
     await act(async () => {
       sigma.emit('notifications:changed', changeSet(3, [makeNotification({ id: 'gap-row' })]));
@@ -593,6 +594,12 @@ describe('useLiveEvents — versioned notification hydration', () => {
     });
 
     expect(notificationSnapshotMock).toHaveBeenCalledTimes(2);
+    expect(
+      dispatch.mock.calls
+        .map(([action]) => action)
+        .filter((action) => action.type === 'SET_NOTIFICATION_HYDRATION')
+        .map((action) => action.status),
+    ).toEqual(['retrying', 'retrying']);
     expect(dispatch).toHaveBeenCalledWith(
       expect.objectContaining({
         type: 'INSTALL_NOTIFICATION_SNAPSHOT',
