@@ -296,7 +296,12 @@ export type Action =
     }
   | { type: 'INSTALL_NOTIFICATION_SNAPSHOT'; snapshot: NotificationSnapshot }
   | { type: 'APPLY_NOTIFICATION_CHANGE_SET'; changeSet: NotificationChangeSet }
-  | { type: 'APPEND_NOTIFICATION_PAGE'; page: NotificationPage }
+  | {
+      type: 'APPEND_NOTIFICATION_PAGE';
+      page: NotificationPage;
+      /** Cursor used to request this page; guards against stale async responses. */
+      sourceCursor: string;
+    }
   | {
       type: 'SET_NOTIFICATION_HYDRATION';
       status: AppState['notificationHydration'];

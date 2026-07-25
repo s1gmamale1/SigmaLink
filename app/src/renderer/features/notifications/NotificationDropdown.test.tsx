@@ -324,6 +324,7 @@ describe('NotificationDropdown', () => {
     expect(dispatchSpy).toHaveBeenCalledWith({
       type: 'APPEND_NOTIFICATION_PAGE',
       page: { items: [older], nextCursor: null },
+      sourceCursor: 'cursor-1',
     });
   });
 

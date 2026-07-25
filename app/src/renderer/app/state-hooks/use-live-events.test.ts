@@ -677,6 +677,102 @@ describe('useLiveEvents — versioned notification hydration', () => {
     );
   });
 
+  it('recovers instead of applying a change set with a malformed notification row', async () => {
+    const recoveredRow = makeNotification({ id: 'recovered-after-invalid-row' });
+    notificationSnapshotMock
+      .mockResolvedValueOnce({
+        revision: 1,
+        counts: notificationCounts(0),
+        items: [],
+        nextCursor: null,
+      })
+      .mockResolvedValueOnce({
+        revision: 2,
+        counts: notificationCounts(1),
+        items: [recoveredRow],
+        nextCursor: null,
+      });
+    await renderLiveEvents(stateWith([]));
+    await act(async () => {
+      await flushAsync();
+    });
+
+    await act(async () => {
+      sigma.emit('notifications:changed', {
+        revision: 2,
+        added: [{ id: 'only-an-id' }],
+        updated: [],
+        removed: [],
+        counts: notificationCounts(1),
+        unreadCount: 1,
+      });
+      await flushAsync();
+    });
+
+    expect(notificationSnapshotMock).toHaveBeenCalledTimes(2);
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'APPLY_NOTIFICATION_CHANGE_SET',
+        changeSet: expect.objectContaining({ revision: 2 }),
+      }),
+    );
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'INSTALL_NOTIFICATION_SNAPSHOT',
+      snapshot: {
+        revision: 2,
+        counts: notificationCounts(1),
+        items: [recoveredRow],
+        nextCursor: null,
+      },
+    });
+  });
+
+  it('retries hydration instead of installing a snapshot with a malformed row', async () => {
+    vi.useFakeTimers();
+    try {
+      const validRow = makeNotification({ id: 'valid-after-malformed-snapshot' });
+      notificationSnapshotMock
+        .mockResolvedValueOnce({
+          revision: 1,
+          counts: notificationCounts(1),
+          items: [{ id: 'only-an-id' } as Notification],
+          nextCursor: null,
+        })
+        .mockResolvedValueOnce({
+          revision: 1,
+          counts: notificationCounts(1),
+          items: [validRow],
+          nextCursor: null,
+        });
+      await renderLiveEvents(stateWith([]));
+      await act(async () => {
+        await flushAsync();
+      });
+
+      expect(dispatch).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'INSTALL_NOTIFICATION_SNAPSHOT' }),
+      );
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(250);
+        await flushAsync();
+      });
+
+      expect(notificationSnapshotMock).toHaveBeenCalledTimes(2);
+      expect(dispatch).toHaveBeenCalledWith({
+        type: 'INSTALL_NOTIFICATION_SNAPSHOT',
+        snapshot: {
+          revision: 1,
+          counts: notificationCounts(1),
+          items: [validRow],
+          nextCursor: null,
+        },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('queues one recovery snapshot when a malformed envelope arrives during hydration', async () => {
     let resolveInitialSnapshot!: (snapshot: NotificationSnapshot) => void;
     notificationSnapshotMock

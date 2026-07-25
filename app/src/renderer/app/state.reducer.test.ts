@@ -541,10 +541,42 @@ describe('versioned notification reconciliation', () => {
         items: [n2, notif('n1', 10)],
         nextCursor: null,
       },
+      sourceCursor: 'older-page',
     });
 
     expect(after.notifications.map((row) => row.id)).toEqual(['n3', 'n2', 'n1']);
     expect(after.notificationNextCursor).toBeNull();
+  });
+
+  it('ignores an older-page response that resolves after a recovery snapshot', () => {
+    const beforeRequest: AppState = {
+      ...initialAppState,
+      notifications: [notif('before-recovery', 30)],
+      notificationRevision: 4,
+      notificationNextCursor: 'stale-cursor',
+    };
+    const recovered = appStateReducer(beforeRequest, {
+      type: 'INSTALL_NOTIFICATION_SNAPSHOT',
+      snapshot: {
+        revision: 5,
+        counts: emptyCounts,
+        items: [notif('authoritative', 40)],
+        nextCursor: 'authoritative-cursor',
+      },
+    });
+
+    const afterStalePage = appStateReducer(recovered, {
+      type: 'APPEND_NOTIFICATION_PAGE',
+      sourceCursor: 'stale-cursor',
+      page: {
+        items: [notif('stale-page-row', 10)],
+        nextCursor: null,
+      },
+    });
+
+    expect(afterStalePage).toBe(recovered);
+    expect(afterStalePage.notifications.map((row) => row.id)).toEqual(['authoritative']);
+    expect(afterStalePage.notificationNextCursor).toBe('authoritative-cursor');
   });
 });
 

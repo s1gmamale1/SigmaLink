@@ -150,13 +150,14 @@ export function NotificationDropdown({ onClose }: DropdownProps) {
   const handleLoadOlder = async () => {
     if (notificationNextCursor === null || pageState === 'loading') return;
 
+    const sourceCursor = notificationNextCursor;
     setPageState('loading');
     try {
       const page = await rpc.notifications.page({
-        cursor: notificationNextCursor,
+        cursor: sourceCursor,
         limit: 100,
       });
-      dispatch({ type: 'APPEND_NOTIFICATION_PAGE', page });
+      dispatch({ type: 'APPEND_NOTIFICATION_PAGE', page, sourceCursor });
       setPageState('idle');
     } catch {
       // The shared RPC client already reports the failure. Keep an inline retry

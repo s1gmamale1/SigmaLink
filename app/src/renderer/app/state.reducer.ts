@@ -893,6 +893,10 @@ export function appStateReducer(state: AppState, action: Action): AppState {
       };
     }
     case 'APPEND_NOTIFICATION_PAGE': {
+      // A recovery snapshot may replace the first page while an older-page RPC
+      // is in flight. Only append when this response still belongs to the
+      // cursor that currently extends the installed notification history.
+      if (state.notificationNextCursor !== action.sourceCursor) return state;
       const byId = new Map(
         state.notifications.map((notification) => [notification.id, notification]),
       );
