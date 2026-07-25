@@ -324,7 +324,7 @@ class NotificationsTestDb {
       };
     }
     if (
-      s.includes("severity = 'info'") &&
+      s.includes("severity NOT IN ('warn', 'error', 'critical')") &&
       s.includes('read_at IS NULL') &&
       s.includes('ORDER BY created_at ASC') &&
       s.includes('LIMIT ?')
@@ -332,7 +332,13 @@ class NotificationsTestDb {
       return {
         all: (lim: number): { id: string }[] => {
           const sorted = this.rows
-            .filter((r) => r.read_at === null && r.severity === 'info')
+            .filter(
+              (r) =>
+                r.read_at === null &&
+                r.severity !== 'warn' &&
+                r.severity !== 'error' &&
+                r.severity !== 'critical',
+            )
             .sort((a, b) => a.created_at - b.created_at)
             .slice(0, lim);
           return sorted.map((r) => ({ id: r.id }));
@@ -415,7 +421,8 @@ class NotificationsTestDb {
                 r.workspace_id === workspaceId &&
                 r.kind === kind &&
                 r.read_at === null &&
-                (r.severity === 'info' || r.severity === 'warn'),
+                r.severity !== 'error' &&
+                r.severity !== 'critical',
             )
             .sort((a, b) => a.created_at - b.created_at)
             .slice(0, lim);
@@ -439,7 +446,8 @@ class NotificationsTestDb {
                 r.workspace_id === null &&
                 r.kind === kind &&
                 r.read_at === null &&
-                (r.severity === 'info' || r.severity === 'warn'),
+                r.severity !== 'error' &&
+                r.severity !== 'critical',
             )
             .sort((a, b) => a.created_at - b.created_at)
             .slice(0, lim);
@@ -463,12 +471,21 @@ class NotificationsTestDb {
           } else if (s.includes('workspace_id IS NULL')) {
             filtered = filtered.filter((r) => r.workspace_id === null);
           }
-          const sevMatch = s.match(/severity IN \(([^)]+)\)/);
+          const sevMatch = s.match(/(?:END|severity) IN \((\?(?:,\?)*)\)/);
           if (sevMatch) {
             const count = sevMatch[1].split(',').length;
             const severities = args.slice(pos, pos + count) as NotificationSeverity[];
             pos += count;
-            filtered = filtered.filter((r) => severities.includes(r.severity));
+            filtered = filtered.filter((r) =>
+              severities.includes(
+                r.severity === 'info' ||
+                  r.severity === 'warn' ||
+                  r.severity === 'error' ||
+                  r.severity === 'critical'
+                  ? r.severity
+                  : 'info',
+              ),
+            );
           }
           if (s.includes('(created_at < ? OR (created_at = ? AND id < ?))')) {
             const createdAt = args[pos++] as number;
@@ -506,12 +523,21 @@ class NotificationsTestDb {
           } else if (s.includes('workspace_id IS NULL')) {
             filtered = filtered.filter((r) => r.workspace_id === null);
           }
-          const sevMatch = s.match(/severity IN \(([^)]+)\)/);
+          const sevMatch = s.match(/(?:END|severity) IN \((\?(?:,\?)*)\)/);
           if (sevMatch) {
             const count = sevMatch[1].split(',').length;
             const sevs = args.slice(pos, pos + count) as NotificationSeverity[];
             pos += count;
-            filtered = filtered.filter((r) => sevs.includes(r.severity));
+            filtered = filtered.filter((r) =>
+              sevs.includes(
+                r.severity === 'info' ||
+                  r.severity === 'warn' ||
+                  r.severity === 'error' ||
+                  r.severity === 'critical'
+                  ? r.severity
+                  : 'info',
+              ),
+            );
           }
           const limit = args[args.length - 2] as number;
           const offset = args[args.length - 1] as number;
@@ -999,6 +1025,34 @@ describe('NotificationsManager hard-cap eviction (D2)', () => {
     expect(fakeDb.rows.find((r) => r.id === 'r-0250')).toBeDefined();
   });
 
+  it('evicts a legacy unknown severity through the normalized INFO lane', () => {
+    seedRow(fakeDb, {
+      id: 'legacy-unknown',
+      created_at: 1,
+      severity: 'fatal' as NotificationSeverity,
+    });
+    for (let i = 1; i < HARD_CAP_TOTAL; i++) {
+      seedRow(fakeDb, {
+        id: `protected-${i}`,
+        created_at: 100 + i,
+        severity: 'error',
+      });
+    }
+
+    const mgr = makeManager();
+    now = 2_000_000;
+    mgr.add({
+      workspaceId: 'ws-1',
+      kind: 'pty-exit',
+      severity: 'critical',
+      title: 'fresh',
+      dedupKey: 'legacy-eviction-trigger',
+    });
+
+    expect(fakeDb.rows).toHaveLength(HARD_CAP_TOTAL);
+    expect(fakeDb.rows.find((row) => row.id === 'legacy-unknown')).toBeUndefined();
+  });
+
   it('never auto-evicts critical even under pressure', () => {
     // Half critical so eviction pass 3 (warn) doesn't catch them.
     for (let i = 0; i < HARD_CAP_TOTAL; i++) {
@@ -1120,6 +1174,16 @@ describe('NotificationsManager cursor pages', () => {
     });
 
     expect(page.items.map((row) => row.id)).toEqual(['ws-critical', 'ws-error']);
+  });
+
+  it('includes a legacy unknown severity in the normalized info page', () => {
+    seedCursorRow('legacy-unknown', 100, 'fatal' as NotificationSeverity);
+
+    const page = makeManager().page({ severities: ['info'], limit: 10 });
+
+    expect(page.items).toEqual([
+      expect.objectContaining({ id: 'legacy-unknown', severity: 'info' }),
+    ]);
   });
 });
 
@@ -1272,6 +1336,34 @@ describe('NotificationsManager soft-cap collapse (D2.2)', () => {
     expect(
       protectedIds.filter((id) => fakeDb.rows.some((row) => row.id === id)),
     ).toEqual(protectedIds);
+  });
+
+  it('collapses a legacy unknown severity through the normalized info lane', () => {
+    seedUnreadRow(fakeDb, {
+      id: 'legacy-unknown',
+      created_at: 1,
+      severity: 'fatal' as NotificationSeverity,
+    });
+    for (let i = 0; i < SOFT_CAP_PER_KIND_WS; i++) {
+      seedUnreadRow(fakeDb, {
+        id: `protected-${i}`,
+        created_at: 100 + i,
+        severity: 'error',
+      });
+    }
+
+    const mgr = makeManager();
+    now = 3_000_000;
+    mgr.add({
+      workspaceId: 'ws-1',
+      kind: 'pty-exit',
+      severity: 'critical',
+      title: 'trigger',
+      dedupKey: 'legacy-collapse-trigger',
+    });
+
+    expect(fakeDb.rows.find((row) => row.id === 'legacy-unknown')).toBeUndefined();
+    expect(fakeDb.rows.filter((row) => row.kind === 'pty-exit-summary')).toHaveLength(1);
   });
 
   it('emits the soft-cap summary in the added lane', () => {

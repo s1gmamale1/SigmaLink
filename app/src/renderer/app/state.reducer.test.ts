@@ -500,6 +500,7 @@ describe('versioned notification reconciliation', () => {
       type: 'ROLLBACK_NOTIFICATION_OPTIMISTIC' as const,
       notification: original,
       sourceRevision: 5,
+      expected: { kind: 'mark-read' as const, readAt: 123 },
     };
 
     const restored = appStateReducer(optimistic, action);
@@ -508,6 +509,24 @@ describe('versioned notification reconciliation', () => {
 
     const advanced = { ...optimistic, notificationRevision: 6 };
     expect(appStateReducer(advanced, action)).toBe(advanced);
+
+    const superseded = {
+      ...optimistic,
+      notifications: [{ ...original, readAt: 456 }],
+    };
+    expect(appStateReducer(superseded, action)).toBe(superseded);
+
+    const dismissed = { ...optimistic, notifications: [] };
+    const dismissAction = {
+      type: 'ROLLBACK_NOTIFICATION_OPTIMISTIC' as const,
+      notification: original,
+      sourceRevision: 5,
+      expected: { kind: 'dismiss' as const },
+    };
+    expect(appStateReducer(dismissed, dismissAction).notifications).toEqual([original]);
+
+    const independentlyRestored = { ...dismissed, notifications: [original] };
+    expect(appStateReducer(independentlyRestored, dismissAction)).toBe(independentlyRestored);
   });
 
   it('applies only the next consecutive change-set revision', () => {

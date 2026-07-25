@@ -963,6 +963,16 @@ export function appStateReducer(state: AppState, action: Action): AppState {
         : { ...state, notificationHydration: action.status };
     case 'ROLLBACK_NOTIFICATION_OPTIMISTIC': {
       if (state.notificationRevision !== action.sourceRevision) return state;
+      const current = state.notifications.find(
+        (notification) => notification.id === action.notification.id,
+      );
+      if (
+        action.expected.kind === 'mark-read'
+          ? current?.readAt !== action.expected.readAt
+          : current !== undefined
+      ) {
+        return state;
+      }
       const notifications = [
         ...state.notifications.filter(
           (notification) => notification.id !== action.notification.id,

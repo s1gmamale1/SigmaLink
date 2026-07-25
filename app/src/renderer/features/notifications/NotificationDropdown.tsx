@@ -32,7 +32,7 @@
 //   fallback  → current filtered notifications view (source gone)
 
 import { CheckCheck, ChevronRight, Trash2, X } from 'lucide-react';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState, useSyncExternalStore } from 'react';
 import { cn } from '@/lib/utils';
 import { parseNotificationPage } from '@/renderer/app/notification-parsers';
 import { useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
@@ -48,6 +48,41 @@ interface DropdownProps {
 
 type PageState = 'idle' | 'loading' | 'error';
 
+// A notification can still have an RPC in flight after the dropdown closes.
+// Keep the lock outside the component so reopening the popover cannot start a
+// conflicting mutation for the same row before that request settles.
+let pendingNotificationMutationIds = new Set<string>();
+const pendingNotificationMutationListeners = new Set<() => void>();
+
+function getPendingNotificationMutationIds(): Set<string> {
+  return pendingNotificationMutationIds;
+}
+
+function subscribePendingNotificationMutations(listener: () => void): () => void {
+  pendingNotificationMutationListeners.add(listener);
+  return () => pendingNotificationMutationListeners.delete(listener);
+}
+
+function publishPendingNotificationMutations(next: Set<string>): void {
+  pendingNotificationMutationIds = next;
+  for (const listener of pendingNotificationMutationListeners) listener();
+}
+
+function beginNotificationMutation(id: string): boolean {
+  if (pendingNotificationMutationIds.has(id)) return false;
+  const next = new Set(pendingNotificationMutationIds);
+  next.add(id);
+  publishPendingNotificationMutations(next);
+  return true;
+}
+
+function finishNotificationMutation(id: string): void {
+  if (!pendingNotificationMutationIds.has(id)) return;
+  const next = new Set(pendingNotificationMutationIds);
+  next.delete(id);
+  publishPendingNotificationMutations(next);
+}
+
 export function NotificationDropdown({ onClose }: DropdownProps) {
   // PERF-3 — granular selectors + stable dispatch. `s.notifications` is a
   // referentially-stable slice; `s.activeWorkspace?.id` is a primitive — both
@@ -61,27 +96,13 @@ export function NotificationDropdown({ onClose }: DropdownProps) {
   const activeWorkspaceId = useAppStateSelector((s) => s.activeWorkspace?.id ?? null);
   const [chip, setChip] = useState<FilterChip>('all');
   const [pageState, setPageState] = useState<PageState>('idle');
-  const pendingMutationIdsRef = useRef<Set<string>>(new Set());
-  const [pendingMutationIds, setPendingMutationIds] = useState<Set<string>>(new Set());
+  const pendingMutationIds = useSyncExternalStore(
+    subscribePendingNotificationMutations,
+    getPendingNotificationMutationIds,
+    getPendingNotificationMutationIds,
+  );
   // NTF-2 — sections collapsed by the operator. Default: empty = all expanded.
   const [collapsed, setCollapsed] = useState<Set<NotificationSource>>(new Set());
-
-  const beginNotificationMutation = useCallback((id: string): boolean => {
-    if (pendingMutationIdsRef.current.has(id)) return false;
-    const next = new Set(pendingMutationIdsRef.current);
-    next.add(id);
-    pendingMutationIdsRef.current = next;
-    setPendingMutationIds(next);
-    return true;
-  }, []);
-
-  const finishNotificationMutation = useCallback((id: string): void => {
-    if (!pendingMutationIdsRef.current.has(id)) return;
-    const next = new Set(pendingMutationIdsRef.current);
-    next.delete(id);
-    pendingMutationIdsRef.current = next;
-    setPendingMutationIds(next);
-  }, []);
 
   const filtered = useMemo(
     () => applyFilter(notifications, chip, activeWorkspaceId),
@@ -146,6 +167,7 @@ export function NotificationDropdown({ onClose }: DropdownProps) {
           type: 'ROLLBACK_NOTIFICATION_OPTIMISTIC',
           notification,
           sourceRevision: notificationRevision,
+          expected: { kind: 'mark-read', readAt },
         });
       } finally {
         finishNotificationMutation(notification.id);
@@ -157,7 +179,7 @@ export function NotificationDropdown({ onClose }: DropdownProps) {
       // We do NOT close the dropdown on click — operator may want to triage
       // multiple items in sequence.
     },
-    [beginNotificationMutation, dispatch, finishNotificationMutation, notificationRevision],
+    [dispatch, notificationRevision],
   );
 
   const handleDismiss = async (notification: Notification) => {
@@ -171,6 +193,7 @@ export function NotificationDropdown({ onClose }: DropdownProps) {
         type: 'ROLLBACK_NOTIFICATION_OPTIMISTIC',
         notification,
         sourceRevision: notificationRevision,
+        expected: { kind: 'dismiss' },
       });
     } finally {
       finishNotificationMutation(notification.id);

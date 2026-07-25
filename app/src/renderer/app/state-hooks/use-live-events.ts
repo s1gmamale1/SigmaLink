@@ -578,7 +578,6 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
     let retryAttempt = 0;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     const buffered = new Map<number, NotificationChangeSet>();
-    const seenLiveRevisions = new Set<number>();
 
     const scheduleRetry = (): void => {
       if (!alive || retryTimer !== null) return;
@@ -656,7 +655,6 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
       buffering = true;
       currentRevision = null;
       buffered.clear();
-      seenLiveRevisions.clear();
       dispatch({ type: 'SET_NOTIFICATION_HYDRATION', status: 'retrying' });
 
       if (requestInFlight) {
@@ -679,12 +677,11 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
         return;
       }
       if (
-        seenLiveRevisions.has(changeSet.revision) ||
+        buffered.has(changeSet.revision) ||
         (currentRevision !== null && changeSet.revision <= currentRevision)
       ) {
         return;
       }
-      seenLiveRevisions.add(changeSet.revision);
 
       if (buffering || currentRevision === null) {
         buffered.set(changeSet.revision, changeSet);

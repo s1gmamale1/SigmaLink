@@ -169,18 +169,22 @@ producer semantics, durable attention, or digest/accessibility findings.
   source cursor and authoritative revision, filter changes cannot unlock an active page request,
   and equal-revision recovery replaces the authoritative first-page window without discarding
   pages already loaded below it. Failed optimistic mark-read/dismiss RPCs now restore the original
-  row only if no newer authoritative revision has arrived. Per-row write guards prevent overlapping
-  mark-read/dismiss compensation chains from rolling back out of order. Snapshot, live-change, and
-  older-page responses now share complete runtime row validation; severity buckets must sum to the
-  aggregate unread count, and legacy unknown database severities normalize to `info` without being
-  dropped. Regression coverage exercises malformed rows and counts, live mutation and recovery
-  during pagination, duplicate loads across filter changes, divergent equal-revision snapshots,
-  failed/overlapping optimistic writes, and unknown legacy severities. PR #244.
-- **Windows argv-smoke harness — hardened.** The adversarial npm-shim fixture produced the exact
-  expected JSON but timed out because its direct `[Console]` write left nested Windows PowerShell's
-  native-output collector open. The fixture now mirrors a real npm PowerShell shim by launching a
-  short-lived Node child, waiting for stdout closure, and propagating `$LASTEXITCODE`; the hosted
-  Windows smoke remains the required proof because this path is platform-specific.
+  row only if no newer authoritative revision has arrived. Per-row write guards survive dropdown
+  close/reopen cycles, preventing overlapping mark-read/dismiss compensation chains; rollback also
+  verifies that the exact failed optimistic state is still current before restoring a row. Snapshot,
+  live-change, and older-page responses now share complete runtime row validation; severity buckets
+  must sum to the aggregate unread count, and legacy unknown database severities normalize to `info`
+  without being dropped. Duplicate-revision tracking now reuses the bounded pending-change buffer
+  instead of retaining every applied revision for the renderer lifetime. Raw severity filters and
+  retention lanes use the same normalization, so legacy unknown rows remain pageable and eligible
+  for `info` retention. Regression coverage exercises malformed rows and counts, live mutation and
+  recovery during pagination, duplicate loads across filter changes, divergent equal-revision
+  snapshots, failed/overlapping optimistic writes, and unknown legacy severities. PR #244.
+- **Windows argv-smoke path — hardened.** Hosted Windows proved that Windows PowerShell 5.1's npm
+  `.ps1` path both mutates quote/empty argv while forwarding to Node and closes its nested output
+  collector slowly. Legacy PowerShell now deliberately uses the existing direct `.cmd` path, whose
+  two-pass escaping preserves argv without a nested collector; PowerShell 7 keeps shell-first mode.
+  The hosted Windows smoke remains the required proof because these paths are platform-specific.
 - **Verification receipts.** Focused gate: **10 files / 233 tests / 0 failures**. Broader pure
   notification gate: **23 files / 366 tests / 0 failures**. `pnpm exec tsc -b --pretty false`,
   focused ESLint, and `git diff --check` all exited 0. The original fresh-worktree dependency-build
@@ -190,7 +194,9 @@ producer semantics, durable attention, or digest/accessibility findings.
   (**486 files / 0 failures**), full lint, TypeScript build, production build, and diff check all
   exited 0. Final review-remediation gate: **5 files / 196 tests passed / 1 platform skip**; the
   complete coverage suite passed **487 files / 5,087 tests / 3 skips**, and full lint, TypeScript,
-  production build, and diff check all exited 0.
+  production build, and diff check all exited 0. Remaining-issue retry: **6 files / 291 tests
+  passed / 1 platform skip**; the complete coverage suite passed **487 files / 5,091 tests / 3
+  skips**, and full lint, TypeScript, production build, and diff check all exited 0.
 - **Program documents.** Umbrella design:
   `docs/superpowers/specs/2026-07-25-notification-reliability-program-design.md`. Workstream design:
   `docs/superpowers/specs/2026-07-25-notification-state-consistency-design.md`. Executed plan:

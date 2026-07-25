@@ -254,6 +254,7 @@ describe('NotificationDropdown', () => {
         type: 'ROLLBACK_NOTIFICATION_OPTIMISTIC',
         notification,
         sourceRevision: 7,
+        expected: { kind: 'mark-read', readAt: expect.any(Number) },
       });
     });
   });
@@ -280,6 +281,7 @@ describe('NotificationDropdown', () => {
         type: 'ROLLBACK_NOTIFICATION_OPTIMISTIC',
         notification,
         sourceRevision: 9,
+        expected: { kind: 'dismiss' },
       });
     });
   });
@@ -301,12 +303,14 @@ describe('NotificationDropdown', () => {
       notifications: [notification],
       notificationRevision: 11,
     };
-    render(<NotificationDropdown onClose={() => undefined} />);
-
-    const dismissButton = screen.getByTestId('notification-dismiss-overlapping-write');
+    const firstMount = render(<NotificationDropdown onClose={() => undefined} />);
     fireEvent.click(screen.getByRole('button', { name: `Info: ${notification.title}` }));
 
     await waitFor(() => expect(notificationsApi.markRead).toHaveBeenCalledTimes(1));
+    firstMount.unmount();
+    render(<NotificationDropdown onClose={() => undefined} />);
+
+    const dismissButton = screen.getByTestId('notification-dismiss-overlapping-write');
     expect((dismissButton as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(dismissButton);
     expect(notificationsApi.dismiss).not.toHaveBeenCalled();
@@ -323,8 +327,10 @@ describe('NotificationDropdown', () => {
         type: 'ROLLBACK_NOTIFICATION_OPTIMISTIC',
         notification,
         sourceRevision: 11,
+        expected: { kind: 'mark-read', readAt: expect.any(Number) },
       });
     });
+    await waitFor(() => expect((dismissButton as HTMLButtonElement).disabled).toBe(false));
   });
 
   it('dropdown container carries sl-glass class for glass theme surface (SF-4)', () => {

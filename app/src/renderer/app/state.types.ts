@@ -313,6 +313,8 @@ export type Action =
       notification: Notification;
       /** Ignore compensation after any newer authoritative state arrives. */
       sourceRevision: number | null;
+      /** Apply compensation only while this exact optimistic state remains. */
+      expected: { kind: 'mark-read'; readAt: number } | { kind: 'dismiss' };
     }
   | { type: 'MARK_NOTIFICATION_READ'; id: string; readAt: number }
   | { type: 'DISMISS_NOTIFICATION'; id: string };

@@ -111,6 +111,9 @@ const VALID_SEVERITIES = new Set<NotificationSeverity>([
   'critical',
 ]);
 
+const NORMALIZED_SEVERITY_SQL =
+  "CASE WHEN severity IN ('info', 'warn', 'error', 'critical') THEN severity ELSE 'info' END";
+
 function rowToNotification(row: NotificationRowSql): Notification {
   let payload: Record<string, unknown> | null = null;
   if (row.payload) {
@@ -314,7 +317,7 @@ export class NotificationsManager {
     }
     if (opts.severities && opts.severities.length > 0) {
       const placeholders = opts.severities.map(() => '?').join(',');
-      clauses.push(`severity IN (${placeholders})`);
+      clauses.push(`${NORMALIZED_SEVERITY_SQL} IN (${placeholders})`);
       params.push(...opts.severities);
     }
 
@@ -363,7 +366,7 @@ export class NotificationsManager {
     }
     if (opts.severities && opts.severities.length > 0) {
       const placeholders = opts.severities.map(() => '?').join(',');
-      clauses.push(`severity IN (${placeholders})`);
+      clauses.push(`${NORMALIZED_SEVERITY_SQL} IN (${placeholders})`);
       params.push(...opts.severities);
     }
     if (opts.cursor) {
@@ -620,7 +623,7 @@ export class NotificationsManager {
             .prepare(
               `SELECT id FROM notifications
                WHERE workspace_id IS NULL AND kind = ? AND read_at IS NULL
-                 AND severity IN ('info', 'warn')
+                 AND severity NOT IN ('error', 'critical')
                ORDER BY created_at ASC LIMIT ?`,
             )
             .all(kind, SOFT_CAP_COLLAPSE_BATCH)
@@ -628,7 +631,7 @@ export class NotificationsManager {
             .prepare(
               `SELECT id FROM notifications
                WHERE workspace_id = ? AND kind = ? AND read_at IS NULL
-                 AND severity IN ('info', 'warn')
+                 AND severity NOT IN ('error', 'critical')
                ORDER BY created_at ASC LIMIT ?`,
             )
             .all(workspaceId, kind, SOFT_CAP_COLLAPSE_BATCH)
@@ -719,7 +722,8 @@ export class NotificationsManager {
       const infoVictims = db
         .prepare(
           `SELECT id FROM notifications
-           WHERE read_at IS NULL AND severity = 'info'
+           WHERE read_at IS NULL
+             AND severity NOT IN ('warn', 'error', 'critical')
            ORDER BY created_at ASC
            LIMIT ?`,
         )

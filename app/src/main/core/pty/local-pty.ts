@@ -316,6 +316,8 @@ export function buildShellCommandLine(command: string, args: string[], withSenti
  *   2. command !== ''                (launching a CLI, not just opening a shell)
  *   3. win32 only: PowerShell resolves from the child environment
  *   4. win32 .cmd/.bat only: a same-basename .ps1 sibling exists
+ *   5. win32 legacy PowerShell: npm `.cmd` shims use direct mode because the
+ *      sibling `.ps1` native-child serializer can alter argv and exit slowly
  *
  * Centralising the decision here guarantees the wrapping and the watching can
  * never disagree again across macOS, Linux, and Windows.
@@ -327,14 +329,23 @@ export function resolveEffectiveSpawnMode(
 ): 'direct' | 'shell-first' {
   if (spawnMode !== 'shell-first' || command === '') return 'direct';
   if (process.platform === 'win32') {
-    if (resolveWindowsPowerShell(env) === null) return 'direct';
+    const powerShell = resolveWindowsPowerShell(env);
+    if (powerShell === null) return 'direct';
     const resolvedCommand = resolveWindowsCommand(command, env);
-    if (
-      resolvedCommand !== null &&
-      windowsExtensionKind(resolvedCommand) === 'cmd' &&
-      resolveSiblingPowerShellShim(resolvedCommand) === null
-    ) {
-      return 'direct';
+    if (resolvedCommand !== null && windowsExtensionKind(resolvedCommand) === 'cmd') {
+      const sibling = resolveSiblingPowerShellShim(resolvedCommand);
+      if (sibling === null) return 'direct';
+
+      const shellBase = path.win32.basename(powerShell.command).toLowerCase();
+      const isLegacyPowerShell =
+        shellBase === 'powershell' || shellBase === 'powershell.exe';
+      if (isLegacyPowerShell) {
+        // Windows PowerShell 5.1 drops empty argv entries, consumes embedded
+        // quotes when the npm `.ps1` shim forwards them to its native Node
+        // child, and can delay process-tree closure. The existing direct `.cmd`
+        // path has exact two-pass escaping and no nested collector.
+        return 'direct';
+      }
     }
   }
   return 'shell-first';

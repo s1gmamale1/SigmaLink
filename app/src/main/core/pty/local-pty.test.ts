@@ -12,7 +12,7 @@
 // miss defers to the pane's login shell; see "shell-first POSIX soft-miss".)
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -621,6 +621,20 @@ describe('resolveEffectiveSpawnMode (H-6)', () => {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
+
+  it('win32: legacy PowerShell downgrades npm shims to direct', () => {
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    vi.spyOn(fs, 'existsSync').mockImplementation((candidate) =>
+      [
+        'C:\\tools\\powershell.EXE',
+        'C:\\tools\\claude.CMD',
+        'C:\\tools\\claude.ps1',
+      ].includes(String(candidate)),
+    );
+    const env = { PATH: 'C:\\tools', PATHEXT: '.CMD;.EXE' };
+
+    expect(resolveEffectiveSpawnMode('shell-first', 'claude', env)).toBe('direct');
+  });
 });
 
 describe('spawnLocalPty: win32 shell-first consistency (H-6)', () => {
@@ -792,21 +806,22 @@ describe('spawnLocalPty: win32 shell-first mode (Phase 5)', () => {
     }
   });
 
-  it('round-trips adversarial arguments through an npm .cmd shim without injection', async () => {
+  it('round-trips adversarial arguments by safely downgrading a legacy-PS npm shim', async () => {
     if (process.platform !== 'win32') return;
     vi.useFakeTimers();
 
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sigmalink-argv-shim-'));
     const commandName = 'sigmalink-argv-probe';
-    fs.writeFileSync(
-      path.join(tempDir, `${commandName}.cmd`),
-      '@ECHO off\r\nECHO This sibling batch shim must not run.\r\n',
-      'utf8',
-    );
     const probeScriptName = `${commandName}.cjs`;
     fs.writeFileSync(
       path.join(tempDir, probeScriptName),
       "process.stdout.write(JSON.stringify(process.argv.slice(2)) + '\\n');\n",
+      'utf8',
+    );
+    const batchNodePath = process.execPath.replace(/%/g, '%%');
+    fs.writeFileSync(
+      path.join(tempDir, `${commandName}.cmd`),
+      `@ECHO off\r\n"${batchNodePath}" "%~dp0${probeScriptName}" %*\r\n`,
       'utf8',
     );
     const powerShellLiteral = (value: string) => value.replace(/'/g, "''");
@@ -837,6 +852,7 @@ describe('spawnLocalPty: win32 shell-first mode (Phase 5)', () => {
       'a|b<c>d^e(f){g}',
       'trailing\\',
       'quote\\"after',
+      '',
       'line1\r\nline2',
     ];
     const expectedPayloads = [...payloads.slice(0, -1), 'line1 line2'];
@@ -852,7 +868,7 @@ describe('spawnLocalPty: win32 shell-first mode (Phase 5)', () => {
     };
 
     try {
-      const { freshSpawn, nodePty, written, fireData } = await setupWin32();
+      const { freshSpawn, nodePty, written } = await setupWin32();
       freshSpawn({
         command: commandName,
         args: payloads,
@@ -863,45 +879,31 @@ describe('spawnLocalPty: win32 shell-first mode (Phase 5)', () => {
         spawnMode: 'shell-first',
       });
 
-      const [spawnCommand, , spawnOptions] = vi.mocked(nodePty.spawn).mock.calls[0]!;
+      const [spawnCommand, spawnArgs, spawnOptions] = vi.mocked(nodePty.spawn).mock.calls[0]!;
       const spawnEnv = spawnOptions.env as NodeJS.ProcessEnv;
-      expect(spawnEnv.SIGMALINK_SHELL_FIRST_COMMAND?.toLowerCase()).toContain(
-        `${commandName}.ps1`,
-      );
-      expect(spawnEnv.SIGMALINK_SHELL_FIRST_COMMAND?.toLowerCase()).not.toContain(
-        `${commandName}.cmd`,
-      );
-      fireData('PS> ');
-      expect(written).toHaveLength(1);
+      expect(spawnCommand).toBe('cmd.exe');
+      expect(typeof spawnArgs).toBe('string');
+      expect(String(spawnArgs)).toContain(`${commandName}.cmd`);
+      expect(spawnEnv.SIGMALINK_SHELL_FIRST_COMMAND).toBeUndefined();
+      expect(written).toHaveLength(0);
 
-      // Production writes CR as the ConPTY Enter key. This harness executes
-      // the same generated input as noninteractive PowerShell source, where
-      // newline-delimited statements reliably run the command, sentinel, and
-      // cleanup in sequence.
-      const nonInteractiveScript = written[0]!.split('\r').join('\n');
-      const harnessScriptPath = path.join(tempDir, 'generated-terminal-input.ps1');
-      fs.writeFileSync(harnessScriptPath, nonInteractiveScript, 'utf8');
-      const output = execFileSync(
+      // node-pty receives this as one pre-escaped command line. Execute that
+      // same string verbatim through Node's Windows spawn layer to prove the
+      // direct fallback preserves every argv position and cannot inject.
+      const result = spawnSync(
         String(spawnCommand),
-        [
-          '-NoLogo',
-          '-NoProfile',
-          '-ExecutionPolicy',
-          'Bypass',
-          '-File',
-          harnessScriptPath,
-        ],
+        [String(spawnArgs)],
         {
           encoding: 'utf8',
           env: spawnEnv,
-          timeout: 60_000,
+          timeout: 10_000,
+          windowsVerbatimArguments: true,
         },
       );
-      const extracted = extractSentinel(output);
 
-      expect(extracted).not.toBeNull();
-      expect(JSON.parse(extracted!.strippedData.trim())).toEqual(expectedPayloads);
-      expect(extracted!.exitCode).toBe(0);
+      expect(result.error).toBeUndefined();
+      expect(result.status).toBe(0);
+      expect(JSON.parse(result.stdout.trim())).toEqual(expectedPayloads);
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
