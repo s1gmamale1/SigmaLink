@@ -128,7 +128,7 @@ the remediation program against it.
 
 ### Implementation progress (2026-07-25) — workstream 1: state consistency
 
-**Result:** Complete on branch `fix/notification-state-consistency` (PR #244). The authoritative
+**Result:** Merged to `main` in PR #244 as squash commit `28c2a9e` after a 94/100 sigma check. The authoritative
 store/change-set protocol is now versioned, transactional, race-safe, and pageable. This closes the
 soft-cap data-loss/delta bug, the startup hydration race, inaccessible retained history, and
 off-page urgency misclassification. It does not claim to fix native delivery, activation routing,
@@ -205,6 +205,9 @@ producer semantics, durable attention, or digest/accessibility findings.
   skips**, and full lint, TypeScript, production build, and diff check all exited 0.
   Second sigma remediation: **487 files / 5,082 passed / 3 skipped**; full coverage, lint,
   TypeScript production build (**2,131 modules**), and diff check all exited 0.
+  Hosted CI passed **6/6**, including the dedicated Windows Win32 spawn/PTY lifecycle lane;
+  CodeRabbit reported zero findings across 35 changed files and the security sweep found no
+  Critical/High issues.
 - **Program documents.** Umbrella design:
   `docs/superpowers/specs/2026-07-25-notification-reliability-program-design.md`. Workstream design:
   `docs/superpowers/specs/2026-07-25-notification-state-consistency-design.md`. Executed plan:
