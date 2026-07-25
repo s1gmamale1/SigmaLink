@@ -164,11 +164,22 @@ producer semantics, durable attention, or digest/accessibility findings.
   allowlist, and router shape. Concrete enforced schemas were added for the authoritative snapshot
   and page inputs. Internal manager methods remain for the main-process control snapshot. Commit
   `8992b1e`.
+- **Post-review renderer consistency hardening — fixed.** Malformed snapshot/change-set rows now
+  trigger recovery instead of entering UI state. Older-page responses are bound to both their
+  source cursor and authoritative revision, filter changes cannot unlock an active page request,
+  and equal-revision recovery replaces the authoritative first-page window without discarding
+  pages already loaded below it. Failed optimistic mark-read/dismiss RPCs now restore the original
+  row only if no newer authoritative revision has arrived. Regression coverage exercises malformed
+  rows, live mutation and recovery during pagination, duplicate loads across filter changes,
+  divergent equal-revision snapshots, and failed optimistic writes. PR #244.
 - **Verification receipts.** Focused gate: **10 files / 233 tests / 0 failures**. Broader pure
   notification gate: **23 files / 366 tests / 0 failures**. `pnpm exec tsc -b --pretty false`,
   focused ESLint, and `git diff --check` all exited 0. The original fresh-worktree dependency-build
   restriction still prevents a trustworthy Electron/native-platform end-to-end run; packaged
   macOS/Windows/Linux delivery remains an explicit later gate, not silently counted as passing.
+  Post-review compensation gate: **2 files / 88 tests / 0 failures**; the complete coverage suite
+  (**486 files / 0 failures**), full lint, TypeScript build, production build, and diff check all
+  exited 0.
 - **Program documents.** Umbrella design:
   `docs/superpowers/specs/2026-07-25-notification-reliability-program-design.md`. Workstream design:
   `docs/superpowers/specs/2026-07-25-notification-state-consistency-design.md`. Executed plan:
@@ -327,12 +338,8 @@ producer semantics, durable attention, or digest/accessibility findings.
   assets; it does not put `build/` under `app.getAppPath()`. The missing icon's platform outcome
   (fallback icon versus native failure) still needs packaged probes.
 
-- **LOW · M — Rejected optimistic mutations and preference writes leave false UI state.** Row
-  click/dismiss mutate locally first and swallow RPC rejection with no rollback/refetch
-  (`app/src/renderer/features/notifications/NotificationDropdown.tsx:100-132`). The reducer leaves
-  a failed mark-read counted as read; failed dismiss hides the durable row and does not even adjust
-  the optimistic unread count (`app/src/renderer/app/state.reducer.ts:885-906`). Production-helper
-  probes reproduced both. Settings similarly update local state then discard KV failures, and one
+- **LOW · M — Rejected preference writes leave false UI state.** Row-level mark-read/dismiss
+  rollback is fixed in PR #244. Settings still update local state then discard KV failures, and one
   failed member of the hydration `Promise.all` renders defaults for every preference
   (`app/src/renderer/features/settings/NotificationsSettings.tsx:83-194`); sound setters also
   swallow persistence failure (`app/src/renderer/lib/sounds.ts:224-267`).
@@ -420,6 +427,11 @@ producer semantics, durable attention, or digest/accessibility findings.
 - **Mutation RPC validation remains weak.** Snapshot/page inputs now have concrete enforced schemas,
   but notification mutation channels still use permissive stubs. Controllers check required IDs,
   so the remaining work is boundary-hardening debt rather than a proven injection issue.
+- **Severity-count envelopes do not enforce their aggregate invariant.** Parsing checks each
+  non-negative integer independently but does not require `unread` to equal the sum of the four
+  `unreadBySeverity` buckets (`app/src/renderer/app/state-hooks/use-live-events.ts:115-139`). A
+  malformed trusted-process envelope can therefore make the bell's number and urgency disagree.
+  Add a sum check and malformed-envelope recovery regression when tightening this boundary.
 - **The documented D3 tuple and SQL differ.** Comments/spec say
   `(workspace_id, kind, dedup_key)`, but lookup/index omit `kind`
   (`app/src/main/core/notifications/manager.ts:13-14,163-186`,

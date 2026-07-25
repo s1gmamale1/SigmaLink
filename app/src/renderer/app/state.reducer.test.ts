@@ -459,9 +459,10 @@ describe('versioned notification reconciliation', () => {
   });
 
   it('preserves paged history when recovery reinstalls the same revision', () => {
+    const optimisticNewest = notif('newest', 20, { readAt: 123 });
     const start: AppState = {
       ...initialAppState,
-      notifications: [notif('newest', 20), notif('older', 10)],
+      notifications: [optimisticNewest, notif('older', 10)],
       notificationRevision: 5,
       notificationNextCursor: 'third-page',
       notificationHydration: 'retrying',
@@ -478,8 +479,35 @@ describe('versioned notification reconciliation', () => {
     });
 
     expect(after.notifications.map((row) => row.id)).toEqual(['newest', 'older']);
+    expect(after.notifications[0]?.readAt).toBeNull();
     expect(after.notificationNextCursor).toBe('third-page');
     expect(after.notificationHydration).toBe('ready');
+  });
+
+  it('rolls back an optimistic notification mutation only at its source revision', () => {
+    const original = notif('rollback', 20, { readAt: null });
+    const optimistic: AppState = {
+      ...initialAppState,
+      notifications: [{ ...original, readAt: 123 }],
+      notificationsUnreadCount: 0,
+      notificationRevision: 5,
+      notificationCounts: {
+        unread: 1,
+        unreadBySeverity: { ...emptyCounts.unreadBySeverity, info: 1 },
+      },
+    };
+    const action = {
+      type: 'ROLLBACK_NOTIFICATION_OPTIMISTIC' as const,
+      notification: original,
+      sourceRevision: 5,
+    };
+
+    const restored = appStateReducer(optimistic, action);
+    expect(restored.notifications).toEqual([original]);
+    expect(restored.notificationsUnreadCount).toBe(1);
+
+    const advanced = { ...optimistic, notificationRevision: 6 };
+    expect(appStateReducer(advanced, action)).toBe(advanced);
   });
 
   it('applies only the next consecutive change-set revision', () => {

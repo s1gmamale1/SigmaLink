@@ -234,6 +234,56 @@ describe('NotificationDropdown', () => {
     expect((mockRpc as unknown as { notifications: Record<string, ReturnType<typeof vi.fn>> }).notifications.clearRead).toHaveBeenCalledTimes(1);
   });
 
+  it('rolls back an optimistic mark-read when its RPC fails', async () => {
+    const notification = makeN({ id: 'read-failure', severity: 'info' });
+    const notificationsApi = (mockRpc as unknown as {
+      notifications: Record<string, ReturnType<typeof vi.fn>>;
+    }).notifications;
+    notificationsApi.markRead.mockRejectedValueOnce(new Error('write failed'));
+    mockState = {
+      ...initialAppState,
+      notifications: [notification],
+      notificationRevision: 7,
+    };
+    render(<NotificationDropdown onClose={() => undefined} />);
+
+    fireEvent.click(screen.getByRole('button', { name: `Info: ${notification.title}` }));
+
+    await waitFor(() => {
+      expect(dispatchSpy).toHaveBeenCalledWith({
+        type: 'ROLLBACK_NOTIFICATION_OPTIMISTIC',
+        notification,
+        sourceRevision: 7,
+      });
+    });
+  });
+
+  it('restores an optimistically dismissed older row when its RPC fails', async () => {
+    const notification = makeN({ id: 'dismiss-failure', severity: 'warn', createdAt: 1 });
+    const notificationsApi = (mockRpc as unknown as {
+      notifications: Record<string, ReturnType<typeof vi.fn>>;
+    }).notifications;
+    notificationsApi.dismiss.mockRejectedValueOnce(new Error('write failed'));
+    mockState = {
+      ...initialAppState,
+      notifications: [notification],
+      notificationRevision: 9,
+      notificationNextCursor: null,
+      notificationHydration: 'ready',
+    };
+    render(<NotificationDropdown onClose={() => undefined} />);
+
+    fireEvent.click(screen.getByTestId('notification-dismiss-dismiss-failure'));
+
+    await waitFor(() => {
+      expect(dispatchSpy).toHaveBeenCalledWith({
+        type: 'ROLLBACK_NOTIFICATION_OPTIMISTIC',
+        notification,
+        sourceRevision: 9,
+      });
+    });
+  });
+
   it('dropdown container carries sl-glass class for glass theme surface (SF-4)', () => {
     render(<NotificationDropdown onClose={() => undefined} />);
     const container = screen.getByTestId('notification-dropdown');

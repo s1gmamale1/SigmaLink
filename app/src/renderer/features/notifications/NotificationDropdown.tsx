@@ -118,7 +118,11 @@ export function NotificationDropdown({ onClose }: DropdownProps) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await (rpc as any).notifications.markRead(notification.id);
       } catch {
-        /* swallow */
+        dispatch({
+          type: 'ROLLBACK_NOTIFICATION_OPTIMISTIC',
+          notification,
+          sourceRevision: notificationRevision,
+        });
       }
 
       // D5 — deep-link to the source context (shared with the toast handoff).
@@ -127,7 +131,7 @@ export function NotificationDropdown({ onClose }: DropdownProps) {
       // We do NOT close the dropdown on click — operator may want to triage
       // multiple items in sequence.
     },
-    [dispatch],
+    [dispatch, notificationRevision],
   );
 
   const handleDismiss = async (notification: Notification) => {
@@ -136,7 +140,11 @@ export function NotificationDropdown({ onClose }: DropdownProps) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (rpc as any).notifications.dismiss(notification.id);
     } catch {
-      /* swallow */
+      dispatch({
+        type: 'ROLLBACK_NOTIFICATION_OPTIMISTIC',
+        notification,
+        sourceRevision: notificationRevision,
+      });
     }
   };
 

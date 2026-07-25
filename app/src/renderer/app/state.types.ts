@@ -308,6 +308,12 @@ export type Action =
       type: 'SET_NOTIFICATION_HYDRATION';
       status: AppState['notificationHydration'];
     }
+  | {
+      type: 'ROLLBACK_NOTIFICATION_OPTIMISTIC';
+      notification: Notification;
+      /** Ignore compensation after any newer authoritative state arrives. */
+      sourceRevision: number | null;
+    }
   | { type: 'MARK_NOTIFICATION_READ'; id: string; readAt: number }
   | { type: 'DISMISS_NOTIFICATION'; id: string };
 

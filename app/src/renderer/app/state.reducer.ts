@@ -75,11 +75,36 @@ function reconcileNotificationRows(
     byId.set(notification.id, notification);
   }
   for (const id of changeSet.removed) byId.delete(id);
-  return Array.from(byId.values()).sort((a, b) => {
-    if (a.createdAt !== b.createdAt) return b.createdAt - a.createdAt;
-    if (a.id === b.id) return 0;
-    return a.id > b.id ? -1 : 1;
-  });
+  return Array.from(byId.values()).sort(compareNotificationsNewestFirst);
+}
+
+function compareNotificationsNewestFirst(a: Notification, b: Notification): number {
+  if (a.createdAt !== b.createdAt) return b.createdAt - a.createdAt;
+  if (a.id === b.id) return 0;
+  return a.id > b.id ? -1 : 1;
+}
+
+/**
+ * Replace the authoritative first-page window while retaining pages the
+ * operator already loaded below that window. Same-revision snapshots can
+ * still differ from renderer state after a failed optimistic mutation.
+ */
+function reconcileSameRevisionSnapshot(
+  current: Notification[],
+  firstPage: Notification[],
+  hasMore: boolean,
+): Notification[] {
+  if (!hasMore) return firstPage;
+  const boundary = firstPage.at(-1);
+  if (!boundary) return firstPage;
+  const firstPageIds = new Set(firstPage.map((notification) => notification.id));
+  const retainedTail = current.filter(
+    (notification) =>
+      !firstPageIds.has(notification.id) &&
+      (notification.createdAt < boundary.createdAt ||
+        (notification.createdAt === boundary.createdAt && notification.id < boundary.id)),
+  );
+  return [...firstPage, ...retainedTail];
 }
 
 // Perf audit 2026-06-10 #4 — per-swarm message thread cap. Hydrate tails 200
@@ -861,12 +886,19 @@ export function appStateReducer(state: AppState, action: Action): AppState {
       if (state.notificationRevision !== null) {
         if (snapshot.revision < state.notificationRevision) return state;
         if (snapshot.revision === state.notificationRevision) {
-          // No authoritative state changed. Keep any older pages already
-          // loaded locally instead of truncating back to the snapshot's first
-          // page, while allowing a recovery attempt to finish hydration.
-          return state.notificationHydration === 'ready'
-            ? state
-            : { ...state, notificationHydration: 'ready' };
+          return {
+            ...state,
+            notifications: reconcileSameRevisionSnapshot(
+              state.notifications,
+              snapshot.items,
+              snapshot.nextCursor !== null,
+            ),
+            notificationsUnreadCount: snapshot.counts.unread,
+            notificationCounts: snapshot.counts,
+            notificationNextCursor:
+              snapshot.nextCursor === null ? null : state.notificationNextCursor,
+            notificationHydration: 'ready',
+          };
         }
       }
       return {
@@ -929,6 +961,22 @@ export function appStateReducer(state: AppState, action: Action): AppState {
       return state.notificationHydration === action.status
         ? state
         : { ...state, notificationHydration: action.status };
+    case 'ROLLBACK_NOTIFICATION_OPTIMISTIC': {
+      if (state.notificationRevision !== action.sourceRevision) return state;
+      const notifications = [
+        ...state.notifications.filter(
+          (notification) => notification.id !== action.notification.id,
+        ),
+        action.notification,
+      ].sort(compareNotificationsNewestFirst);
+      return {
+        ...state,
+        notifications,
+        // Versioned counts are deliberately not changed optimistically, so
+        // they remain the authoritative value for this unchanged revision.
+        notificationsUnreadCount: state.notificationCounts.unread,
+      };
+    }
     case 'SET_NOTIFICATIONS':
       // v1.4.9 #07 — initial mount sets the paginated list + unreadCount.
       return {
