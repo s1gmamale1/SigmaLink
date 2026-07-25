@@ -279,7 +279,7 @@ gates are recorded below after a fresh rerun.
 
 ## Final verification
 
-- Shipping-candidate verification after synchronization with `origin/main` and the sigma-check test-harness repairs: `pnpm test` passed 484 files with 5,001 tests passed and 3 skipped out of 5,004 in 73.20 s. The suite emitted its pre-existing jsdom canvas and `NO_COLOR`/`FORCE_COLOR` warnings but no test failure.
+- Shipping-candidate verification after synchronization with `origin/main` and the sigma-check test-harness repairs: `pnpm test` passed 484 files with 5,001 tests passed and 3 skipped out of 5,004. The suite emitted its pre-existing jsdom canvas and `NO_COLOR`/`FORCE_COLOR` warnings but no test failure.
 - `pnpm lint`: passed with no ESLint findings.
 - `pnpm build`: TypeScript and Vite passed; 2,131 modules transformed in 5.58 s. The emitted renderer includes a 349.48 kB entry chunk, 607.27 kB xterm chunk, and route/feature chunks. These are artifact sizes, not a measured runtime-memory improvement.
 - `pnpm electron:compile`: passed; emitted the 4.1 MB main bundle plus preload and three MCP server bundles.
