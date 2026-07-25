@@ -16,6 +16,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import * as nodePty from 'node-pty';
 
 // We DON'T mock node-pty here: the ENOENT check fires before node-pty is
 // touched, so the native module is never loaded during these tests.
@@ -34,6 +35,24 @@ import { extractSentinel, SENTINEL_PREFIX, SENTINEL_SUFFIX } from './sentinel';
 
 const originalPath = process.env.PATH;
 const originalPlatform = process.platform;
+
+// CI installs with --ignore-scripts (no node-pty native build): a real fork
+// fails there and spawnShellFirstPty returns the synthetic pid:-1 handle.
+// Probe once; assert the live-fork pid only when a fork can work.
+const ptyForkWorks: boolean = (() => {
+  if (process.platform === 'win32') return false;
+  try {
+    const p = nodePty.spawn('/bin/true', [], { name: 'xterm-256color', cols: 80, rows: 24 });
+    try {
+      p.kill();
+    } catch {
+      // Already exited — the fork itself worked, which is all we probed.
+    }
+    return true;
+  } catch {
+    return false;
+  }
+})();
 
 afterEach(() => {
   process.env.PATH = originalPath;
@@ -512,18 +531,24 @@ describe('spawnLocalPty: shell-first mode', () => {
     // not-found surfaces via the shell's "command not found" + exit-127
     // sentinel. Empty PATH so Electron-side resolution must miss.
     process.env.PATH = '/does/not/exist';
-    const handle = spawnLocalPty({
-      command: 'definitely-not-a-real-binary-xyz',
-      args: [],
-      cwd: process.cwd(),
-      cols: 80,
-      rows: 24,
-      spawnMode: 'shell-first',
-    });
+    let handle: ReturnType<typeof spawnLocalPty> | undefined;
+    expect(() => {
+      handle = spawnLocalPty({
+        command: 'definitely-not-a-real-binary-xyz',
+        args: [],
+        cwd: process.cwd(),
+        cols: 80,
+        rows: 24,
+        spawnMode: 'shell-first',
+      });
+    }).not.toThrow();
     try {
-      expect(handle.pid).toBeGreaterThan(0);
+      // Without a node-pty native build (CI --ignore-scripts) the spawn
+      // degrades to the synthetic pid:-1 handle; only assert a live fork
+      // pid when the probe showed a fork can work here.
+      if (ptyForkWorks) expect(handle?.pid).toBeGreaterThan(0);
     } finally {
-      handle.kill();
+      handle?.kill();
     }
   });
 });
@@ -1110,18 +1135,24 @@ describe('spawnLocalPty shell-first POSIX soft-miss', () => {
       // Kimi-after-migration regression: ~/.kimi-code/bin is only on the login
       // shell's PATH (via ~/.zshrc), not Electron's. Shell-first must defer to
       // the pane's own shell instead of hard-failing the launch.
-      const handle = spawnLocalPty({
-        command: 'sigmalink-definitely-not-a-real-command-xyz',
-        args: [],
-        cwd: os.homedir(),
-        cols: 80,
-        rows: 24,
-        spawnMode: 'shell-first',
-      });
+      let handle: ReturnType<typeof spawnLocalPty> | undefined;
+      expect(() => {
+        handle = spawnLocalPty({
+          command: 'sigmalink-definitely-not-a-real-command-xyz',
+          args: [],
+          cwd: os.homedir(),
+          cols: 80,
+          rows: 24,
+          spawnMode: 'shell-first',
+        });
+      }).not.toThrow();
       try {
-        expect(handle.pid).toBeGreaterThan(0);
+        // Without a node-pty native build (CI --ignore-scripts) the spawn
+        // degrades to the synthetic pid:-1 handle; only assert a live fork
+        // pid when the probe showed a fork can work here.
+        if (ptyForkWorks) expect(handle?.pid).toBeGreaterThan(0);
       } finally {
-        handle.kill();
+        handle?.kill();
       }
     },
   );
