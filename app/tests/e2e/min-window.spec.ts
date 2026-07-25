@@ -22,6 +22,7 @@
 import { test, _electron as electron, expect, type ElectronApplication } from '@playwright/test';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createElectronTestProfile } from '../../src/test-utils/electron-test-profile';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -48,13 +49,14 @@ test.describe.configure({ retries: 1 });
 test('min-window — sidebar auto-collapses at the minimum window width (compact breakpoint)', async () => {
   test.setTimeout(120_000);
 
-  const app = await electron.launch({
-    args: [path.resolve(__dirname, '../../electron-dist/main.js')],
-    env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1', NODE_ENV: 'test' },
-    timeout: 60_000,
-  });
-
+  const profile = createElectronTestProfile('sigmalink-e2e-min-window-');
+  let app: ElectronApplication | null = null;
   try {
+    app = await electron.launch({
+      args: [path.resolve(__dirname, '../../electron-dist/main.js'), ...profile.args],
+      env: { ...profile.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1' },
+      timeout: 60_000,
+    });
     const win = await app.firstWindow({ timeout: 30_000 });
     await win.waitForLoadState('domcontentloaded').catch(() => undefined);
     await win.waitForTimeout(2500);
@@ -88,6 +90,6 @@ test('min-window — sidebar auto-collapses at the minimum window width (compact
     await win.waitForTimeout(SETTLE_MS);
     await expect(win.getByTestId('sidebar'), 'sidebar still mounted when wide').toHaveCount(1);
   } finally {
-    await app.close().catch(() => undefined);
+    await profile.close(app);
   }
 });

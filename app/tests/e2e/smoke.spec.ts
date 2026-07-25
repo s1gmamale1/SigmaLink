@@ -3,6 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { createElectronTestProfile } from '../../src/test-utils/electron-test-profile';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -156,19 +157,17 @@ test.describe.configure({ retries: 1 });
 
 test('SigmaLink full visual sweep', async () => {
   test.setTimeout(240_000);
+  const profile = createElectronTestProfile('sigmalink-e2e-smoke-');
   let app: ElectronApplication | null = null;
   try {
+  try {
     app = await electron.launch({
-      args: [path.resolve(__dirname, '../../electron-dist/main.js')],
-      env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1', NODE_ENV: 'test' },
+      args: [path.resolve(__dirname, '../../electron-dist/main.js'), ...profile.args],
+      env: { ...profile.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1' },
       timeout: 60_000,
     });
   } catch (e) {
     appendLog(`[FATAL] Could not launch electron app: ${(e as Error).stack || (e as Error).message}`);
-    fs.appendFileSync(
-      path.resolve(__dirname, '../../../docs/08-bugs/OPEN.md'),
-      `\n### BUG-W7-000: Electron app failed to launch\n- **Severity**: P0\n- **Surface**: app startup\n- **Repro**: npx playwright test tests/e2e/smoke.spec.ts\n- **Expected**: app starts and renders first window\n- **Actual**: ${String(e)}\n- **Status**: open\n- **Attempts**: 1\n`,
-    );
     throw e;
   }
 
@@ -240,6 +239,7 @@ test('SigmaLink full visual sweep', async () => {
         // @ts-expect-error sigma is exposed
         await window.sigma.invoke('kv.set', 'app.onboarded', '1');
         await window.sigma.invoke('kv.set', 'coachmark.featureSpotlight.seen', '1');
+        await window.sigma.invoke('kv.set', 'ruflo.autowriteMcp', '0');
       } catch (err) {
         return String(err);
       }
@@ -250,13 +250,13 @@ test('SigmaLink full visual sweep', async () => {
   // 05 — workspaces empty (the room itself)
   await snap(win, '05-workspaces-empty.png', 'workspaces empty (post-onboarding)');
 
-  // Open the SigmaLink folder as a workspace via RPC.
-  // P3-S8: use the actual repo root (cross-platform). Previously a hardcoded
-  // Windows path was used, which failed on macOS/Linux runners and left the
+  // Open the disposable SigmaLink-named test workspace via RPC. Previously a
+  // hardcoded Windows path was used, which failed on macOS/Linux runners and left the
   // app without an active workspace — every downstream room rendered as
   // `workspaces` instead of its real surface, and SigmaRoom showed
-  // EmptyState (no Conversations panel) which broke the P3-S7 assertion.
-  const repoRoot = path.resolve(__dirname, '../../../');
+  // EmptyState (no Conversations panel) which broke the P3-S7 assertion. The
+  // helper-owned path also prevents Ruflo autowrite from touching this checkout.
+  const repoRoot = profile.workspaceDir;
   const openResult = await win
     .evaluate(async (folder: string) => {
       try {
@@ -701,6 +701,7 @@ test('SigmaLink full visual sweep', async () => {
     .catch(() => undefined);
 
   await app.close().catch(() => undefined);
+  app = null;
 
   const duplicateFrameGroups = detectDuplicateFrames(screenshotsDir);
   for (const group of duplicateFrameGroups) {
@@ -719,4 +720,7 @@ test('SigmaLink full visual sweep', async () => {
   );
 
   expect(stepLog.length).toBeGreaterThan(5);
+  } finally {
+    await profile.close(app);
+  }
 });

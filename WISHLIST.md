@@ -1,259 +1,63 @@
 # SigmaLink — Wishlist
 
-> **Capture inbox for future / nice-to-have / explicitly-deferred items.** Low ceremony.
-> Promote an item into [ROADMAP.md](ROADMAP.md) when it gets scoped into a phase.
+> **Capture inbox for future, nice-to-have, and explicitly deferred work.**
+> The pre-audit inbox is archived at [WISHLIST-pre-performance-audit-2026-07-24.md](docs/03-plan/archive/WISHLIST-pre-performance-audit-2026-07-24.md).
+> Full evidence and independent receipts: [2026-07-24 performance/platform audit](docs/03-plan/audits/2026-07-24-performance-platform-cleanup-audit.md).
 >
-> Buckets: **Deferred by design** (consciously out of scope) and **Future enhancements**
-> (planned-later upgrades). **New ideas** is the untriaged inbox.
->
-> **Cleared 2026-07-17** after the v3.0.0 cycle closed out (#238 merged). The previous inbox
-> (PR #238 review minors, the claude account-switch deep-review findings) is preserved verbatim in
-> [docs/03-plan/archive/WISHLIST-v3.0.0-cycle-2026-07-17.md](docs/03-plan/archive/WISHLIST-v3.0.0-cycle-2026-07-17.md)
-> — still-alive items get re-promoted from there when they come up.
+> Promote an item to `ROADMAP.md` only after assigning an owner and acceptance gate. Remove it when shipped or rejected; completed work belongs in the audit and Git history. Metadata is `evidence · severity · effort`.
 
 ---
 
 ## 🚫 Deferred by design (out of scope for now)
 
-_(consciously NOT built — each is a separate track or a non-goal, not a gap)_
-
----
+- **[terminal] Profile hidden-pane GPU retention (C-019).** `Hypothesis · low · M`. Citations: `app/src/renderer/features/command-room/PaneGrid.tsx:314-337`, `app/src/renderer/features/command-room/PaneShell.tsx:599-610`, `app/src/renderer/lib/terminal-cache.ts:539-569`. Action: measure renderer/GPU memory across repeated fullscreen, minimise, scratch-tab, and workspace-hide cycles before changing intentional keep-alive behavior. Verification trigger: a repeatable packaged-build trace demonstrates an excessive retained-resource bound.
+- **[Windows/path] Test legal `%VAR%` directory names (C-039).** `Hypothesis · low · S`. Citation: `app/src/main/core/util/windows-spawn.ts:181`. Action: verify shell-open behavior on a Windows device before altering expansion semantics. Build trigger: a disposable Windows fixture reproduces path corruption without relying on synthetic strings alone.
 
 ## ✨ Future enhancements (planned-later upgrades)
 
-_(real upgrades to build once the current system is production-grade)_
-
----
+- **[product/navigation] Drive navigation from one room registry (C-049).** `Confirmed · medium · M`. Citations: `app/src/renderer/app/state.types.ts:45-55`, `app/src/renderer/features/top-bar/rooms-menu-items.ts:30-47`, `app/src/renderer/features/command-palette/CommandPalette.tsx:105-126`. Action: drive menus, palette, and lazy loaders from one typed registry. Verification trigger: a completeness test covers every `RoomId` and all intended entry points.
+- **[product/deprecation] Decide duplicate room/rail surfaces (C-053).** `Strong static evidence · medium · L`. Citations: `app/src/renderer/app/room-loaders.ts:25-65`, `app/src/renderer/features/right-rail/RightRailContext.data.ts:8-21`, `app/src/renderer/features/right-rail/RightRailTabs.tsx:83-103`. Action: decide whether Browser/Jorvis/Skills/Swarm are rooms, rail companions, or deliberately both before deprecating a surface. Verification trigger: product sign-off plus lifecycle tests preventing accidental simultaneous same-surface mounts.
+- **[providers/deprecation] Retire compatibility scaffolding only after sign-off (C-048).** `Strong static evidence · low · M`. Citations: `app/src/shared/providers.ts:64-69,287-295`, `app/src/main/core/workspaces/launcher.ts:53-63`, `app/src/main/core/swarms/factory-spawn.ts:372-380`, `app/src/renderer/features/settings/ProvidersTab.tsx:19`. Action: inspect persisted and external provider definitions, then remove unused legacy/coming-soon/fallback branches and per-launch KV reads if compatibility is clear. Verification trigger: provider launch/resume/settings tests pass against migrated persisted data.
+- **[rail/deprecation] Resolve the historical right-rail enable flag (C-052).** `Confirmed · low · M`. Citations: `app/src/renderer/features/right-rail/use-right-rail-enabled.ts:9-37`, `app/src/renderer/features/right-rail/RightRailContext.data.ts:23-31`, `app/src/renderer/app/App.tsx:188-205`. Action: migrate or explicitly preserve profiles with `rightRail.enabled=0`, then remove the read-only flag and identity normalizer. Verification trigger: persisted-profile migration plus rail boot tests.
+- **[voice/consolidation] Merge duplicated model registries (C-050).** `Confirmed · low · L`. Citations: `app/src/main/core/voice/model-registry.ts:65-138`, `app/packages/voice-core/src/model-registry.ts:56-127`. Action: rewire both apps to one model catalog before deleting either live copy. Build trigger: download, abort, and tiny-model parity tests plus an Electron bundle diff.
+- **[voice/consolidation] Merge duplicated dictionary normalization (C-051).** `Confirmed · low · S`. Citations: `app/src/shared/voice-dictionary.ts:45-70`, `app/packages/voice-core/src/global-capture.ts:41-88,609-610`. Action: rewire both apps to one normalizer before deleting either live copy. Verification trigger: normalization parity tests cover punctuation, case, and replacements.
+- **[database/archive] Decide pending migration 0026 (C-054).** `Confirmed · medium · M`. Citations: `app/src/main/core/db/migrate.ts:91-98`, `app/src/main/core/db/__tests__/migrate.spec.ts:205-214`, `app/src/main/core/db/migrations/0026_sf12_pane_slot_repair.pending.ts:20`. Action: audit affected databases, then either sign off and register the repair or archive the migration and dormancy test with a written data decision. Verification trigger: production-ABI migration fixtures cover both upgraded and already-correct rows.
+- **[repository/archive] Remove stale manifests and instructions (C-055).** `Confirmed · low · S`. Citations: `docs/marketplace/skills.json:1-4`, `app/public/marketplace/skills.json:1-5`, `sigma-voice/README.md:9-30`, `sigma-voice/package.json:1-18`. Action: remove the stale docs marketplace manifest and repair SigmaVoice build instructions against canonical sources. Verification trigger: docs/link checks and marketplace loading remain green.
+- **[repository/archive] Decide storage for historical media (C-056).** `Confirmed · low · L`. Citation: `app/electron-builder.yml:7-10`; measurement receipt: audit C-056. Action: choose LFS/release storage for the measured 1,107 historical frames and ownership for unreferenced backgrounds. Verification trigger: tracked-size and packaged-inventory commands prove the move has no runtime payload regression.
+- **[assistant/deprecation] Remove unreachable stub prose (C-057).** `Strong static evidence · low · S`. Citations: `app/src/main/core/assistant/controller.ts:631-643,1014-1021,1051-1060`. Action: delete `composeStubReply` after pinning the two forced-reply fallback paths. Verification trigger: focused assistant-controller tests cover missing-binary and driver-error responses.
 
 ## 🆕 New ideas (untriaged)
 
-_(raw ideas land here; promote to ROADMAP.md once scoped into a phase)_
+None. The inbox was cleared during this evidence-gated audit; new ideas should be added with a concrete trigger rather than mixed into verified findings.
 
----
+## 🔬 Deep review findings (2026-07-24)
 
-## 🔬 Deep review findings (2026-07-17) — codex pane shows "Pane crashed (exit unknown)" over a LIVE terminal
-
-_Operator report + screenshot: a codex pane (`Lyra · high` / "ruflo superpower bug", `gpt-5.6-sol xhigh`,
-cwd `~/projects/SigmaDevelopment`) renders the red **"Pane crashed (exit unknown) — Scrollback preserved
-below."** banner + Relaunch button, while the terminal underneath is visibly alive and streaming
-(`Working (3m 20s • esc to interrupt) · 1 background terminal running`, live prompt, live status line)._
-
-### Root cause (CONFIRMED — hard receipt, not inference)
-
-**A content scanner reports through the process-death channel. The PTY is never touched.**
-
-`onCodexAuthError` (`app/src/main/rpc-router.ts:1169-1184`) reacts to a **regex match on pane output** by:
-
-1. `getDb().update(agentSessions).set({ status: 'error' })` — status only; **no `exit_code`, no `exited_at`**;
-2. `broadcast('pty:error', { sessionId, exitCode: null, signal: null })` — **hardcoded `exitCode: null`**.
-
-…and never kills, stops, or signals the PTY. The renderer's `pty:error` contract is explicitly *"the PTY
-started then died"* (`app/src/renderer/features/command-room/PaneShell.tsx:254-264`), so:
-
-- `use-live-events.ts:387` coerces the non-number `exitCode` → `null` → `MARK_SESSION_ERROR`;
-- `state.reducer.ts:519` coerces `null` → `undefined` → `CrashBanner` prints **`exit unknown`**
-  (`PaneShell.tsx:775`);
-- `crashed = errored && !session.error` (`PaneShell.tsx:264`) is true (no launch-error string on this path);
-- the banner is designed to **float OVER a still-mounted `SessionTerminal`** (`PaneShell.tsx:763-765`) —
-  which is precisely why the live process keeps streaming underneath it.
-
-**Receipt — live DB row (`~/Library/Application Support/SigmaLink/sigmalink.db`, app running, `codex --yolo`
-pid 43569 alive at the time of capture):**
-
-| id | provider | status | exit_code | exited_at |
-|---|---|---|---|---|
-| `1b5582e4-8a4c-4caf-b062-76a35fcb21a9` | **codex** | **error** | **NULL** | **NULL** |
-| every other `status='error'` row | shell / claude | error | `0` | `1784…` (set) |
-
-`status='error'` **with both `exit_code` and `exited_at` NULL** is a signature only this path can produce:
-grep-verified, the *only* other writers of `status:'error'` to `agent_sessions` are the three
-**launch-failure INSERTs** in `core/workspaces/launcher.ts:205,593,759` (each carries an `error:` string →
-routes to the *"Failed to launch"* surface, not this one), and `swarms/factory-add-agent.ts:190` writes the
-`swarm_agents` table. Every real crash goes through `pty.onExit` and writes exit metadata.
-
-### This is broken even when it is RIGHT
-
-A codex auth error **does not kill the codex process** — codex prints the error and keeps running. So the
-"crash" report is a lie *by construction*, 100% reproducible, not a race: **every** firing of this path —
-true positive or false — paints "Pane crashed" over a healthy pane and offers a Relaunch button that would
-restart a working process. The feature has no correct outcome as wired.
-
-### The trigger (false positive — HIGH confidence)
-
-`scanCodexAuthError` (`app/src/main/core/pty/auth-error-scan.ts`) regex-tests **every codex PTY data chunk**
-(`registry.ts:382`). But a codex pane's stream is **the agent's own rendered output** — its reasoning, files
-it prints, code and docs it writes — not a clean protocol channel. The patterns are generic enough to appear
-in ordinary agent work:
-
-- `/\btoken_expired\b/` — a bare JSON key; appears in any auth code/fixture the agent reads or writes.
-- `/HTTP 401|could not be refreshed|sign in again/i` — **`sign in again` is plain English.**
-
-The file header asserts these patterns *"only appear in the process's own error output"* — that assertion is
-**false by construction**: `registry.ts:382` feeds the scanner `data`, the whole PTY stream, which conflates
-the codex CLI's own stderr with the model's output. The same header records that a `\b401\b` catch-all was
-*already* removed for false-positiving on user text — same bug class, incomplete fix. The observed pane was
-doing "ruflo superpower bug" + *"Improve documentation in @filename"* — i.e. reading and writing prose.
-Introduced in **#207** (`01c3d29`, "Task 5 — codex auth-error scan").
-
-### Blast radius (beyond the cosmetic banner)
-
-- 🐞 **[high] the false `status='error'` write orphans a LIVE pane from boot-resume** —
-  `resume-launcher.ts:342-366` `listEligibleRows` resumes only `status='running'` OR
-  (`status='exited'` AND `exit_code=-1`). An auth-scanner-flagged row is **neither** → on next boot the pane
-  is silently never resumed. Effort: S (fold into the root fix).
-- ⚠️ **[medium][UNVERIFIED] pane-slot collision via the partial unique index** — `agent_sessions_ws_pane_uq`
-  is `ON (workspace_id, pane_index) WHERE pane_index IS NOT NULL AND status IN ('running','starting')`.
-  Flipping a live pane to `'error'` **drops it out of the index**, freeing its `pane_index` slot while the
-  PTY still runs → a new pane may be spawnable into the occupied slot. Follows from the index definition;
-  **not reproduced**. Verify before scoping. Effort: S to test.
-- 🧹 **[low] the flag is sticky with no recovery path** — `registry.ts:212,382,386` sets `authErrors` once per
-  session and only clears it in `forget(id)` (`registry.ts:616`, i.e. on PTY death). A re-auth mid-session
-  never clears the pane's error state; only a Relaunch does. Effort: S.
-- ℹ️ **[low] the 'error' row is GC-immune** — `state.reducer.ts:505-509` deliberately exempts `'error'` from
-  the exited-session GC (correct for real crashes), so a falsely-flagged pane lingers in the error state for
-  the life of the window.
-
-### Fix direction (not yet scoped — needs a call)
-
-The structural fix is to **stop reporting a content detection on the process-death channel**. Options:
-
-1. **Own channel (recommended)** — emit a distinct `pty:auth-error` → a *warning* chip/toast on a pane that
-   stays `running`. Never writes `status`, never offers Relaunch. Kills the whole class: an advisory can't
-   masquerade as a death.
-2. **Narrow the scanner** — anchor patterns to codex's own error framing and/or only scan when the CLI is
-   not mid-turn. Reduces false positives but does **not** fix "true positive still paints a crash".
-3. **Drop the scan** — #207's Task 5 as wired has no correct outcome; deleting it is strictly better than
-   today's behavior.
-
-(1) is the standard-first fix; (2) alone is a symptom patch. Grep the sibling `pty:error` broadcast sites
-(`rpc-router.ts:1729,1739,1785,2213,2888,3044,3127`) when touching the channel — they are the legitimate
-crash-classifier callers and must keep their real payloads. Adding a channel = 4 mirror sites
-(`shared/rpc-channels.ts:420` allowlist included) or preload silently rejects it.
-
-### ✅ FIXED (2026-07-17, same branch) — option 1 built
-
-TDD'd on `fix/codex-false-crash`: dedicated **`pty:auth-error` advisory channel**
-(`{ sessionId, kind, atMs }`; EVENTS allowlist + SESSION_ROUTED_EVENTS + parity tests) →
-`MARK_SESSION_AUTH_ERROR` sets `session.authError` only — **status/exitCode/exitedAt untouched, pane stays
-`running`** → PaneShell renders a dismissible amber `AuthWarningBanner` (no Relaunch; a real crash wins the
-surface). `onCodexAuthError` no longer writes the DB or broadcasts `pty:error`; detection + the control-plane
-`authErrorSnapshot` surface are unchanged. Kills the false-crash banner AND the boot-resume orphan AND the
-slot-collision window structurally (no status flip ever happens on this path). Residual (parked, low):
-scanner patterns still generic (`sign in again` is plain English — advisory tier makes misfires cosmetic
-now); registry `authErrors` first-detection-only per session (chip is dismissible; clears on relaunch).
-Gate: tsc 0 · eslint 0 · vitest 4994/4996 (2 skipped) · build 0.
-
----
-
-## 🔬 Deep review findings (2026-07-18) — DB session/workspace persistence audit (relaunch · force-quit · rename · perf)
-
-_Full trace of pane persistence for claude/codex panes (spawn INSERT → quit → boot resume → rename), verified
-against the LIVE operator DB read-only (291 `agent_sessions` rows, 17 workspaces). Headline: force-quit/crash
-is the RELIABLE lane (no writes land → janitor heals → resume); graceful quit is a per-pane race._
-
-### Confirmed bugs
-
-> **2026-07-18 (same day):** the operator's "relaunch resumes an OLD irrelevant session" report led to a
-> second investigation pass that found TWO MORE root causes stacked on the first one — (3) boot auto-resume
-> was SLOT-BLIND (`listEligibleRows` respawned EVERY open running/exited(-1) row, so stale siblings'
-> old conversations came back and out-ranked the operator's actual-latest stranded row; live-DB receipt:
-> SigmasDashboard slot 0 had FIVE open rows, boot-eligible 7→3 after the fix) and (4) `handleRelaunch`
-> (`CommandRoom.tsx:286`) never wrote `closed_at` on the crashed row (renderer-only REMOVE_SESSION) so
-> stale siblings kept accumulating. All four fixed + gate-green on `fix/session-persistence-correctness`:
-> quit-time `markAllExpectedExit`, slot-aware ranked eligibility (mirror of lastResumePlan), janitor
-> supersession sweep (`closeSupersededPaneRows` — live-DB dry-run: 17 rows healed, 0 running rows touched),
-> relaunch row-close, rename carry-forward. Plan:
-> `docs/superpowers/plans/2026-07-18-session-persistence-correctness.md`.
-
-- ~~🐞 **[high, S] quit-window race strands live panes as `status='error'`**~~ → **FIXED on
-  `fix/session-persistence-correctness`** (2026-07-18): `registry.markAllExpectedExit()` before `killAll()`
-  + SOURCE-ordering test (`rpc-router.shutdown-order.test.ts`). Original finding kept below for the record.
-
-- 🐞 **[high, S] quit-window race strands live panes as `status='error'` — silently excluded from boot
-  auto-resume AND the "Respawn fresh" bucket** — `shutdownRouter` (`app/src/main/rpc-router.ts:3671-3724`)
-  flips `routerShuttingDown` (suppresses notifications only) then `killAll()`; `PtyRegistry.killAll`
-  (`app/src/main/core/pty/registry.ts:635`) never sets `expectedExit`, and the quit sequence deliberately
-  holds the DB open ≤2.5s (`waitForPidsExit`) for the win32 WAL checkpoint. Any pane whose process dies
-  inside that window fires onExit → `isPtyCrash(false, code 0, signal 15)` → crash → `status='error'` LANDS
-  (`app/src/main/core/workspaces/launcher.ts:678-702`; twin `resume-launcher.ts:296-339`). Boot auto-resume
-  eligibility is `status='running' OR (exited AND exit_code=-1)` (`resume-launcher.ts:342-368`); the
-  respawn-fresh bucket is `exited/-1` only (`resume-launcher.ts:474-502`) — `'error'` rows are in NEITHER,
-  so the pane simply never comes back (no toast either — it's filtered out of the SQL, not "failed").
-  Slow-dying panes escape (write lands after `closeDatabase` → swallowed → row stays `running` → boot
-  janitor heals to exited/-1 → resumes fine). **Live-DB receipts: 128 open `exited/-1` rows (janitor lane,
-  works) vs 3 open stranded `error/0` rows (race fired); 118 `error/0` rows with `closed_at` set are
-  deliberate closes — harmless, the PR #221 shield working.** Fix (structural — one lane for ALL quits):
-  mark every live record expectedExit before `killAll()` (e.g. `registry.markAllExpectedExit()`, mirroring
-  `markExpectedExit` `registry.ts:528`) so quit-time exits skip the status write entirely and every pane
-  rides janitor→exited/-1→resume. All three exit-writer twins already honor `rec.expectedExit`
-  (`launcher.ts:684`, `resume-launcher.ts:308`, `swarms/factory-spawn.ts`). Win32 likely strands MORE
-  (taskkill is faster than SIGTERM-drain).
-
-- ~~🐞 **[medium, S-M] operator pane rename lost on the workspace-picker resume lane**~~ → **FIXED on
-  `fix/session-persistence-correctness`** (2026-07-18): `name` + `display_provider_id` carry-forward inside
-  the insert txn (`workspaces/launcher.ts`), keyed on `(workspace_id, external_session_id)`. Original
-  finding kept below for the record.
-
-- 🐞 **[medium, S-M] operator pane rename (`agent_sessions.name`) lost on the workspace-picker resume
-  lane** — rename persists via `panes.rename` (`rpc-router.ts:1985-2007`, immediate DB write → crash-safe)
-  and survives boot auto-resume because `resumeWorkspacePanes` reuses the SAME row in place
-  (`markResumeRunning`, `resume-launcher.ts:284-294`). But reopening a workspace through the launcher
-  picker (SessionStep → `panes.lastResumePlan` → `executeLaunchPlan`) INSERTs a brand-new row with
-  `name: null` (`workspaces/launcher.ts:532-557`, explicit at `:664-666`); `lastResumePlan` doesn't even
-  return `name` (`rpc-router.ts:1820-1858`). The new row wins rank-then-filter (`rn=1`: running + newest
-  first) in `listForWorkspace` (`rpc-router.ts:1900-1923`), shadowing the old named row forever →
-  "Wren → Frontend-Agent" reverts to the alias. Fix: inside the insert transaction, carry `name`
-  (+ `display_provider_id`) forward from the newest open row with the same `external_session_id`
-  (fallback key: same `workspace_id`+`pane_index`). NOTE: auto-label can NOT clobber names — NAME and
-  SIGMA::LABEL are separate slots; the label is renderer-ephemeral (`PaneHeader.tsx:205-211`).
-
-- 🐞 **[low, M] codex/kimi/opencode external-session-id capture window loses resume-by-id on an early
-  crash** — claude's id is pre-assigned at spawn and lands in the INSERT itself (`launcher.ts:527,548`) →
-  crash-safe from t=0. codex/kimi/opencode rely on the disk-scan retries at +2/+5/+15s
-  (`rpc-router.ts:578-628`); a crash inside that window leaves `external_session_id` NULL → next boot
-  deliberately spawns FRESH (session-collapse policy, `resume-launcher.ts:69-89`) → the conversation is
-  orphaned (recoverable only via the CLI's own resume picker). Deterministic codex capture via its stdout
-  banner is the already-noted follow-up (`resume-launcher.ts:735-738` comment).
-
-### Verified-good (receipts, no action)
-
-- **Force-quit/crash correctness** — deliberate closes write `closed_at` synchronously BEFORE the kill
-  (`pty/mark-pane-closed.ts:14-22`); a crash never resurrects a closed pane, and the late `'error'` write
-  can't un-close it. Boot janitor heals zombies (`db/janitor.ts:26-50`); PR #221 rank-then-filter
-  ghost-resurrection fix intact at both mirror sites.
-- **Workspace/room restore** — kv `app.lastSession`; 2s trailing-edge flush caps crash loss at ~2s
-  (`session-restore.ts:53-98`); before-quit final flush correctly ordered BEFORE `closeDatabase`
-  (`electron/main.ts:1104-1117`).
-- **Renames are crash-safe in-session** — written synchronously at rename time; 17 named rows live, all
-  currently-running named panes intact (Backend-Agent, Frontend-Agent, SAT-Agent, …).
-
-### PR #240 review minors (parked 2026-07-18 — reviewer verdict GREEN 91/100, merged 255207d)
-
-- 🐞 **[low, S] rename carry-forward misses a janitor-closed row** — `app/src/main/core/workspaces/launcher.ts`
-  carry-forward SELECT filters `closed_at IS NULL`; if the boot janitor's `closeSupersededPaneRows` already
-  soft-closed the row holding the operator's rename (non-winner sibling) and the operator later picks that
-  OLD session from the disk picker, the SELECT matches nothing → name reverts to the alias. NOT a
-  regression (this lane always lost the name pre-#240; the common live-winner case IS fixed). Fix: drop the
-  `closed_at IS NULL` filter, or order open-first with a newest-closed fallback, so the name follows the
-  session id regardless of the sweep — and add a test that actually exercises the WHERE (the current fake
-  `get` ignores it).
-- **[test, S] slot-rank CTE never runs on real SQLite** — validated via JS mirror + SQL-shape tripwires
-  only (better-sqlite3 can't load under vitest); NULL-partition/collation semantics unverified by unit
-  tests. Mitigated: byte-for-byte mirror of the shipped PR #221 queries + live-DB dry-runs during the
-  audit. Build when a real-SQLite test harness lands.
-- **[intended] `markAllExpectedExit` swallows a natural crash inside the ≤2.5s quit window** — the pane is
-  auto-resumed next boot instead of surfacing a crash banner. Deliberate tradeoff (resume > stranded
-  error at shutdown); recorded so nobody "fixes" it back.
-
-### Optimizations (all LOW — the DB is healthy: 1.4MB, 342 pages, freelist 0, largest table 291 rows)
-
-- **[db] `PRAGMA optimize` on close** — SQLite-recommended one-liner in `closeDatabase()`
-  (`db/client.ts:368`). Effort: S.
-- **[db] janitor row GC** — purge soft-deleted (`closed_at`) + ancient exited rows older than ~N days;
-  keep-set must stay ⊇ resume/rehydrate reads (reaper rule). 291 rows in ~2 months — cosmetic today.
-  Build when `agent_sessions` > ~5k rows. Effort: S.
-- **[db] periodic `wal_checkpoint(PASSIVE)`** — the only checkpoint today is at quit, and the app now runs
-  24/7 (Jorvis). WAL is 523KB — fine. Build when a WAL is observed >16MB mid-run. Effort: S.
-- **[ram] non-finding** — main-process scrollback is bounded 256KiB/pane (`pty/ring-buffer.ts:4`, ≈4MB at
-  15 panes); SQLite page cache is default (~2MB). DB layer is NOT where SigmaLink's RAM goes — renderer/
-  xterm + child CLI processes are. No DB-side action.
+- **[P0 · dependencies] Rebuild deterministic installation (C-001).** `Confirmed · critical · M`. Citations: `.gitignore:120-127`, `app/package.json:15-33,35-109`, `app/pnpm-workspace.yaml:1-18`. Action: track a current lockfile and encode pnpm/native build approvals consistently. Build trigger: clean macOS and Windows jobs pass `pnpm install --frozen-lockfile`, native rebuild, compile, and launch against the identical graph.
+- **[P0 · database] Redesign live restore (C-022).** `Confirmed · critical · XL`. Citations: `app/src/main/core/db/client.ts:414-454`, `app/src/main/core/memory/controller.ts:180-198`, `app/src/main/core/sync/engine.ts:159-169`, `app/src/renderer/features/settings/StorageTab.tsx:87-104`. Action: retain a usable original connection on failure and reconstruct every DB-owning service on success. Verification trigger: production-SQLite lock-failure rollback and successful service-rebind integration tests.
+- **[P0 · memory] Remove or invalidate the stale full-body index (C-024).** `Confirmed · high · M`. Citations: `app/src/main/core/memory/manager.ts:339-406`, `app/src/main/core/memory/index.ts:88-109,127-156`, `app/src/main/core/memory/mcp-server.ts:304-334`. Action: remove the duplicate index or coherently invalidate it across processes. Verification trigger: two-process write/search tests never return stale hits and long-session heap use remains bounded.
+- **[P0 · persistence] Serialize Markdown/SQLite commits (C-025).** `Strong static evidence · high · XL`. Citations: `app/src/main/core/memory/manager.ts:375-407`, `app/src/main/core/memory/db.ts:202-226`, `app/src/main/core/memory/storage.ts:124-159`. Action: add an inter-process commit/recovery design spanning database and atomic file replacement. Verification trigger: controlled two-process interleavings cannot leave divergent bodies.
+- **[P0 · packaging] Prove packaged native voice (C-029).** `Strong static evidence · high · L`. Citations: `app/package.json:50-51`, `app/packages/voice-core/package.json:21-25`, `app/electron-builder.yml:7-10`. Action: explicitly include the intended macOS/Windows modules at runtime-resolved paths. Build trigger: unpacked-artifact smoke-load and live device availability on both target OSes.
+- **[P1 · packaging] Prove packaged runtime icons (C-035).** `Strong static evidence · medium · M`. Citations: `app/electron/main.ts:165-185`, `app/src/main/core/notifications/os-notify.ts:144-153`, `app/electron-builder.yml:4-10`. Action: explicitly include tray/notification resources at runtime-resolved paths. Build trigger: unpacked-artifact tray and notification checks on macOS and Windows.
+- **[P0 · smoke] Replace false-green RPC/navigation coverage (C-041).** `Confirmed · high · M`. Citations: `app/electron/preload.ts:33-39`, `app/tests/e2e/smoke.spec.ts:240-270,689-722`. Action: unwrap/assert RPC envelopes and fail on navigation or screenshot-step errors. Build trigger: CI fails on one injected RPC or navigation failure.
+- **[P0 · performance] Enforce real budgets and lifecycle soaks (C-042).** `Confirmed · high · L`. Citations: `app/tests/perf/jank-review.spec.ts:123-191`; workflow-absence receipt: audit C-042. Action: enforce repeated per-platform latency/jank budgets and pane create/close memory/child-count soaks. Build trigger: CI fails on an exceeded budget or retained pane resource.
+- **[P1 · process lifecycle] Unify awaited child-tree shutdown (C-007/C-036).** `Strong static evidence + Confirmed on POSIX · high · L`. Citations: `app/src/main/core/process/process-tree.ts:213-244`, `app/src/main/core/pty/registry.ts:642-675`, `app/src/main/core/review/runner.ts:166-183`, `app/src/main/rpc-router.ts:3723-3844`. Action: use one TERM→bounded wait→tree-KILL contract for PTYs and ReviewRunner before database close. Verification trigger: POSIX integration tests and Windows CI leave zero owned descendants.
+- **[P1 · process tests] Replace lifecycle fakes/source-position assertions (C-044).** `Confirmed · medium · M`. Citations: `app/src/main/core/ruflo/supervisor.test.ts:20-41`, `app/src/main/core/ruflo/http-daemon-supervisor.test.ts:121-145`, `app/src/main/rpc-router.shutdown-order.test.ts:20-24`. Action: use real trapped child/descendant fixtures and direct shutdown behavior assertions. Verification trigger: tests fail when real exit semantics, descendant cleanup, or awaited shutdown order regress.
+- **[P1 · startup] Move non-critical cleanup after first window (C-028).** `Strong static evidence · medium · M`. Citations: `app/electron/main.ts:1017-1018`, `app/src/main/rpc-router.ts:484-503`, `app/src/main/core/workspaces/worktree-cleanup.ts:159-177,235-250`. Action: preserve recovery invariants while scheduling bounded repository/image cleanup after usable UI. Verification trigger: repeated production cold-start traces show repository count and one slow Git prune no longer delay first window.
+- **[P2 · startup] Lazily compose optional sync (C-030).** `Confirmed composition · low · M`. Citations: `app/src/main/rpc-router.ts:165,3244-3248`, `app/src/main/core/sync/controller.ts:12-31`, `app/src/main/core/sync/engine.ts:21-36`, `app/src/main/core/sync/git-client.ts:26-29`, `app/src/main/core/sync/crypto.ts:40`. Action: construct/import Git and crypto services only when sync is configured or invoked. Verification trigger: repeated production Electron startup benchmark plus complete sync behavior tests.
+- **[P1 · account lifecycle] Clear late expected-exit state (C-008).** `Strong static evidence · medium · S`. Citations: `app/src/main/core/pty/claude-account-watch.ts:280-294`, `app/src/main/core/pty/registry.ts:522-531`, `app/src/main/core/pty/resume-launcher.ts:296-318`. Action: clear or token-scope `expectedExit` when account switching times out or continues. Verification trigger: a deterministic delayed-exit test proves later genuine exits persist and report normally.
+- **[P1 · Windows/process] Give orphan cleanup profile ownership (C-038).** `Confirmed matching + Strong static kill trace · high · L`. Citations: `app/src/main/core/process/orphan-sweep.ts:30-49,69-101`, `app/src/main/rpc-router.ts:446-452`. Action: replace command-substring matching with a userData/profile PID registry or equivalent identity. Verification trigger: two concurrent Windows profiles cannot terminate each other's servers.
+- **[P1 · assistant] Paginate and virtualize conversation history (C-014).** `Strong static evidence · medium · L`. Citations: `app/src/main/core/assistant/conversations.ts:150-177`, `app/src/renderer/features/jorvis-assistant/use-jorvis-conversations.ts:98-138`, `app/src/renderer/features/jorvis-assistant/ChatTranscript.tsx:118-181`. Action: add database pagination and transcript virtualization. Verification trigger: agreed-scale long-history heap and interaction measurements.
+- **[P1 · assistant] Bound active pane-event history (C-015).** `Strong static evidence · medium · M`. Citation: `app/src/renderer/features/jorvis-assistant/use-jorvis-pane-events.ts:14-69`. Action: keep a bounded or persisted event window instead of cloning/rendering an unbounded array. Verification trigger: long-conversation tests enforce the agreed event bound.
+- **[P1 · hidden rail] Stop inactive panel work (C-010).** `Strong static evidence · medium · M`. Citations: `app/src/renderer/features/right-rail/RightRail.tsx:108-127,195-242`, `app/src/renderer/features/right-rail/RightRailTabs.tsx:83-103`. Action: inactive panels must not keep filesystem/health/event subscriptions. Verification trigger: inactive-tab lifecycle tests show zero relevant RPC calls and listeners.
+- **[P1 · editor] Release hidden shortcuts and drag resources (C-011/C-012).** `Strong static evidence · medium · S`. Citation: `app/src/renderer/features/editor/EditorTab.tsx:171-225,254-265`. Action: scope Cmd/Ctrl+S to the active editor and clean pointer/animation/body state on unmount. Verification trigger: hidden-editor and unmount-during-drag tests.
+- **[P2 · swarm rail] Pause hidden derived scans (C-016).** `Strong static evidence · low · S`. Citations: `app/src/renderer/features/right-rail/RightRail.tsx:119-127,216-227`, `app/src/renderer/features/right-rail/SwarmRailTab.tsx:22-106`. Action: stop hidden subscriptions or memoized full-message scans. Verification trigger: inactive-tab updates perform no derived scan.
+- **[P1 · terminal] Make renderer switching atomic (C-020).** `Strong static evidence · medium · M`. Citations: `app/src/renderer/features/command-room/Terminal.tsx:240-280`, `app/src/renderer/features/command-room/DomTerminalView.tsx:58-79`. Action: prevent the replacement host from creating its cache before the old renderer is destroyed. Verification trigger: switch tests prove exactly one live presenter/subscription throughout the transition.
+- **[P2 · renderer memory] Evict lifetime session metadata (C-013).** `Strong static evidence · low · M`. Citations: `app/src/renderer/lib/renderer-flag.ts:30-70`, `app/src/renderer/lib/pty-data-bus.ts:25-31,53-59,98-112`. Action: evict closed sessions or scope storage to lifecycle owners. Verification trigger: repeated pane create/close soak returns each map/set to baseline.
+- **[P2 · main memory] Evict deleted-conversation routes (C-027).** `Strong static evidence · low · S`. Citations: `app/src/main/rpc-router.ts:350-359`, `app/src/main/core/assistant/conversations.ts:259-265`. Action: delete cache entries with their conversation or use a lifecycle-scoped lookup. Verification trigger: repeated create/delete soak returns the cache to baseline.
+- **[P2 · renderer startup] Replace all-room idle prefetch with measured warming (C-009).** `Strong static evidence · low · M`. Citations: `app/src/renderer/app/room-loaders.ts:24-125`, `app/src/renderer/app/App.tsx:289-295`. Action: prefetch only likely-next rooms or warm on input/viewport signals. Verification trigger: cold/idle bundle transfer and first-navigation measurements on representative hardware.
+- **[P2 · query performance] Push mission event limits into SQL (C-026).** `Confirmed · low · S`. Citations: `app/src/main/core/missions/dao.ts:300-308`, `app/src/main/core/db/schema.ts:626-636`. Action: query indexed `ORDER BY ts DESC LIMIT ?` instead of loading, mapping, sorting, and slicing the full history. Verification trigger: production-ABI equivalence and large-history query tests.
+- **[P2 · release time] Choose one native rebuild owner (C-031).** `Confirmed · low · S`. Citations: `app/package.json:24-32`, `app/electron-builder.yml:29-30`, `.github/workflows/release-macos.yml:81-94`, `.github/workflows/release-windows.yml:74-91`, `.github/workflows/release-linux.yml:65-68`. Action: remove duplicate native rebuild ownership. Build trigger: clean release duration comparison plus native launch smoke tests.
+- **[P2 · package size] Measure and remove duplicate packaged output (C-032).** `Confirmed · low · M`. Citations: `app/scripts/build-electron.cjs:14-20`, `app/electron-builder.yml:7-10,25-33`; artifact-size receipt: audit C-032. Action: evaluate source-map shipping, duplicate renderer resources, and `asar` choices with artifacts. Build trigger: clean unpacked-size comparison plus native launch smoke tests.
+- **[P1 · CI lifecycle] Restore pane/crash gates (C-043).** `Confirmed · high · M`. Citations: `app/tests/e2e/multi-workspace.spec.ts:175-188`, `app/tests/e2e/pane-split.spec.ts:42-69`, `.github/workflows/e2e-matrix.yml:83-103`. Action: repair stale RPC fixtures and run crash recovery plus pane split/preservation on supported OSes. Build trigger: each OS job exercises the repaired tests.
+- **[P1 · packaged CI] Launch built artifacts on every target OS (C-046).** `Confirmed · high · XL`. Citations: `.github/workflows/e2e-matrix.yml:83-103`, `.github/workflows/release-macos.yml:113-139`, `.github/workflows/release-windows.yml:94-118`, `.github/workflows/release-linux.yml:71-95`. Action: add packaged application launch gates after build/upload preparation. Build trigger: macOS, Windows, and Linux jobs exercise the actual packaged executable.
+- **[P1 · Windows/scripts] Make opt-in scripts shell-portable (C-047).** `Confirmed · medium · S`. Citation: `app/package.json:20-21`. Action: replace inline POSIX assignments with a cross-platform launcher or Node wrapper. Verification trigger: the perf and crash commands start under default Windows `cmd.exe` and POSIX shells.

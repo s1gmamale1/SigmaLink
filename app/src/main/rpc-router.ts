@@ -3765,7 +3765,7 @@ export async function shutdownRouter(): Promise<void> {
     /* ignore */
   }
   // v1.6.0-A — stop ALL per-workspace HTTP daemons (one per open workspace).
-  // SIGTERM → 5s drain → SIGKILL idiom mirrors MemoryMcpSupervisor.stopAll().
+  // Each daemon owns a bounded SIGTERM → 5s drain → SIGKILL escalation.
   // H-13 — AWAIT the drain (was fire-and-forget): the supervisor self-bounds at
   // ~5s (SIGTERM→drain→SIGKILL), so awaiting can't hang quit but DOES ensure the
   // daemons are reaped before the process exits (no orphaned HTTP servers).

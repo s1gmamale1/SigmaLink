@@ -230,8 +230,7 @@ export const FlowView = memo(function FlowView({
     }
   }, [activeMatch?.line, activeMatch?.index, searchTerm, scrollRef]);
 
-  const lines = engine.logicalLines();
-  const visible = lines.slice(Math.max(0, lines.length - MAX_RENDER_LINES));
+  const visible = engine.tailLogicalLines(MAX_RENDER_LINES);
   // OSC-133 command blocks (marks array is small — derive per render).
   const blocks = deriveBlocks(engine.promptMarks);
   const liveFromRow =

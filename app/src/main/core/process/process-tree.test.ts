@@ -61,6 +61,16 @@ describe('inspectProcessTree on win32', () => {
 });
 
 describe('stopProcessTrees on win32', () => {
+  it('enumerates the process table once for the whole batch', () => {
+    const exec = vi.fn((cmd: string) => (cmd === 'powershell.exe' ? CIM_TABLE : ''));
+
+    const { snapshots } = stopProcessTrees([100, 999], 5_000, { platform: 'win32', exec });
+
+    const listCalls = exec.mock.calls.filter(([cmd]) => cmd === 'powershell.exe');
+    expect(listCalls).toHaveLength(1);
+    expect(snapshots.map((snapshot) => snapshot.rootPid)).toEqual([100, 999]);
+  });
+
   it('issues one `taskkill /PID <root> /T /F` per root and reports every tree pid stopped', () => {
     const calls: Array<{ cmd: string; args: string[] }> = [];
     const exec = vi.fn((cmd: string, args: string[]) => {

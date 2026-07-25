@@ -835,9 +835,23 @@ describe('spawnLocalPty: win32 shell-first mode (Phase 5)', () => {
       fireData('PS> ');
       expect(written).toHaveLength(1);
 
+      // Production writes CR as the ConPTY Enter key. This harness executes
+      // the same generated input as noninteractive PowerShell source, where
+      // newline-delimited statements reliably run the command, sentinel, and
+      // cleanup in sequence.
+      const nonInteractiveScript = written[0]!.split('\r').join('\n');
+      const harnessScriptPath = path.join(tempDir, 'generated-terminal-input.ps1');
+      fs.writeFileSync(harnessScriptPath, nonInteractiveScript, 'utf8');
       const output = execFileSync(
         String(spawnCommand),
-        ['-NoLogo', '-NoProfile', '-Command', written[0]!],
+        [
+          '-NoLogo',
+          '-NoProfile',
+          '-ExecutionPolicy',
+          'Bypass',
+          '-File',
+          harnessScriptPath,
+        ],
         {
           encoding: 'utf8',
           env: spawnEnv,
@@ -1056,7 +1070,10 @@ describe.skipIf(process.platform !== 'win32')('spawnLocalPty Windows ConPTY inte
       });
 
       expect(interruptSent).toBe(true);
-      expect(sentinelCode).toBe(130);
+      // PowerShell can report Ctrl+C as POSIX-style 130 or preserve Windows'
+      // signed STATUS_CONTROL_C_EXIT (0xC000013A). Both are legitimate nonzero
+      // native statuses; production intentionally does not normalize them.
+      expect([130, -1073741510]).toContain(sentinelCode);
       expect(shellMarkerSeen).toBe(true);
       expect(explicitExitSent).toBe(true);
       expect(output).not.toMatch(/Terminate batch job/i);
