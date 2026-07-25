@@ -203,6 +203,8 @@ producer semantics, durable attention, or digest/accessibility findings.
   production build, and diff check all exited 0. Remaining-issue retry: **6 files / 291 tests
   passed / 1 platform skip**; the complete coverage suite passed **487 files / 5,091 tests / 3
   skips**, and full lint, TypeScript, production build, and diff check all exited 0.
+  Second sigma remediation: **487 files / 5,082 passed / 3 skipped**; full coverage, lint,
+  TypeScript production build (**2,131 modules**), and diff check all exited 0.
 - **Program documents.** Umbrella design:
   `docs/superpowers/specs/2026-07-25-notification-reliability-program-design.md`. Workstream design:
   `docs/superpowers/specs/2026-07-25-notification-state-consistency-design.md`. Executed plan:
