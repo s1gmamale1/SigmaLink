@@ -858,11 +858,16 @@ export function appStateReducer(state: AppState, action: Action): AppState {
     }
     case 'INSTALL_NOTIFICATION_SNAPSHOT': {
       const { snapshot } = action;
-      if (
-        state.notificationRevision !== null &&
-        snapshot.revision < state.notificationRevision
-      ) {
-        return state;
+      if (state.notificationRevision !== null) {
+        if (snapshot.revision < state.notificationRevision) return state;
+        if (snapshot.revision === state.notificationRevision) {
+          // No authoritative state changed. Keep any older pages already
+          // loaded locally instead of truncating back to the snapshot's first
+          // page, while allowing a recovery attempt to finish hydration.
+          return state.notificationHydration === 'ready'
+            ? state
+            : { ...state, notificationHydration: 'ready' };
+        }
       }
       return {
         ...state,

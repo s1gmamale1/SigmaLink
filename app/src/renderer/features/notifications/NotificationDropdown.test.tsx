@@ -331,6 +331,49 @@ describe('NotificationDropdown', () => {
     });
   });
 
+  it('keeps pagination locked when the filter changes during an active request', async () => {
+    const notificationsApi = (mockRpc as unknown as {
+      notifications: Record<string, ReturnType<typeof vi.fn>>;
+    }).notifications;
+    let resolvePage!: (page: { items: Notification[]; nextCursor: string | null }) => void;
+    notificationsApi.page.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolvePage = resolve;
+        }),
+    );
+    mockState = {
+      ...initialAppState,
+      notifications: [makeN({ id: 'newer', severity: 'warn' })],
+      notificationRevision: 7,
+      notificationNextCursor: 'cursor-1',
+      notificationHydration: 'ready',
+    };
+    render(<NotificationDropdown onClose={() => undefined} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load older notifications' }));
+    expect(
+      (await screen.findByRole('button', { name: 'Loading older notifications' }))
+        .hasAttribute('disabled'),
+    ).toBe(true);
+
+    fireEvent.click(screen.getByTestId('notification-filter-errors'));
+
+    const paginationButton = screen.getByRole('button', {
+      name: 'Loading older notifications',
+    });
+    expect(paginationButton.hasAttribute('disabled')).toBe(true);
+    fireEvent.click(paginationButton);
+    expect(notificationsApi.page).toHaveBeenCalledTimes(1);
+
+    resolvePage({ items: [], nextCursor: null });
+    await waitFor(() => {
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'APPEND_NOTIFICATION_PAGE' }),
+      );
+    });
+  });
+
   it('does not load older pages before an authoritative revision is ready', async () => {
     const notificationsApi = (mockRpc as unknown as {
       notifications: Record<string, ReturnType<typeof vi.fn>>;

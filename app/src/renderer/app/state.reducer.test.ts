@@ -458,6 +458,30 @@ describe('versioned notification reconciliation', () => {
     expect(after).toBe(installed);
   });
 
+  it('preserves paged history when recovery reinstalls the same revision', () => {
+    const start: AppState = {
+      ...initialAppState,
+      notifications: [notif('newest', 20), notif('older', 10)],
+      notificationRevision: 5,
+      notificationNextCursor: 'third-page',
+      notificationHydration: 'retrying',
+    };
+
+    const after = appStateReducer(start, {
+      type: 'INSTALL_NOTIFICATION_SNAPSHOT',
+      snapshot: {
+        revision: 5,
+        counts: emptyCounts,
+        items: [notif('newest', 20)],
+        nextCursor: 'second-page',
+      },
+    });
+
+    expect(after.notifications.map((row) => row.id)).toEqual(['newest', 'older']);
+    expect(after.notificationNextCursor).toBe('third-page');
+    expect(after.notificationHydration).toBe('ready');
+  });
+
   it('applies only the next consecutive change-set revision', () => {
     const start: AppState = {
       ...initialAppState,

@@ -235,7 +235,7 @@ export function NotificationDropdown({ onClose }: DropdownProps) {
             data-testid={`notification-filter-${id}`}
             onClick={() => {
               setChip(id);
-              setPageState('idle');
+              setPageState((previous) => (previous === 'error' ? 'idle' : previous));
             }}
             className={cn(
               'rounded px-2 py-0.5 text-xs',
