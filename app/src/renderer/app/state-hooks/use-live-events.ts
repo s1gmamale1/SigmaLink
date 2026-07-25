@@ -646,6 +646,7 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
     let buffering = true;
     let currentRevision: number | null = null;
     let requestInFlight = false;
+    let recoveryRequested = false;
     let retryAttempt = 0;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     const buffered = new Map<number, NotificationChangeSet>();
@@ -665,16 +666,21 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
       }, delay);
     };
 
-    const hydrate = async (): Promise<void> => {
+    const hydrate = async (isRecovery = false): Promise<void> => {
       if (!alive || requestInFlight) return;
       requestInFlight = true;
       dispatch({
         type: 'SET_NOTIFICATION_HYDRATION',
-        status: retryAttempt === 0 ? 'loading' : 'retrying',
+        status: isRecovery || retryAttempt > 0 ? 'retrying' : 'loading',
       });
       try {
         const raw = await rpcSilent.notifications.snapshot({ limit: 100 });
         if (!alive) return;
+        // A malformed live envelope means this request may have captured state
+        // before the unparseable change. Discard it and let `finally` issue the
+        // queued authoritative recovery snapshot instead of briefly claiming
+        // the potentially stale response is ready.
+        if (recoveryRequested) return;
         const snapshot = parseNotificationSnapshot(raw);
         if (!snapshot) throw new Error('invalid notification snapshot');
 
@@ -705,12 +711,45 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
         if (alive) scheduleRetry();
       } finally {
         requestInFlight = false;
+        if (alive && recoveryRequested) {
+          recoveryRequested = false;
+          if (retryTimer !== null) {
+            clearTimeout(retryTimer);
+            retryTimer = null;
+          }
+          void hydrate(true);
+        }
       }
+    };
+
+    const recoverFromMalformedEnvelope = (): void => {
+      // No revision can be trusted after an unparseable envelope: stop applying
+      // deltas against the old cursor and rebuild from one authoritative source.
+      buffering = true;
+      currentRevision = null;
+      buffered.clear();
+      seenLiveRevisions.clear();
+      dispatch({ type: 'SET_NOTIFICATION_HYDRATION', status: 'retrying' });
+
+      if (requestInFlight) {
+        // Coalesce any number of malformed events during this request into one
+        // guaranteed snapshot after it settles.
+        recoveryRequested = true;
+        return;
+      }
+      if (retryTimer !== null) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
+      }
+      void hydrate(true);
     };
 
     const off = window.sigma.eventOn('notifications:changed', (raw: unknown) => {
       const changeSet = parseNotificationChangeSet(raw);
-      if (!changeSet) return;
+      if (!changeSet) {
+        recoverFromMalformedEnvelope();
+        return;
+      }
       if (
         seenLiveRevisions.has(changeSet.revision) ||
         (currentRevision !== null && changeSet.revision <= currentRevision)
