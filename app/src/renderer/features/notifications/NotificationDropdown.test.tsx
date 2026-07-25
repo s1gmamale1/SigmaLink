@@ -307,7 +307,9 @@ describe('NotificationDropdown', () => {
     mockState = {
       ...initialAppState,
       notifications: [makeN({ id: 'newer', severity: 'warn', createdAt: 2 })],
+      notificationRevision: 7,
       notificationNextCursor: 'cursor-1',
+      notificationHydration: 'ready',
     };
     render(<NotificationDropdown onClose={() => undefined} />);
 
@@ -325,7 +327,31 @@ describe('NotificationDropdown', () => {
       type: 'APPEND_NOTIFICATION_PAGE',
       page: { items: [older], nextCursor: null },
       sourceCursor: 'cursor-1',
+      sourceRevision: 7,
     });
+  });
+
+  it('does not load older pages before an authoritative revision is ready', async () => {
+    const notificationsApi = (mockRpc as unknown as {
+      notifications: Record<string, ReturnType<typeof vi.fn>>;
+    }).notifications;
+    mockState = {
+      ...initialAppState,
+      notifications: [makeN({ id: 'newer', severity: 'warn' })],
+      notificationNextCursor: 'cursor-before-hydration',
+      notificationHydration: 'loading',
+    };
+    render(<NotificationDropdown onClose={() => undefined} />);
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Load older notifications' }),
+    );
+
+    await Promise.resolve();
+    expect(notificationsApi.page).not.toHaveBeenCalled();
+    expect(dispatchSpy).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'APPEND_NOTIFICATION_PAGE' }),
+    );
   });
 
   it('offers a retry control when loading an older page fails', async () => {
@@ -336,7 +362,9 @@ describe('NotificationDropdown', () => {
     mockState = {
       ...initialAppState,
       notifications: [makeN({ id: 'newer', severity: 'warn' })],
+      notificationRevision: 1,
       notificationNextCursor: 'cursor-1',
+      notificationHydration: 'ready',
     };
     render(<NotificationDropdown onClose={() => undefined} />);
 

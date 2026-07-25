@@ -54,7 +54,9 @@ export function NotificationDropdown({ onClose }: DropdownProps) {
   // re-renders.
   const dispatch = useAppDispatch();
   const notifications = useAppStateSelector((s) => s.notifications);
+  const notificationRevision = useAppStateSelector((s) => s.notificationRevision);
   const notificationNextCursor = useAppStateSelector((s) => s.notificationNextCursor);
+  const notificationHydration = useAppStateSelector((s) => s.notificationHydration);
   const activeWorkspaceId = useAppStateSelector((s) => s.activeWorkspace?.id ?? null);
   const [chip, setChip] = useState<FilterChip>('all');
   const [pageState, setPageState] = useState<PageState>('idle');
@@ -148,16 +150,29 @@ export function NotificationDropdown({ onClose }: DropdownProps) {
   };
 
   const handleLoadOlder = async () => {
-    if (notificationNextCursor === null || pageState === 'loading') return;
+    if (
+      notificationHydration !== 'ready' ||
+      notificationRevision === null ||
+      notificationNextCursor === null ||
+      pageState === 'loading'
+    ) {
+      return;
+    }
 
     const sourceCursor = notificationNextCursor;
+    const sourceRevision = notificationRevision;
     setPageState('loading');
     try {
       const page = await rpc.notifications.page({
         cursor: sourceCursor,
         limit: 100,
       });
-      dispatch({ type: 'APPEND_NOTIFICATION_PAGE', page, sourceCursor });
+      dispatch({
+        type: 'APPEND_NOTIFICATION_PAGE',
+        page,
+        sourceCursor,
+        sourceRevision,
+      });
       setPageState('idle');
     } catch {
       // The shared RPC client already reports the failure. Keep an inline retry

@@ -532,7 +532,9 @@ describe('versioned notification reconciliation', () => {
     const start: AppState = {
       ...initialAppState,
       notifications: [notif('n3', 30), n2],
+      notificationRevision: 7,
       notificationNextCursor: 'older-page',
+      notificationHydration: 'ready',
     };
 
     const after = appStateReducer(start, {
@@ -542,6 +544,7 @@ describe('versioned notification reconciliation', () => {
         nextCursor: null,
       },
       sourceCursor: 'older-page',
+      sourceRevision: 7,
     });
 
     expect(after.notifications.map((row) => row.id)).toEqual(['n3', 'n2', 'n1']);
@@ -554,6 +557,7 @@ describe('versioned notification reconciliation', () => {
       notifications: [notif('before-recovery', 30)],
       notificationRevision: 4,
       notificationNextCursor: 'stale-cursor',
+      notificationHydration: 'ready',
     };
     const recovered = appStateReducer(beforeRequest, {
       type: 'INSTALL_NOTIFICATION_SNAPSHOT',
@@ -568,6 +572,7 @@ describe('versioned notification reconciliation', () => {
     const afterStalePage = appStateReducer(recovered, {
       type: 'APPEND_NOTIFICATION_PAGE',
       sourceCursor: 'stale-cursor',
+      sourceRevision: 4,
       page: {
         items: [notif('stale-page-row', 10)],
         nextCursor: null,
@@ -577,6 +582,95 @@ describe('versioned notification reconciliation', () => {
     expect(afterStalePage).toBe(recovered);
     expect(afterStalePage.notifications.map((row) => row.id)).toEqual(['authoritative']);
     expect(afterStalePage.notificationNextCursor).toBe('authoritative-cursor');
+  });
+
+  it('ignores an older-page response after a live removal advances the revision', () => {
+    const removed = notif('dismissed-while-loading', 10);
+    const beforeRequest: AppState = {
+      ...initialAppState,
+      notifications: [notif('newest', 30)],
+      notificationRevision: 8,
+      notificationNextCursor: 'same-cursor',
+      notificationHydration: 'ready',
+    };
+    const afterDismiss = appStateReducer(beforeRequest, {
+      type: 'APPLY_NOTIFICATION_CHANGE_SET',
+      changeSet: {
+        revision: 9,
+        added: [],
+        updated: [],
+        removed: [removed.id],
+        counts: emptyCounts,
+        unreadCount: 0,
+      },
+    });
+
+    const afterStalePage = appStateReducer(afterDismiss, {
+      type: 'APPEND_NOTIFICATION_PAGE',
+      sourceCursor: 'same-cursor',
+      sourceRevision: 8,
+      page: {
+        items: [removed],
+        nextCursor: null,
+      },
+    });
+
+    expect(afterStalePage).toBe(afterDismiss);
+    expect(afterStalePage.notifications.map((row) => row.id)).toEqual(['newest']);
+    expect(afterStalePage.notificationNextCursor).toBe('same-cursor');
+  });
+
+  it('ignores an older-page response after recovery advances revision but keeps the cursor', () => {
+    const beforeRequest: AppState = {
+      ...initialAppState,
+      notifications: [notif('before-recovery', 30)],
+      notificationRevision: 10,
+      notificationNextCursor: 'unchanged-cursor',
+      notificationHydration: 'ready',
+    };
+    const recovered = appStateReducer(beforeRequest, {
+      type: 'INSTALL_NOTIFICATION_SNAPSHOT',
+      snapshot: {
+        revision: 11,
+        counts: emptyCounts,
+        items: [notif('authoritative', 40)],
+        nextCursor: 'unchanged-cursor',
+      },
+    });
+
+    const afterStalePage = appStateReducer(recovered, {
+      type: 'APPEND_NOTIFICATION_PAGE',
+      sourceCursor: 'unchanged-cursor',
+      sourceRevision: 10,
+      page: {
+        items: [notif('stale-page-row', 10)],
+        nextCursor: null,
+      },
+    });
+
+    expect(afterStalePage).toBe(recovered);
+    expect(afterStalePage.notifications.map((row) => row.id)).toEqual(['authoritative']);
+    expect(afterStalePage.notificationNextCursor).toBe('unchanged-cursor');
+  });
+
+  it('does not append pages before authoritative hydration is ready', () => {
+    const unhydrated: AppState = {
+      ...initialAppState,
+      notificationNextCursor: 'unexpected-cursor',
+      notificationHydration: 'loading',
+    };
+
+    const after = appStateReducer(unhydrated, {
+      type: 'APPEND_NOTIFICATION_PAGE',
+      sourceCursor: 'unexpected-cursor',
+      sourceRevision: 0,
+      page: {
+        items: [notif('unsafe-row', 1)],
+        nextCursor: null,
+      },
+    });
+
+    expect(after).toBe(unhydrated);
   });
 });
 

@@ -301,6 +301,8 @@ export type Action =
       page: NotificationPage;
       /** Cursor used to request this page; guards against stale async responses. */
       sourceCursor: string;
+      /** Authoritative revision observed when the page request started. */
+      sourceRevision: number;
     }
   | {
       type: 'SET_NOTIFICATION_HYDRATION';
