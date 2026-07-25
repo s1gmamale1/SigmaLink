@@ -677,6 +677,59 @@ describe('useLiveEvents — versioned notification hydration', () => {
     );
   });
 
+  it('recovers when severity buckets do not add up to the unread total', async () => {
+    const recoveredRow = makeNotification({ id: 'recovered-count-mismatch' });
+    notificationSnapshotMock
+      .mockResolvedValueOnce({
+        revision: 1,
+        counts: notificationCounts(0),
+        items: [],
+        nextCursor: null,
+      })
+      .mockResolvedValueOnce({
+        revision: 2,
+        counts: notificationCounts(1),
+        items: [recoveredRow],
+        nextCursor: null,
+      });
+    await renderLiveEvents(stateWith([]));
+    await act(async () => {
+      await flushAsync();
+    });
+
+    await act(async () => {
+      sigma.emit('notifications:changed', {
+        revision: 2,
+        added: [recoveredRow],
+        updated: [],
+        removed: [],
+        counts: {
+          unread: 1,
+          unreadBySeverity: { info: 0, warn: 0, error: 0, critical: 0 },
+        },
+        unreadCount: 1,
+      });
+      await flushAsync();
+    });
+
+    expect(notificationSnapshotMock).toHaveBeenCalledTimes(2);
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'APPLY_NOTIFICATION_CHANGE_SET',
+        changeSet: expect.objectContaining({ revision: 2 }),
+      }),
+    );
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'INSTALL_NOTIFICATION_SNAPSHOT',
+      snapshot: {
+        revision: 2,
+        counts: notificationCounts(1),
+        items: [recoveredRow],
+        nextCursor: null,
+      },
+    });
+  });
+
   it('recovers instead of applying a change set with a malformed notification row', async () => {
     const recoveredRow = makeNotification({ id: 'recovered-after-invalid-row' });
     notificationSnapshotMock

@@ -21,13 +21,11 @@ import { useEffect, useRef, type Dispatch } from 'react';
 import { toast } from 'sonner';
 import { rpc, rpcSilent } from '../../lib/rpc';
 import type { Action, AppState } from '../state.types';
-import type {
-  AgentSession,
-  Notification,
-  NotificationChangeSet,
-  NotificationCounts,
-  NotificationSnapshot,
-} from '../../../shared/types';
+import type { AgentSession, NotificationChangeSet } from '../../../shared/types';
+import {
+  parseNotificationChangeSet,
+  parseNotificationSnapshot,
+} from '../notification-parsers';
 import { parseBrowserState, parseSwarmMessage, runRefreshOnEvent } from './parsers';
 import { playNotificationTone } from '../../lib/notifications';
 import { playCue } from '../../lib/sounds';
@@ -50,139 +48,6 @@ const ATTENTION_SOUND_THROTTLE_MS = 2000;
 let lastAttentionSoundAt = 0;
 
 const NOTIFICATION_RETRY_DELAYS_MS = [250, 1_000, 4_000, 10_000] as const;
-
-const NOTIFICATION_SEVERITIES = new Set<Notification['severity']>([
-  'info',
-  'warn',
-  'error',
-  'critical',
-]);
-
-function isRecord(raw: unknown): raw is Record<string, unknown> {
-  return raw !== null && typeof raw === 'object' && !Array.isArray(raw);
-}
-
-function isNonNegativeSafeInteger(raw: unknown): raw is number {
-  return Number.isSafeInteger(raw) && (raw as number) >= 0;
-}
-
-function parseNotification(raw: unknown): Notification | null {
-  if (!isRecord(raw)) return null;
-  if (
-    typeof raw.id !== 'string' ||
-    !(raw.workspaceId === null || typeof raw.workspaceId === 'string') ||
-    typeof raw.kind !== 'string' ||
-    !NOTIFICATION_SEVERITIES.has(raw.severity as Notification['severity']) ||
-    typeof raw.title !== 'string' ||
-    !(raw.body === null || typeof raw.body === 'string') ||
-    !(raw.payload === null || isRecord(raw.payload)) ||
-    !(raw.sourceEvent === null || typeof raw.sourceEvent === 'string') ||
-    typeof raw.dedupKey !== 'string' ||
-    !Number.isSafeInteger(raw.dupCount) ||
-    (raw.dupCount as number) < 1 ||
-    !isNonNegativeSafeInteger(raw.createdAt) ||
-    !(raw.readAt === null || isNonNegativeSafeInteger(raw.readAt))
-  ) {
-    return null;
-  }
-  return {
-    id: raw.id,
-    workspaceId: raw.workspaceId,
-    kind: raw.kind,
-    severity: raw.severity as Notification['severity'],
-    title: raw.title,
-    body: raw.body,
-    payload: raw.payload,
-    sourceEvent: raw.sourceEvent,
-    dedupKey: raw.dedupKey,
-    dupCount: raw.dupCount as number,
-    createdAt: raw.createdAt,
-    readAt: raw.readAt,
-  };
-}
-
-function parseNotificationRows(raw: unknown): Notification[] | null {
-  if (!Array.isArray(raw)) return null;
-  const rows: Notification[] = [];
-  for (const candidate of raw) {
-    const row = parseNotification(candidate);
-    if (!row) return null;
-    rows.push(row);
-  }
-  return rows;
-}
-
-function parseNotificationCounts(raw: unknown): NotificationCounts | null {
-  if (!isRecord(raw)) return null;
-  const value = raw as {
-    unread?: unknown;
-    unreadBySeverity?: unknown;
-  };
-  if (!Number.isSafeInteger(value.unread) || (value.unread as number) < 0) {
-    return null;
-  }
-  if (!isRecord(value.unreadBySeverity)) {
-    return null;
-  }
-  const severities = value.unreadBySeverity as Record<string, unknown>;
-  for (const severity of ['info', 'warn', 'error', 'critical'] as const) {
-    const count = severities[severity];
-    if (!Number.isSafeInteger(count) || (count as number) < 0) return null;
-  }
-  return value as NotificationCounts;
-}
-
-function parseNotificationChangeSet(raw: unknown): NotificationChangeSet | null {
-  if (!isRecord(raw)) return null;
-  const value = raw;
-  if (!Number.isSafeInteger(value.revision) || (value.revision as number) < 1) {
-    return null;
-  }
-  const counts = parseNotificationCounts(value.counts);
-  const added = parseNotificationRows(value.added);
-  const updated = parseNotificationRows(value.updated);
-  if (
-    !counts ||
-    !added ||
-    !updated ||
-    !Array.isArray(value.removed) ||
-    value.removed.some((id) => typeof id !== 'string') ||
-    !isNonNegativeSafeInteger(value.unreadCount) ||
-    value.unreadCount !== counts.unread
-  ) {
-    return null;
-  }
-  return {
-    revision: value.revision as number,
-    added,
-    updated,
-    removed: value.removed as string[],
-    counts,
-    unreadCount: counts.unread,
-  };
-}
-
-function parseNotificationSnapshot(raw: unknown): NotificationSnapshot | null {
-  if (!isRecord(raw)) return null;
-  const value = raw;
-  const counts = parseNotificationCounts(value.counts);
-  const items = parseNotificationRows(value.items);
-  if (
-    !Number.isSafeInteger(value.revision) ||
-    (value.revision as number) < 0 ||
-    !counts ||
-    !items ||
-    !(value.nextCursor === null || typeof value.nextCursor === 'string')
-  ) {
-    return null;
-  }
-  return {
-    revision: value.revision as number,
-    counts,
-    items,
-    nextCursor: value.nextCursor as string | null,
-  };
-}
 
 export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void {
   // Current-state ref so event callbacks (which subscribe with stable deps) see

@@ -731,6 +731,44 @@ describe('NotificationsManager.add', () => {
     });
   });
 
+  it('counts legacy unknown severities as info instead of dropping unread rows', () => {
+    fakeDb.rows.push(
+      {
+        id: 'valid-info-severity',
+        workspace_id: 'ws-1',
+        kind: 'current',
+        severity: 'info',
+        title: 'current row',
+        body: null,
+        payload: null,
+        source_event: null,
+        dedup_key: 'valid-info-severity',
+        dup_count: 1,
+        created_at: now,
+        read_at: null,
+      },
+      {
+        id: 'legacy-unknown-severity',
+        workspace_id: 'ws-1',
+        kind: 'legacy',
+        severity: 'fatal' as NotificationSeverity,
+        title: 'legacy row',
+        body: null,
+        payload: null,
+        source_event: null,
+        dedup_key: 'legacy-unknown-severity',
+        dup_count: 1,
+        created_at: now - 1,
+        read_at: null,
+      },
+    );
+
+    expect(makeManager().unreadCounts()).toEqual({
+      unread: 2,
+      unreadBySeverity: { info: 2, warn: 0, error: 0, critical: 0 },
+    });
+  });
+
   it('advances revision exactly once per changing mutation and never for no-ops', () => {
     const mgr = makeManager();
     const row = mgr.add({

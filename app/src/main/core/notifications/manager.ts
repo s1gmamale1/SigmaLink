@@ -431,9 +431,10 @@ export class NotificationsManager {
       unreadBySeverity: { info: 0, warn: 0, error: 0, critical: 0 },
     };
     for (const row of rows) {
-      if (!VALID_SEVERITIES.has(row.severity as NotificationSeverity)) continue;
-      const severity = row.severity as NotificationSeverity;
-      counts.unreadBySeverity[severity] = row.n;
+      const severity = VALID_SEVERITIES.has(row.severity as NotificationSeverity)
+        ? (row.severity as NotificationSeverity)
+        : 'info';
+      counts.unreadBySeverity[severity] += row.n;
       counts.unread += row.n;
     }
     return counts;

@@ -9,7 +9,7 @@
 //   (the Popover handles dismissal). ARIA is now role="dialog" + role="list".
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { NotificationDropdown } from './NotificationDropdown';
 import { applyFilter, groupBySource, maxSeverity } from './helpers';
 import type { AppState } from '@/renderer/app/state.types';
@@ -284,6 +284,49 @@ describe('NotificationDropdown', () => {
     });
   });
 
+  it('blocks a dismiss while mark-read compensation for the same row is pending', async () => {
+    const notification = makeN({ id: 'overlapping-write', severity: 'info' });
+    const notificationsApi = (mockRpc as unknown as {
+      notifications: Record<string, ReturnType<typeof vi.fn>>;
+    }).notifications;
+    let rejectMarkRead!: (error: Error) => void;
+    notificationsApi.markRead.mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectMarkRead = reject;
+        }),
+    );
+    mockState = {
+      ...initialAppState,
+      notifications: [notification],
+      notificationRevision: 11,
+    };
+    render(<NotificationDropdown onClose={() => undefined} />);
+
+    const dismissButton = screen.getByTestId('notification-dismiss-overlapping-write');
+    fireEvent.click(screen.getByRole('button', { name: `Info: ${notification.title}` }));
+
+    await waitFor(() => expect(notificationsApi.markRead).toHaveBeenCalledTimes(1));
+    expect((dismissButton as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(dismissButton);
+    expect(notificationsApi.dismiss).not.toHaveBeenCalled();
+    expect(dispatchSpy).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'DISMISS_NOTIFICATION' }),
+    );
+
+    await act(async () => {
+      rejectMarkRead(new Error('mark read failed'));
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(dispatchSpy).toHaveBeenCalledWith({
+        type: 'ROLLBACK_NOTIFICATION_OPTIMISTIC',
+        notification,
+        sourceRevision: 11,
+      });
+    });
+  });
+
   it('dropdown container carries sl-glass class for glass theme surface (SF-4)', () => {
     render(<NotificationDropdown onClose={() => undefined} />);
     const container = screen.getByTestId('notification-dropdown');
@@ -379,6 +422,33 @@ describe('NotificationDropdown', () => {
       sourceCursor: 'cursor-1',
       sourceRevision: 7,
     });
+  });
+
+  it('rejects a malformed older-page row and offers retry instead of dispatching it', async () => {
+    const notificationsApi = (mockRpc as unknown as {
+      notifications: Record<string, ReturnType<typeof vi.fn>>;
+    }).notifications;
+    notificationsApi.page.mockResolvedValueOnce({
+      items: [{ id: 'only-an-id' }],
+      nextCursor: null,
+    });
+    mockState = {
+      ...initialAppState,
+      notifications: [makeN({ id: 'newer', severity: 'warn' })],
+      notificationRevision: 7,
+      notificationNextCursor: 'cursor-1',
+      notificationHydration: 'ready',
+    };
+    render(<NotificationDropdown onClose={() => undefined} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load older notifications' }));
+
+    expect(
+      await screen.findByRole('button', { name: 'Retry loading older notifications' }),
+    ).toBeTruthy();
+    expect(dispatchSpy).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'APPEND_NOTIFICATION_PAGE' }),
+    );
   });
 
   it('keeps pagination locked when the filter changes during an active request', async () => {

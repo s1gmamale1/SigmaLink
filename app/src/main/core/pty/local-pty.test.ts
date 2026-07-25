@@ -803,17 +803,26 @@ describe('spawnLocalPty: win32 shell-first mode (Phase 5)', () => {
       '@ECHO off\r\nECHO This sibling batch shim must not run.\r\n',
       'utf8',
     );
+    const probeScriptName = `${commandName}.cjs`;
+    fs.writeFileSync(
+      path.join(tempDir, probeScriptName),
+      "process.stdout.write(JSON.stringify(process.argv.slice(2)) + '\\n');\n",
+      'utf8',
+    );
+    const powerShellLiteral = (value: string) => value.replace(/'/g, "''");
     fs.writeFileSync(
       path.join(tempDir, `${commandName}.ps1`),
       [
         '#!/usr/bin/env pwsh',
         '$basedir=Split-Path $MyInvocation.MyCommand.Definition -Parent',
-        '$ret=0',
-        // Terminate the native child record explicitly. Windows PowerShell's
-        // nested native-output collector can keep a non-newline-terminated
-        // pipe open until the harness timeout even after the exact JSON has
-        // already reached stdout (the repeated CI failure mode).
-        '[Console]::Out.WriteLine((ConvertTo-Json -Compress -InputObject @($args)))',
+        `$node='${powerShellLiteral(process.execPath)}'`,
+        `$probe=Join-Path $basedir '${powerShellLiteral(probeScriptName)}'`,
+        // Mirror a real npm PowerShell shim: launch its native Node child,
+        // wait for it to close stdout, then propagate the native exit code.
+        // Writing directly through [Console] in this nested harness emitted
+        // the right JSON but left Windows PowerShell's native collector open.
+        '& $node $probe @args',
+        '$ret=$LASTEXITCODE',
         'exit $ret',
         '',
       ].join('\r\n'),

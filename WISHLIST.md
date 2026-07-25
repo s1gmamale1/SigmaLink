@@ -128,7 +128,7 @@ the remediation program against it.
 
 ### Implementation progress (2026-07-25) — workstream 1: state consistency
 
-**Result:** Complete on branch `audit/notification-system-2026-07-24`. The authoritative
+**Result:** Complete on branch `fix/notification-state-consistency` (PR #244). The authoritative
 store/change-set protocol is now versioned, transactional, race-safe, and pageable. This closes the
 soft-cap data-loss/delta bug, the startup hydration race, inaccessible retained history, and
 off-page urgency misclassification. It does not claim to fix native delivery, activation routing,
@@ -137,41 +137,50 @@ producer semantics, durable attention, or digest/accessibility findings.
 - **Protected retention and visible collapse summaries — fixed.** Soft-cap victims are restricted
   to unread `info`/`warn` rows; unread `error`/`critical` rows are never selected. A newly inserted
   collapse summary is returned in the emitted `added` lane so all live consumers see the same state.
-  Regression coverage includes protected severities and summary delivery. Commit `1ffab38`.
+  Regression coverage includes protected severities and summary delivery. Commit `e1dd4c6`.
 - **Persisted version clock and authoritative counts — implemented.** Migration 0043 creates the
   singleton notification-state revision. Every changing manager operation advances it and emits
   global unread counts split across `info`, `warn`, `error`, and `critical`; no-op mutations do not
-  advance it. Commits `3fa0738` and `2340f64`.
+  advance it. Commits `865c716` and `cd71d22`.
 - **Mutation/revision atomicity — implemented.** Row mutation, revision increment, and post-mutation
   count construction now share one SQLite transaction; change sets are emitted only after commit.
   Forced revision failures cover add, mark-read, mark-all-read, mark-unread, dismiss, clear-read,
-  and GC rollback. Commit `19242fc`.
+  and GC rollback. Commit `2106dd8`.
 - **Atomic hydration and stable paging — implemented.** `notifications.snapshot` returns revision,
   counts, the newest page, and an opaque keyset cursor from one read transaction.
   `notifications.page` orders by `(created_at, id)` descending, validates cursors, preserves filters,
-  and avoids duplicate/gapped traversal when timestamps match. Commits `9181e50` and `ca89574`.
+  and avoids duplicate/gapped traversal when timestamps match. Commits `3141982` and `e23f79d`.
 - **Startup/live reconciliation — fixed.** Renderers subscribe before requesting the snapshot,
   buffer live change sets during hydration, reject stale snapshots, apply only consecutive
   revisions, refetch on gaps, and retry failed hydration at bounded delays. Malformed/unversioned
-  envelopes are rejected instead of silently zeroing state. Commit `7bb16a8`.
+  envelopes are rejected instead of silently zeroing state. Commit `050b904`.
 - **History and urgency UI — fixed for loaded paging contract.** Bell badge color/pulse now uses
   authoritative global severity counts, including off-page critical rows. The dropdown exposes
   accessible load/loading/retry/end controls and appends unique cursor pages. Filters remain local
   over loaded pages; server-side search/filter pagination stays in the later UX workstream. Commit
-  `e43d693`.
+  `172e966`.
 - **Legacy hydration RPCs removed; boundary validation tightened.** No renderer consumers remained,
   so `notifications.list` and `notifications.unreadCount` were removed from the controller,
   allowlist, and router shape. Concrete enforced schemas were added for the authoritative snapshot
   and page inputs. Internal manager methods remain for the main-process control snapshot. Commit
-  `8992b1e`.
+  `80a7cb0`.
 - **Post-review renderer consistency hardening — fixed.** Malformed snapshot/change-set rows now
   trigger recovery instead of entering UI state. Older-page responses are bound to both their
   source cursor and authoritative revision, filter changes cannot unlock an active page request,
   and equal-revision recovery replaces the authoritative first-page window without discarding
   pages already loaded below it. Failed optimistic mark-read/dismiss RPCs now restore the original
-  row only if no newer authoritative revision has arrived. Regression coverage exercises malformed
-  rows, live mutation and recovery during pagination, duplicate loads across filter changes,
-  divergent equal-revision snapshots, and failed optimistic writes. PR #244.
+  row only if no newer authoritative revision has arrived. Per-row write guards prevent overlapping
+  mark-read/dismiss compensation chains from rolling back out of order. Snapshot, live-change, and
+  older-page responses now share complete runtime row validation; severity buckets must sum to the
+  aggregate unread count, and legacy unknown database severities normalize to `info` without being
+  dropped. Regression coverage exercises malformed rows and counts, live mutation and recovery
+  during pagination, duplicate loads across filter changes, divergent equal-revision snapshots,
+  failed/overlapping optimistic writes, and unknown legacy severities. PR #244.
+- **Windows argv-smoke harness — hardened.** The adversarial npm-shim fixture produced the exact
+  expected JSON but timed out because its direct `[Console]` write left nested Windows PowerShell's
+  native-output collector open. The fixture now mirrors a real npm PowerShell shim by launching a
+  short-lived Node child, waiting for stdout closure, and propagating `$LASTEXITCODE`; the hosted
+  Windows smoke remains the required proof because this path is platform-specific.
 - **Verification receipts.** Focused gate: **10 files / 233 tests / 0 failures**. Broader pure
   notification gate: **23 files / 366 tests / 0 failures**. `pnpm exec tsc -b --pretty false`,
   focused ESLint, and `git diff --check` all exited 0. The original fresh-worktree dependency-build
@@ -179,7 +188,9 @@ producer semantics, durable attention, or digest/accessibility findings.
   macOS/Windows/Linux delivery remains an explicit later gate, not silently counted as passing.
   Post-review compensation gate: **2 files / 88 tests / 0 failures**; the complete coverage suite
   (**486 files / 0 failures**), full lint, TypeScript build, production build, and diff check all
-  exited 0.
+  exited 0. Final review-remediation gate: **5 files / 196 tests passed / 1 platform skip**; the
+  complete coverage suite passed **487 files / 5,087 tests / 3 skips**, and full lint, TypeScript,
+  production build, and diff check all exited 0.
 - **Program documents.** Umbrella design:
   `docs/superpowers/specs/2026-07-25-notification-reliability-program-design.md`. Workstream design:
   `docs/superpowers/specs/2026-07-25-notification-state-consistency-design.md`. Executed plan:
@@ -427,11 +438,6 @@ producer semantics, durable attention, or digest/accessibility findings.
 - **Mutation RPC validation remains weak.** Snapshot/page inputs now have concrete enforced schemas,
   but notification mutation channels still use permissive stubs. Controllers check required IDs,
   so the remaining work is boundary-hardening debt rather than a proven injection issue.
-- **Severity-count envelopes do not enforce their aggregate invariant.** Parsing checks each
-  non-negative integer independently but does not require `unread` to equal the sum of the four
-  `unreadBySeverity` buckets (`app/src/renderer/app/state-hooks/use-live-events.ts:115-139`). A
-  malformed trusted-process envelope can therefore make the bell's number and urgency disagree.
-  Add a sum check and malformed-envelope recovery regression when tightening this boundary.
 - **The documented D3 tuple and SQL differ.** Comments/spec say
   `(workspace_id, kind, dedup_key)`, but lookup/index omit `kind`
   (`app/src/main/core/notifications/manager.ts:13-14,163-186`,

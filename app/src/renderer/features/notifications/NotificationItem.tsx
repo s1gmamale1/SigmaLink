@@ -19,6 +19,7 @@ import { relativeTime, severityClass } from './helpers';
 
 interface ItemProps {
   notification: Notification;
+  disabled?: boolean;
   onClick: () => void;
   onDismiss: () => void;
   onMarkUnread: () => void;
@@ -56,6 +57,7 @@ function severityLabel(severity: NotificationSeverity): string {
 
 export function NotificationItem({
   notification,
+  disabled = false,
   onClick,
   onDismiss,
   onMarkUnread,
@@ -75,7 +77,8 @@ export function NotificationItem({
       <button
         type="button"
         onClick={onClick}
-        className="flex flex-1 items-start gap-2 text-left hover:opacity-80"
+        disabled={disabled}
+        className="flex flex-1 items-start gap-2 text-left hover:opacity-80 disabled:cursor-wait"
         // UX-9 — severity word prepended to the accessible name so VoiceOver
         // announces e.g. "Critical: Process exited, Open".
         aria-label={`${sevLabel}: ${notification.title}`}
@@ -125,6 +128,7 @@ export function NotificationItem({
           <button
             type="button"
             onClick={onMarkUnread}
+            disabled={disabled}
             aria-label="Mark unread"
             data-testid={`notification-mark-unread-${notification.id}`}
             className="inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-muted/40 hover:text-foreground"
@@ -136,6 +140,7 @@ export function NotificationItem({
         <button
           type="button"
           onClick={onDismiss}
+          disabled={disabled}
           aria-label="Dismiss"
           data-testid={`notification-dismiss-${notification.id}`}
           className="inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-muted/40 hover:text-foreground"
