@@ -189,6 +189,33 @@ describe('Phase 2 RAM Brake — session risk schema', () => {
   });
 });
 
+describe('notification snapshot/page schemas', () => {
+  it('registers concrete schemas for both authoritative hydration channels', () => {
+    for (const channel of ['notifications.snapshot', 'notifications.page'] as const) {
+      const schema = getChannelSchema(channel);
+      expect(schema, `${channel} must have a schema entry`).toBeDefined();
+      expect(schema?.input, `${channel} must declare an input schema`).toBeDefined();
+      expect(schema?.input?.safeParse({ limit: '100' }).success).toBe(false);
+    }
+  });
+
+  it('accepts bounded filters and an opaque page cursor', () => {
+    expect(() =>
+      validateChannelInput('notifications.snapshot', {
+        limit: 100,
+        workspaceId: 'ws-1',
+        severities: ['warn', 'critical'],
+      }),
+    ).not.toThrow();
+    expect(() =>
+      validateChannelInput('notifications.page', {
+        limit: 100,
+        cursor: 'opaque-cursor',
+      }),
+    ).not.toThrow();
+  });
+});
+
 // Spec 2026-06-10 (B) — panes.stageImage stages untrusted renderer bytes. The
 // schema enforces a PRE-DECODE size bound so an oversized payload is rejected
 // at the boundary before Buffer.from allocates ~40MB (the helper's post-decode

@@ -64,6 +64,464 @@ None. The inbox was cleared during this evidence-gated audit; new ideas should b
 
 ---
 
+## 🔬 Deep review findings (2026-07-24) — notification system
+
+**Status:** Investigation complete. State-consistency workstream implemented and verified on
+2026-07-25; window routing, native lifecycle/packaging, producer semantics, durable attention, and
+UX/digest/accessibility remain open. This section preserves the original audit evidence and tracks
+the remediation program against it.
+
+### Scope and evidence standard
+
+- Trace every production path from notification-worthy event through eligibility,
+  preference/permission checks, construction, OS delivery, click/action routing, and cleanup.
+- Compare behavior across macOS, Windows, and Linux, including foreground/background,
+  startup/shutdown, sleep/wake, and restored-session paths where implemented.
+- Inspect tests and run reproducible checks; a code smell is not a confirmed bug without a
+  reachable failing path, violated contract, or demonstrable missing invariant.
+- Record each confirmed issue with severity, effort, concrete impact, root cause, and precise
+  `file:line` citations. Keep unproven hypotheses visibly separate.
+- The 2026-07-24 evidence below is the pre-fix baseline. Implementation outcomes are recorded in a
+  separate dated subsection so the original diagnosis remains auditable.
+
+### Investigation log
+
+- **2026-07-24 — isolated baseline created.** Worktree
+  `/Users/aisigma/projects/SigmaLink-wt-notification-audit-2026-07-24`, branch
+  `audit/notification-system-2026-07-24`, base `80065c3f9ef1d9c0b32eecd3401230ee2b831d06`.
+- **2026-07-24 — setup caveat (environment, not a notification finding).** `pnpm install`
+  resolved and linked 781 packages but exited nonzero under pnpm 11's build-approval policy:
+  dependency build scripts were blocked and `electron-builder install-app-deps` could not find
+  `prebuild-install`. Pure TypeScript/jsdom tests remained runnable; do not misattribute this
+  fresh-worktree setup issue to notification behavior.
+- **2026-07-24 — focused baseline is green.**
+  `pnpm exec vitest run src/main/core/notifications src/shared/notification-prefs.test.ts
+  src/renderer/features/notifications src/renderer/features/settings/NotificationsSettings.test.tsx
+  src/renderer/lib/sounds.test.ts` passed **14 files / 177 tests / 0 failures**. A green unit
+  slice is evidence that encoded behavior is internally consistent, not that Electron/OS delivery
+  works end to end.
+- **2026-07-24 — adjacent integration baseline is also green.** Startup/live-event, reducer,
+  attention-detector, RPC-wiring, and notification-migration tests passed **6 files / 128 tests /
+  0 failures**. Across the two root-run slices that is **305 passing assertions**; an independent
+  reviewer ran a partly overlapping 240-test notification/attention/sound slice with zero failures.
+  `pnpm exec tsc -b --pretty false` also exited 0. These results strengthen the conclusion that the
+  remaining defects occupy missing scenarios and broken contracts rather than currently asserted
+  behavior.
+- **2026-07-24 — prior-memory search returned no notification-system entries.** Ruflo/AgentDB
+  semantic search found zero matching memories, so no inherited diagnosis was treated as evidence.
+- **2026-07-24 — seven independent review assignments completed in three bounded waves.** The
+  scopes were architecture/history, manager/sources, renderer/settings, OS/platform delivery,
+  lifecycle/reliability, tests/reproductions, and adversarial synthesis. The last reviewer was
+  instructed to disprove/downgrade candidates and caught one false claim: daily-summary Settings
+  *do* live-rearm through the generic KV controller (`app/src/main/rpc-router.ts:2669-2684`).
+- **2026-07-24 — final fresh verification.** A single relevant-system run passed **24 files / 349
+  tests / 0 failures**; `pnpm exec tsc -b --pretty false` exited 0. Four temporary, outside-repo
+  probes using production helpers reproduced: failed-show throttle consumption, live-delta loss to
+  stale hydration, off-page critical badge misclassification, and failed optimistic-mutation drift.
+  `git diff --check` exited 0; final repository status contains only the intentionally rewritten
+  `WISHLIST.md`.
+- **2026-07-24 — Ruflo receipts closed.** All seven audit task records are completed and the
+  post-task hook persisted trajectory `traj-1784920284401`. Generic `memory_store` correctly
+  refused an unsafe whole-image write while a native WAL connection was active; the concise audit
+  pattern was instead stored successfully through AgentDB's semantic hierarchical controller as
+  `sigmalink-notification-audit-2026-07-24`.
+
+### Implementation progress (2026-07-25) — workstream 1: state consistency
+
+**Result:** Complete on branch `fix/notification-state-consistency` (PR #244). The authoritative
+store/change-set protocol is now versioned, transactional, race-safe, and pageable. This closes the
+soft-cap data-loss/delta bug, the startup hydration race, inaccessible retained history, and
+off-page urgency misclassification. It does not claim to fix native delivery, activation routing,
+producer semantics, durable attention, or digest/accessibility findings.
+
+- **Protected retention and visible collapse summaries — fixed.** Soft-cap victims are restricted
+  to unread `info`/`warn` rows; unread `error`/`critical` rows are never selected. A newly inserted
+  collapse summary is returned in the emitted `added` lane so all live consumers see the same state.
+  Regression coverage includes protected severities and summary delivery. Commit `e1dd4c6`.
+- **Persisted version clock and authoritative counts — implemented.** Migration 0043 creates the
+  singleton notification-state revision. Every changing manager operation advances it and emits
+  global unread counts split across `info`, `warn`, `error`, and `critical`; no-op mutations do not
+  advance it. Commits `865c716` and `cd71d22`.
+- **Mutation/revision atomicity — implemented.** Row mutation, revision increment, and post-mutation
+  count construction now share one SQLite transaction; change sets are emitted only after commit.
+  Forced revision failures cover add, mark-read, mark-all-read, mark-unread, dismiss, clear-read,
+  and GC rollback. Commit `2106dd8`.
+- **Atomic hydration and stable paging — implemented.** `notifications.snapshot` returns revision,
+  counts, the newest page, and an opaque keyset cursor from one read transaction.
+  `notifications.page` orders by `(created_at, id)` descending, validates cursors, preserves filters,
+  and avoids duplicate/gapped traversal when timestamps match. Commits `3141982` and `e23f79d`.
+- **Startup/live reconciliation — fixed.** Renderers subscribe before requesting the snapshot,
+  buffer live change sets during hydration, reject stale snapshots, apply only consecutive
+  revisions, refetch on gaps, and retry failed hydration at bounded delays. Malformed/unversioned
+  envelopes are rejected instead of silently zeroing state. Commit `050b904`.
+- **History and urgency UI — fixed for loaded paging contract.** Bell badge color/pulse now uses
+  authoritative global severity counts, including off-page critical rows. The dropdown exposes
+  accessible load/loading/retry/end controls and appends unique cursor pages. Filters remain local
+  over loaded pages; server-side search/filter pagination stays in the later UX workstream. Commit
+  `172e966`.
+- **Legacy hydration RPCs removed; boundary validation tightened.** No renderer consumers remained,
+  so `notifications.list` and `notifications.unreadCount` were removed from the controller,
+  allowlist, and router shape. Concrete enforced schemas were added for the authoritative snapshot
+  and page inputs. Internal manager methods remain for the main-process control snapshot. Commit
+  `80a7cb0`.
+- **Post-review renderer consistency hardening — fixed.** Malformed snapshot/change-set rows now
+  trigger recovery instead of entering UI state. Older-page responses are bound to both their
+  source cursor and authoritative revision, filter changes cannot unlock an active page request,
+  and equal-revision recovery replaces the authoritative first-page window without discarding
+  pages already loaded below it. Failed optimistic mark-read/dismiss RPCs now restore the original
+  row unless an authoritative change for that same row has superseded it. Per-row write guards
+  survive dropdown close/reopen cycles, preventing overlapping mark-read/dismiss compensation
+  chains; reducer-owned per-row mutation tokens let unrelated revisions advance without suppressing
+  compensation and still reject stale same-row rollback. Snapshot,
+  live-change, and older-page responses now share complete runtime row validation; severity buckets
+  must sum to the aggregate unread count, and legacy unknown database severities normalize to `info`
+  without being dropped. The pending live-change buffer is capped at 256 entries; overflow drops an
+  old revision so the existing gap detector forces snapshot recovery instead of allowing unbounded
+  growth. Navigation is immediate and remains available while row mutation controls are locked.
+  Dead pre-versioning reducer actions and obsolete envelope documentation were removed. Raw severity
+  filters and retention lanes use the same normalization, so legacy unknown rows remain pageable
+  and eligible for `info` retention. Gap refetches retain the `retrying` hydration state throughout
+  recovery.
+  Regression coverage exercises malformed rows and counts, live mutation and recovery during
+  pagination, duplicate loads across filter changes, divergent equal-revision
+  snapshots, failed/overlapping optimistic writes, and unknown legacy severities. PR #244.
+- **Windows argv-smoke path — hardened.** Hosted Windows proved that Windows PowerShell 5.1's npm
+  `.ps1` path both mutates quote/empty argv while forwarding to Node and closes its nested output
+  collector slowly. Legacy PowerShell now deliberately uses the existing direct `.cmd` path, whose
+  two-pass escaping preserves argv without a nested collector; PowerShell 7 keeps shell-first mode.
+  The hosted assertion accepts Windows' case-insensitive `.CMD` resolution. The hosted Windows smoke
+  remains the required proof because these paths are platform-specific.
+- **Verification receipts.** Focused gate: **10 files / 233 tests / 0 failures**. Broader pure
+  notification gate: **23 files / 366 tests / 0 failures**. `pnpm exec tsc -b --pretty false`,
+  focused ESLint, and `git diff --check` all exited 0. The original fresh-worktree dependency-build
+  restriction still prevents a trustworthy Electron/native-platform end-to-end run; packaged
+  macOS/Windows/Linux delivery remains an explicit later gate, not silently counted as passing.
+  Post-review compensation gate: **2 files / 88 tests / 0 failures**; the complete coverage suite
+  (**486 files / 0 failures**), full lint, TypeScript build, production build, and diff check all
+  exited 0. Final review-remediation gate: **5 files / 196 tests passed / 1 platform skip**; the
+  complete coverage suite passed **487 files / 5,087 tests / 3 skips**, and full lint, TypeScript,
+  production build, and diff check all exited 0. Remaining-issue retry: **6 files / 291 tests
+  passed / 1 platform skip**; the complete coverage suite passed **487 files / 5,091 tests / 3
+  skips**, and full lint, TypeScript, production build, and diff check all exited 0.
+  Second sigma remediation: **487 files / 5,082 passed / 3 skipped**; full coverage, lint,
+  TypeScript production build (**2,131 modules**), and diff check all exited 0.
+- **Program documents.** Umbrella design:
+  `docs/superpowers/specs/2026-07-25-notification-reliability-program-design.md`. Workstream design:
+  `docs/superpowers/specs/2026-07-25-notification-state-consistency-design.md`. Executed plan:
+  `docs/superpowers/plans/2026-07-25-notification-state-consistency.md`.
+
+### How the system actually works
+
+- **Durable pipeline.** PTY/CLI exits, specially-gated swarm messages, assistant tool failures,
+  disk-guard/MCP/Ruflo/bridge diagnostics, and the daily summary call one main-process
+  `NotificationsManager`. It persists SQLite rows, applies dedup/retention, and emits one versioned,
+  post-commit change set with authoritative counts. The router broadcasts that change set to every
+  renderer, attempts native delivery for each `added` row, and forwards new rows into the daily-note
+  digest.
+- **Renderer pipeline.** Each window subscribes first, hydrates one versioned snapshot, reconciles
+  buffered/consecutive change sets, and pages older rows with an opaque cursor. Every window
+  reconciles state, but only the main window creates toast/tone side effects
+  (`app/src/renderer/app/state-hooks/use-live-events.ts:564-698`). The breadcrumb bell and dropdown
+  also exist only in the main shell.
+- **Native pipeline.** `OsNotifier` gates by platform support, master setting, any-window focus,
+  severity, DND/quiet hours, source mute, and a five-minute key throttle, then constructs an Electron
+  `Notification` (`app/src/main/core/notifications/os-notify.ts:156-218`). Migration 0038 makes the
+  master setting default-on unless the operator explicitly stored `0`; default severity still omits
+  `info`.
+- **Attention is a different system.** A BEL/4-second-idle detector emits transient
+  `agent:attention`; renderer state drives pane/workspace glow and an attention tone. It deliberately
+  bypasses the notification DB, bell, toast, and native notifier. This split—not merely an OS
+  permission problem—is load-bearing to the operator-visible failures below.
+
+### Confirmed bugs (pre-fix evidence; see implementation status above)
+
+- **CRITICAL · M — The soft cap destroys must-see unread rows and then hides its replacement.**
+  Once one `(workspace_id, kind)` exceeds 200 unread rows, the victim query deletes the oldest 50
+  without a severity predicate (`app/src/main/core/notifications/manager.ts:404-457`). Repeated
+  critical events bypass dedup and can therefore drive this path (`manager.ts:159-161`). Unread
+  `error`/`critical` rows are permanently replaced by a single `info` summary despite the manager's
+  protected-severity invariant (`manager.ts:490-563`). The summary is inserted but the method
+  returns only victim IDs; `add()` broadcasts the triggering row rather than the summary
+  (`manager.ts:459-487,259-268`). Live renderers, native delivery, toast/tone, and the digest all
+  miss the summary while the authoritative count includes it. Tests seed only `info` victims and
+  inspect DB state, never protected severities or `delta.added`
+  (`app/src/main/core/notifications/manager.test.ts:880-972`).
+
+- **HIGH · M — The primary “agent needs me” signal is transient and can be lost forever.**
+  Question/turn-finished detection uses `agent:attention`, not `NotificationsManager`; the event is
+  only routed to renderer glow/sound (`app/src/main/rpc-router.ts:698-748`,
+  `app/src/renderer/app/state-hooks/use-live-events.ts:68-89`). It has no DB row, toast, or native
+  notification by explicit design
+  (`docs/superpowers/specs/2026-06-14-agent-attention-notifications-design.md:55-69,135-139`).
+  SigmaLink can keep the router and PTYs alive with zero windows, while `sendToAll()` over zero
+  handles is a no-op (`app/electron/main.ts:1043-1066`,
+  `app/src/main/core/windows/registry.ts:95-99`). Any attention emitted then is unrecoverable because
+  a reopened renderer has no attention snapshot to hydrate. The detector retains a main-process
+  in-memory map (`app/src/main/core/pty/attention-detector.ts:47-49,79-85`), but no RPC/window-create
+  path replays it, so it is operationally lost to the operator. This is the central reason an
+  operator away from the app can receive nothing when an agent finishes a turn or waits for input.
+
+- **HIGH · M — Rows after the newest 100 are permanently inaccessible and hidden urgency is
+  misrepresented.** Startup fetches only `{limit:100, offset:0}` while claiming infinite scroll
+  (`app/src/renderer/app/state-hooks/use-live-events.ts:564-583`); the dropdown never requests a
+  later page (`app/src/renderer/features/notifications/NotificationDropdown.tsx:45-64,207-272`).
+  Storage retains 500+ and exposes real pagination (`app/src/main/core/notifications/manager.ts:36-44,271-303`).
+  Older rows cannot be opened/dismissed. The badge count is global but red/critical/pulse state is
+  derived only from the loaded slice (`app/src/renderer/features/notifications/NotificationBell.tsx:24-62`).
+  A production-helper probe with 101 unread and the critical row off-page produced a gray,
+  non-pulsing badge.
+
+- **HIGH · S-M — Startup hydration can erase newer live state and never retries.** Hydration takes
+  a list snapshot, separately awaits `unreadCount`, then performs a full replacement
+  (`app/src/renderer/app/state-hooks/use-live-events.ts:569-591`,
+  `app/src/renderer/app/state.reducer.ts:834-840`) while a separate listener merges deltas
+  (`use-live-events.ts:593-619`). A deferred-snapshot probe reproduced a live added row being
+  overwritten, leaving `unreadCount=1` with an empty list. The catch silently abandons hydration
+  for the session; no retry/reconnect exists.
+
+- **HIGH · M — Click/navigation contracts are broken on every notification surface.** In-app
+  routing changes the room but never activates `notification.workspaceId`, so a background-workspace
+  notification opens the corresponding room in the wrong workspace
+  (`app/src/renderer/features/notifications/helpers.ts:177-216`). Its three
+  `sigma:scroll-to-*` events have no production listeners; Jorvis listens for the different
+  `jorvis:jump-to-message` event (`app/src/renderer/features/jorvis-assistant/use-jorvis-jump-to-message.ts:67-92`).
+  Native clicks only focus `focusedWindow ?? all[0]`, with no source routing or read update; with no
+  live window the click does nothing (`app/src/main/core/notifications/os-notify.ts:134-143,200-218`).
+  Tests stop at callback or `SET_ROOM` assertions rather than mounted target arrival.
+
+- **HIGH · M — A focused detached window can have no visible durable alert surface.** Every
+  renderer receives the delta, but scoped windows exit before toast/tone work
+  (`app/src/renderer/app/state-hooks/use-live-events.ts:636-640`) and `ScopedShell` has no bell
+  (`app/src/renderer/app/ScopedShell.tsx:41-53`). Native banners are simultaneously suppressed when
+  *any* SigmaLink window is focused (`app/src/main/core/notifications/os-notify.ts:132-166`). The
+  main window may receive a toast behind/while hidden, but the window the operator is using shows
+  nothing. With DND, even the hidden-main sound is suppressed despite critical normally bypassing
+  DND visually. The scoped-window test enshrines “never toast/tone” without proving an alternative
+  surface (`app/src/renderer/app/state-hooks/use-live-events.test.ts:655-679`).
+
+- **MEDIUM · M — Native delivery is reported as successful before the OS outcome is known.**
+  Construction occurs outside the `try`; `show()` returns no delivery result, and the notifier
+  observes neither `show` nor `failed` lifecycle events before returning `true`
+  (`app/src/main/core/notifications/os-notify.ts:200-240`). Automatic-path failures are swallowed
+  by the manager/router; Settings maps the synchronous result to “Sent” even if the OS later rejects
+  it (`app/src/renderer/features/settings/NotificationsSettings.tsx:125-131,233-258`). Electron's
+  capability probe is not authorization/delivery proof. This explains why green unit tests and a
+  “sent” self-check can coexist with no banner.
+
+- **MEDIUM · S-M — Normal swarm traffic cannot satisfy the notification source gate.** The adapter
+  accepts only `swarm-broadcast`, `escalation`, `review_request`, or `error_report`, then requires
+  `payload.broadcastToSidebar === true`
+  (`app/src/main/core/notifications/sources/swarm-message.ts:28-55`). Canonical UI broadcast is
+  `kind:'OPERATOR'` with no flag (`app/src/main/core/swarms/protocol.ts:135-145`,
+  `app/src/renderer/features/swarm-room/SideChat.tsx:221-235`), and no production producer sets the
+  flag. The passing test fabricates `swarm-broadcast as unknown as SwarmMessageKind` and injects it
+  (`app/src/main/core/notifications/sources/swarm-message.test.ts:44-55`). An external caller can
+  forge the generic payload, but shipped UI/built-in agent traffic cannot reach the source.
+
+- **MEDIUM · S — Active-but-minimized panes suppress their own attention.** The renderer drops
+  attention whenever the document is focused and the session is active
+  (`app/src/renderer/app/state-hooks/use-live-events.ts:76-85`). Minimizing keeps that session active
+  while hiding its body (`app/src/renderer/app/state.reducer.ts:824-832`,
+  `app/src/renderer/features/command-room/PaneShell.tsx:462-470,527-538`). A question/finish event
+  from the hidden pane produces neither glow nor sound.
+
+- **MEDIUM · S — Expected/preflight tool rejections are misclassified as must-see critical failures.**
+  Severity depends only on tool name (`app/src/main/core/notifications/sources/tool-error.ts:23-47,62-91`).
+  The same `ok:false` trace is emitted before a handler runs for denied authorization, frozen control,
+  pending approval, and invalid input (`app/src/main/core/assistant/controller.ts:295-382`). A
+  rejected/invalid `create_workspace`, `launch_pane`, etc. therefore becomes critical and bypasses
+  DND even though no mutation or inconsistent state occurred. Tests assert the name-only mapping
+  and have no failure-phase concept.
+
+- **MEDIUM · S — Notification persistence can break the recovery path it is reporting.** Three
+  disk-guard catches invoke `notifications.add()` without isolation
+  (`app/src/main/core/workspaces/launcher.ts:746-796`,
+  `app/src/main/core/swarms/factory-add-agent.ts:188-223`,
+  `app/src/main/core/swarms/factory-spawn.ts:709-740`). A DB/disk failure there can skip worktree
+  rollback/error-session creation, skip the mailbox failure record, mask the original error, or
+  violate the roster loop's “never throw” contract. This is especially relevant because disk
+  pressure is the precise failure being reported.
+
+- **MEDIUM · S — One throwing window can starve later windows and native delivery.**
+  `WindowRegistry.sendToAll()` has no per-handle catch
+  (`app/src/main/core/windows/registry.ts:95-99`). The notification callback broadcasts before it
+  invokes native delivery/digest (`app/src/main/rpc-router.ts:643-665`), and the manager swallows the
+  whole callback exception (`app/src/main/core/notifications/manager.ts:571-582`). One stale
+  renderer can therefore prevent subsequent windows and the OS from seeing a persisted row.
+
+- **MEDIUM · S — Native retry/throttle state is committed incorrectly.** The five-minute timestamp
+  is stored before native construction/show, so a transient failure suppresses the next legitimate
+  attempt (`app/src/main/core/notifications/os-notify.ts:192-218`). A production-class probe
+  reproduced one throwing `show()` followed by a throttled retry. The map is also keyed only by
+  `dedupKey`, whereas manager dedup is workspace-scoped; generic disk-guard/Ruflo keys in workspace A
+  suppress the same alert from workspace B for five minutes.
+
+- **MEDIUM · S — The configured notification icon is absent from packaged applications.** Runtime
+  resolves `<appPath>/build/icon.png|ico` (`app/src/main/core/notifications/os-notify.ts:144-153`),
+  but builder `files` packages only `dist`, `electron-dist`, and `package.json`, and `extraResources`
+  adds only `dist` (`app/electron-builder.yml:4-10,31-33`). `buildResources` supplies build-time
+  assets; it does not put `build/` under `app.getAppPath()`. The missing icon's platform outcome
+  (fallback icon versus native failure) still needs packaged probes.
+
+- **LOW · M — Rejected preference writes leave false UI state.** Row-level mark-read/dismiss
+  rollback is fixed in PR #244. Settings still update local state then discard KV failures, and one
+  failed member of the hydration `Promise.all` renders defaults for every preference
+  (`app/src/renderer/features/settings/NotificationsSettings.tsx:83-194`); sound setters also
+  swallow persistence failure (`app/src/renderer/lib/sounds.ts:224-267`).
+
+- **MEDIUM · S — Dedup-absorbed errors can stack permanent duplicate toasts.** An absorbed row is
+  intentionally re-emitted in `added` (`app/src/main/core/notifications/manager.ts:217-221`). Each
+  re-emission creates a new error/critical toast with `duration:Infinity` and no stable toast id
+  (`app/src/renderer/app/state-hooks/use-live-events.ts:641-689`), replaying the tone and piling up
+  permanent copies of one logical row.
+
+- **MEDIUM · M — Shell-first dedup state can hide a later unrelated crash.** A CLI sentinel adds
+  the session id to a process-lifetime Set (`app/src/main/rpc-router.ts:1115-1133`); shell-first mode
+  deliberately keeps the PTY alive. The marker is removed only by a later PTY-exit event
+  (`rpc-router.ts:1085-1093`,
+  `app/src/main/core/notifications/sources/pty-exit-dedup.ts:1-10`). If that shell is reused and later
+  crashes, the stale marker consumes/suppresses the real crash. Tests cover Set semantics, not
+  sentinel → reuse → crash lifecycle.
+
+- **MEDIUM · S-M — The “once-daily” summary can fire twice and undercounts deduplicated events.**
+  Its same-day key is claimed to prevent duplicates, but manager dedup lasts only 30 seconds
+  (`app/src/main/core/notifications/digest-builder.ts:12-14,100-108`,
+  `app/src/main/core/notifications/manager.ts:32-34,161-188`). After today's first fire, changing
+  Settings to a later same-day time re-arms and inserts a second row
+  (`app/src/main/rpc-router.ts:2669-2684`). The query selects only kind/severity and counts rows,
+  ignoring `dup_count`; dedup also moves `created_at`, making exact cross-midnight attribution
+  impossible (`rpc-router.ts:1384-1391`, `digest-builder.ts:32-44,69-98`, `manager.ts:189-209`).
+
+- **LOW · S — Daily-summary shutdown has a late-cancel window.** Shutdown starts before potentially
+  awaiting daemon drains, but cancels the scheduler only near the end
+  (`app/src/main/rpc-router.ts:3671-3675,3767-3775,3807-3811`). A timer can persist and surface a
+  summary while the app is quitting.
+
+- **LOW · S — Several smaller consistency/accessibility defects survive.** `pty-exit-summary` maps
+  to `system`, so it would not inherit PTY mute/grouping once summary delivery is fixed
+  (`app/src/shared/notification-prefs.ts:65-75`). Legacy `notifications.sound='0'` mutes info/warn/error
+  but not critical (`app/src/renderer/lib/sounds.ts:101-115`). Row action controls are pointer-hover
+  only with no focus-within reveal (`app/src/renderer/features/notifications/NotificationItem.tsx:123`),
+  and sound/time inputs lack associated accessible labels
+  (`app/src/renderer/features/settings/NotificationsSettings.sound.tsx:131`,
+  `NotificationsSettings.tsx:318-334,383-390`).
+
+### Recommended root-cause fix order
+
+1. **COMPLETED 2026-07-25 — Repair the authoritative store/change-set protocol.** Collapse is now
+   atomic and severity-safe; every changed row is emitted; versioned snapshots, cursor paging, and
+   authoritative severity counts now drive renderer reconciliation and urgency. See the
+   implementation-progress subsection above. This fixes the P0 loss, startup race, hidden summary,
+   inaccessible history, and wrong bell urgency as one coherent contract.
+2. **Repair delivery/window routing.** Isolate every window send, then run native/digest consumers
+   independently. Make notification activation carry row/workspace/target identity, select the
+   owning window/workspace, use real mounted-surface navigation, and give scoped windows a visible
+   bell/toast surface.
+3. **Repair native notifier state and packaging.** Workspace-scope throttle keys, commit throttle
+   only after a successful native-show lifecycle, observe failure events, and package/resolve the
+   icon correctly. Add installed/portable Windows, macOS, and Linux release smokes.
+4. **Repair source/error semantics.** Keep notification writes off cleanup/error critical paths,
+   distinguish preflight/approval/runtime tool failures, wire a normal swarm producer, and make
+   shell-first dedup markers generation-scoped rather than session-lifetime state.
+5. **Unify attention and finish-state product policy.** Preserve focused-pane noise suppression but
+   make minimized/zero-window states recoverable, offer a durable/native away channel, and verify
+   real Claude/Codex BEL/idle behavior before tuning heuristics.
+6. **Close digest/toast/settings/accessibility debt.** Count `dup_count`, enforce once-per-local-day,
+   coalesce persistent toasts, roll back/refetch failed optimistic writes, and make row actions/time/
+   sound controls keyboard- and screen-reader-operable.
+
+### Correctness gaps and missing coverage
+
+- **No packaged end-to-end proof exists.** Unit/jsdom tests cannot show that an Electron notification
+  entered macOS Notification Center, Windows Action Center, GNOME/KDE, or that an activation routed
+  into a mounted source target. No packaged artifacts were present in this worktree. Test installed
+  NSIS and portable Windows targets separately; Electron's Windows prerequisite depends on a Start
+  Menu shortcut and matching AppUserModelID, which is configured for installed builds but unproven
+  for portable (`app/electron/main.ts:41-45`, `app/electron-builder.yml:78-99`).
+- **Native critical presentation is not actually critical.** App-level critical bypasses DND, but
+  the Electron notification supplies neither Linux/Windows `urgency:'critical'` nor Windows
+  `timeoutType:'never'`; platform notification centers therefore receive default presentation.
+- **Attention detection is a heuristic, not semantic waiting-state proof.** Four seconds of output
+  silence fires idle attention (`app/src/main/core/pty/idle-detector.ts:15-65`), so a quiet long
+  computation can false-alert, while a TUI that continually repaints may never idle-alert. The
+  approved spec accepted this tradeoff but also recorded BEL presence as unverified in live Claude/
+  Codex streams (`docs/superpowers/specs/2026-06-14-agent-attention-notifications-design.md:126-139`).
+- **Daily scheduler has no clock/timezone-change policy.** Sleep should cause overdue JS timers to
+  run and re-arm, but timezone/manual-clock changes and multi-day catch-up are untested; no power
+  monitor reschedule hook exists (`app/src/main/core/notifications/daily-scheduler.ts:103-139`).
+- **Mutation RPC validation remains weak.** Snapshot/page inputs now have concrete enforced schemas,
+  but notification mutation channels still use permissive stubs. Controllers check required IDs,
+  so the remaining work is boundary-hardening debt rather than a proven injection issue.
+- **The documented D3 tuple and SQL differ.** Comments/spec say
+  `(workspace_id, kind, dedup_key)`, but lookup/index omit `kind`
+  (`app/src/main/core/notifications/manager.ts:13-14,163-186`,
+  `app/src/main/core/db/migrations/0018_notifications.ts:84-88`). Current producer keys are
+  sufficiently namespaced, so no present cross-kind collision was proven.
+- **OS delivery observability remains incomplete even after lifecycle-event handling.**
+  `Notification.isSupported()` means API capability, not permission or actual visibility; OS Focus,
+  permission state, Windows shell registration, and Linux notification-daemon state need platform
+  probes. macOS notification bodies can also be truncated; unbounded tool-error/summary bodies need
+  a content policy.
+- **Historical context, revalidated rather than inherited blindly.** The archived 2026-07-02
+  review already identified the hydration race, soft-cap delta omission, permanent-toast pile-up,
+  dismiss-count drift, loaded-page-only bell tint, and the attention/OS design split
+  (`docs/03-plan/archive/WISHLIST-pre-jorvis-cycle-2026-07-07.md:237-278`). The present audit is
+  checking each against current production code and recording only survivors.
+
+### Optimizations
+
+- **Coalesce renderer preference reads per notification burst.** Every live delta currently reads
+  three KV keys before toast/tone evaluation (`app/src/renderer/app/state-hooks/use-live-events.ts:643-665`).
+  Reuse the sound preference cache or a shared snapshot after correctness fixes; this is not the
+  current bottleneck.
+- **Deduplicate BEL attention per session before IPC.** Every real BEL emits even within the idle
+  dedupe window (`app/src/main/core/pty/attention-detector.ts:51-70`). Sound is globally throttled,
+  but repeated BELs still churn IPC/state/glow.
+
+### Future features
+
+- **Unify “agent needs me” with a durable/native attention policy.** Persist enough state to survive
+  zero-window periods and expose an operator choice for native banner/dock/taskbar attention. Keep
+  per-session coalescing so a swarm completion is one useful alert, not a storm.
+- **Build a real notification integration harness.** Package each supported artifact, fire one
+  notification per severity, observe `show`/`failed`/activation, close all windows, click the OS
+  entry, and assert workspace/room/target/read state. Treat manual screen confirmation as a release
+  smoke until platform automation is practical.
+- **Extend cursor-paginated history with server-side filters and search.** Cursor paging and an
+  authoritative severity summary now exist; filter chips still operate over loaded pages only.
+- **Expose delivery diagnostics** (last attempted/shown/failed reason, platform capability,
+  permission/setup hints) so “Sent—check your screen” is not the only debugging surface.
+
+### Investigated and ruled out
+
+- Notification RPC/event channels are allowlisted through preload and listeners return cleanup
+  functions; the transport is not simply absent.
+- Live deltas reconcile synchronously before asynchronous sound/toast work, and `updated` rows do
+  not re-alert. The normal post-hydration reducer path is coherent; the defect is the snapshot/live
+  interleaving at startup.
+- Notification migrations are registered and boot ordering is coherent; explicit OS-disabled `0`
+  survives migration 0038. Default-on is an intentional later policy change, not an accidental
+  reset (`app/src/main/core/db/migrations/0038_os_notify_default_on.ts:1-19`).
+- Capability/master/severity/focus/DND/quiet/source gates otherwise evaluate consistently;
+  cross-midnight quiet-hour math is tested, critical bypasses DND/quiet, and explicit source mute
+  still wins. Native notifications are deliberately silent so the app soundscape owns audio.
+- Direct PTY exits and shell-first sentinel completions both reach the source; deliberate pane close
+  and router-shutdown exits are suppressed. Shutdown gating is armed before PTY teardown.
+- Main-window-only tone/toast prevents duplicate audio across multiple renderers; read-state changes
+  use `updated` and do not re-alert. These July round-2/round-3 fixes remain present.
+- Installed Windows builds set the matching AppUserModelID and Start Menu shortcut. Dev icon assets
+  are valid files; the problem is their packaged location, not corrupt source assets.
+- The 30-day GC query uses `created_at` exactly as the locked design specifies
+  (`docs/03-plan/v1.4.8-bundle/07-notifications-bell.md:57-71`); surprising “read today, old creation”
+  expiry is policy, not a current implementation mismatch.
+- The global hard cap intentionally soft-breaks above 500 when every remaining row is error/critical
+  (`app/src/main/core/notifications/manager.ts:560-563`). That contract should be documented as a
+  protected-retention ceiling exception, not “fixed” by silently dropping must-see rows.
+- Daily-summary enable/time writes do live-rearm through `buildKvController.onSet`
+  (`app/src/main/rpc-router.ts:2669-2684`). The prior “dead until restart” defect was fixed on
+  2026-07-03 and was explicitly rejected during the adversarial pass.
+---
+
 ## 🔬 Deep review findings (2026-07-24) — Kimi Code pane compatibility
 
 Investigation into two user-reported Kimi Code issues, run on worktree

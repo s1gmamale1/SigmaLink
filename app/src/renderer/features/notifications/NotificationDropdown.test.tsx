@@ -9,7 +9,7 @@
 //   (the Popover handles dismissal). ARIA is now role="dialog" + role="list".
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { NotificationDropdown } from './NotificationDropdown';
 import { applyFilter, groupBySource, maxSeverity } from './helpers';
 import type { AppState } from '@/renderer/app/state.types';
@@ -27,6 +27,7 @@ vi.mock('@/renderer/lib/rpc', () => {
     markRead: vi.fn().mockResolvedValue(undefined),
     dismiss: vi.fn().mockResolvedValue(undefined),
     markUnread: vi.fn().mockResolvedValue(undefined),
+    page: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
   };
   const obj = { notifications: fns };
   return { rpc: obj, rpcSilent: obj };
@@ -233,6 +234,102 @@ describe('NotificationDropdown', () => {
     expect((mockRpc as unknown as { notifications: Record<string, ReturnType<typeof vi.fn>> }).notifications.clearRead).toHaveBeenCalledTimes(1);
   });
 
+  it('rolls back an optimistic mark-read when its RPC fails', async () => {
+    const notification = makeN({ id: 'read-failure', severity: 'info' });
+    const notificationsApi = (mockRpc as unknown as {
+      notifications: Record<string, ReturnType<typeof vi.fn>>;
+    }).notifications;
+    notificationsApi.markRead.mockRejectedValueOnce(new Error('write failed'));
+    mockState = {
+      ...initialAppState,
+      notifications: [notification],
+      notificationRevision: 7,
+    };
+    render(<NotificationDropdown onClose={() => undefined} />);
+
+    fireEvent.click(screen.getByRole('button', { name: `Info: ${notification.title}` }));
+
+    await waitFor(() => {
+      expect(dispatchSpy).toHaveBeenCalledWith({
+        type: 'ROLLBACK_NOTIFICATION_OPTIMISTIC',
+        notification,
+        expected: { kind: 'mark-read', readAt: expect.any(Number) },
+      });
+    });
+  });
+
+  it('restores an optimistically dismissed older row when its RPC fails', async () => {
+    const notification = makeN({ id: 'dismiss-failure', severity: 'warn', createdAt: 1 });
+    const notificationsApi = (mockRpc as unknown as {
+      notifications: Record<string, ReturnType<typeof vi.fn>>;
+    }).notifications;
+    notificationsApi.dismiss.mockRejectedValueOnce(new Error('write failed'));
+    mockState = {
+      ...initialAppState,
+      notifications: [notification],
+      notificationRevision: 9,
+      notificationNextCursor: null,
+      notificationHydration: 'ready',
+    };
+    render(<NotificationDropdown onClose={() => undefined} />);
+
+    fireEvent.click(screen.getByTestId('notification-dismiss-dismiss-failure'));
+
+    await waitFor(() => {
+      expect(dispatchSpy).toHaveBeenCalledWith({
+        type: 'ROLLBACK_NOTIFICATION_OPTIMISTIC',
+        notification,
+        expected: { kind: 'dismiss' },
+      });
+    });
+  });
+
+  it('blocks a dismiss while mark-read compensation for the same row is pending', async () => {
+    const notification = makeN({ id: 'overlapping-write', severity: 'info' });
+    const notificationsApi = (mockRpc as unknown as {
+      notifications: Record<string, ReturnType<typeof vi.fn>>;
+    }).notifications;
+    let rejectMarkRead!: (error: Error) => void;
+    notificationsApi.markRead.mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectMarkRead = reject;
+        }),
+    );
+    mockState = {
+      ...initialAppState,
+      notifications: [notification],
+      notificationRevision: 11,
+    };
+    const firstMount = render(<NotificationDropdown onClose={() => undefined} />);
+    fireEvent.click(screen.getByRole('button', { name: `Info: ${notification.title}` }));
+
+    await waitFor(() => expect(notificationsApi.markRead).toHaveBeenCalledTimes(1));
+    firstMount.unmount();
+    render(<NotificationDropdown onClose={() => undefined} />);
+
+    const dismissButton = screen.getByTestId('notification-dismiss-overlapping-write');
+    expect((dismissButton as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(dismissButton);
+    expect(notificationsApi.dismiss).not.toHaveBeenCalled();
+    expect(dispatchSpy).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'DISMISS_NOTIFICATION' }),
+    );
+
+    await act(async () => {
+      rejectMarkRead(new Error('mark read failed'));
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(dispatchSpy).toHaveBeenCalledWith({
+        type: 'ROLLBACK_NOTIFICATION_OPTIMISTIC',
+        notification,
+        expected: { kind: 'mark-read', readAt: expect.any(Number) },
+      });
+    });
+    await waitFor(() => expect((dismissButton as HTMLButtonElement).disabled).toBe(false));
+  });
+
   it('dropdown container carries sl-glass class for glass theme surface (SF-4)', () => {
     render(<NotificationDropdown onClose={() => undefined} />);
     const container = screen.getByTestId('notification-dropdown');
@@ -290,5 +387,171 @@ describe('NotificationDropdown', () => {
     fireEvent.click(screen.getByTestId('notification-filter-errors'));
     expect(screen.queryByTestId('notification-item-a')).toBeNull();
     expect(screen.queryByTestId('notification-item-b')).toBeTruthy();
+  });
+
+  it('loads and appends the next notification page', async () => {
+    // Staged limitation: filter chips still apply locally to all loaded pages;
+    // server-side filtered cursors belong to the later UX workstream.
+    const older = makeN({ id: 'older', severity: 'info', createdAt: 1 });
+    const notificationsApi = (mockRpc as unknown as {
+      notifications: Record<string, ReturnType<typeof vi.fn>>;
+    }).notifications;
+    notificationsApi.page.mockResolvedValueOnce({
+      items: [older],
+      nextCursor: null,
+    });
+    mockState = {
+      ...initialAppState,
+      notifications: [makeN({ id: 'newer', severity: 'warn', createdAt: 2 })],
+      notificationRevision: 7,
+      notificationNextCursor: 'cursor-1',
+      notificationHydration: 'ready',
+    };
+    render(<NotificationDropdown onClose={() => undefined} />);
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Load older notifications' }),
+    );
+
+    await waitFor(() => {
+      expect(notificationsApi.page).toHaveBeenCalledWith({
+        cursor: 'cursor-1',
+        limit: 100,
+      });
+    });
+    expect(dispatchSpy).toHaveBeenCalledWith({
+      type: 'APPEND_NOTIFICATION_PAGE',
+      page: { items: [older], nextCursor: null },
+      sourceCursor: 'cursor-1',
+      sourceRevision: 7,
+    });
+  });
+
+  it('rejects a malformed older-page row and offers retry instead of dispatching it', async () => {
+    const notificationsApi = (mockRpc as unknown as {
+      notifications: Record<string, ReturnType<typeof vi.fn>>;
+    }).notifications;
+    notificationsApi.page.mockResolvedValueOnce({
+      items: [{ id: 'only-an-id' }],
+      nextCursor: null,
+    });
+    mockState = {
+      ...initialAppState,
+      notifications: [makeN({ id: 'newer', severity: 'warn' })],
+      notificationRevision: 7,
+      notificationNextCursor: 'cursor-1',
+      notificationHydration: 'ready',
+    };
+    render(<NotificationDropdown onClose={() => undefined} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load older notifications' }));
+
+    expect(
+      await screen.findByRole('button', { name: 'Retry loading older notifications' }),
+    ).toBeTruthy();
+    expect(dispatchSpy).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'APPEND_NOTIFICATION_PAGE' }),
+    );
+  });
+
+  it('keeps pagination locked when the filter changes during an active request', async () => {
+    const notificationsApi = (mockRpc as unknown as {
+      notifications: Record<string, ReturnType<typeof vi.fn>>;
+    }).notifications;
+    let resolvePage!: (page: { items: Notification[]; nextCursor: string | null }) => void;
+    notificationsApi.page.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolvePage = resolve;
+        }),
+    );
+    mockState = {
+      ...initialAppState,
+      notifications: [makeN({ id: 'newer', severity: 'warn' })],
+      notificationRevision: 7,
+      notificationNextCursor: 'cursor-1',
+      notificationHydration: 'ready',
+    };
+    render(<NotificationDropdown onClose={() => undefined} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load older notifications' }));
+    expect(
+      (await screen.findByRole('button', { name: 'Loading older notifications' }))
+        .hasAttribute('disabled'),
+    ).toBe(true);
+
+    fireEvent.click(screen.getByTestId('notification-filter-errors'));
+
+    const paginationButton = screen.getByRole('button', {
+      name: 'Loading older notifications',
+    });
+    expect(paginationButton.hasAttribute('disabled')).toBe(true);
+    fireEvent.click(paginationButton);
+    expect(notificationsApi.page).toHaveBeenCalledTimes(1);
+
+    resolvePage({ items: [], nextCursor: null });
+    await waitFor(() => {
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'APPEND_NOTIFICATION_PAGE' }),
+      );
+    });
+  });
+
+  it('does not load older pages before an authoritative revision is ready', async () => {
+    const notificationsApi = (mockRpc as unknown as {
+      notifications: Record<string, ReturnType<typeof vi.fn>>;
+    }).notifications;
+    mockState = {
+      ...initialAppState,
+      notifications: [makeN({ id: 'newer', severity: 'warn' })],
+      notificationNextCursor: 'cursor-before-hydration',
+      notificationHydration: 'loading',
+    };
+    render(<NotificationDropdown onClose={() => undefined} />);
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Load older notifications' }),
+    );
+
+    await Promise.resolve();
+    expect(notificationsApi.page).not.toHaveBeenCalled();
+    expect(dispatchSpy).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'APPEND_NOTIFICATION_PAGE' }),
+    );
+  });
+
+  it('offers a retry control when loading an older page fails', async () => {
+    const notificationsApi = (mockRpc as unknown as {
+      notifications: Record<string, ReturnType<typeof vi.fn>>;
+    }).notifications;
+    notificationsApi.page.mockRejectedValueOnce(new Error('temporary page failure'));
+    mockState = {
+      ...initialAppState,
+      notifications: [makeN({ id: 'newer', severity: 'warn' })],
+      notificationRevision: 1,
+      notificationNextCursor: 'cursor-1',
+      notificationHydration: 'ready',
+    };
+    render(<NotificationDropdown onClose={() => undefined} />);
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Load older notifications' }),
+    );
+
+    expect(
+      await screen.findByRole('button', { name: 'Retry loading older notifications' }),
+    ).toBeTruthy();
+  });
+
+  it('announces the end of history after the final non-empty page', () => {
+    mockState = {
+      ...initialAppState,
+      notifications: [makeN({ id: 'only', severity: 'info' })],
+      notificationNextCursor: null,
+    };
+
+    render(<NotificationDropdown onClose={() => undefined} />);
+
+    expect(screen.getByText('End of notification history')).toBeTruthy();
   });
 });

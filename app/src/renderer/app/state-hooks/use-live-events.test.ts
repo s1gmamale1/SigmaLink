@@ -21,7 +21,13 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import type { AgentSession, Notification, ReviewState } from '@/shared/types';
+import type {
+  AgentSession,
+  Notification,
+  NotificationChangeSet,
+  NotificationSnapshot,
+  ReviewState,
+} from '@/shared/types';
 import { KV_DND, KV_OS_PER_SOURCE, KV_QUIET_HOURS } from '@/shared/notification-prefs';
 import type { Action, AppState } from '../state.types';
 import { initialAppState } from '../state.types';
@@ -69,6 +75,11 @@ const workspaceOpenMock = vi.fn<(root: string) => Promise<{ id: string }>>();
 // dispatch-echo hydration coverage — the GLOBAL handler refetches panes (silent)
 // and dispatches ADD_SESSIONS so a launch_pane reflects in the grid in ANY room.
 const panesListSilentMock = vi.fn<(id: string) => Promise<AgentSession[]>>();
+const notificationListMock = vi.fn<() => Promise<Notification[]>>();
+const notificationUnreadCountMock = vi.fn<() => Promise<number>>();
+const notificationSnapshotMock = vi.fn<() => Promise<NotificationSnapshot>>();
+const notificationPageMock = vi.fn();
+let nextNotificationRevision = 0;
 
 function emptyReview(workspaceId: string): ReviewState {
   return { workspaceId, sessions: [] };
@@ -125,8 +136,10 @@ const rpcMock = {
 };
 const rpcSilentMock = {
   notifications: {
-    list: () => Promise.resolve([]),
-    unreadCount: () => Promise.resolve(0),
+    list: () => notificationListMock(),
+    unreadCount: () => notificationUnreadCountMock(),
+    snapshot: () => notificationSnapshotMock(),
+    page: (...args: unknown[]) => notificationPageMock(...args),
   },
   kv: { get: (key: string) => Promise.resolve(kvStore[key] ?? null) },
   panes: { listForWorkspace: (id: string) => panesListSilentMock(id) },
@@ -193,6 +206,22 @@ beforeEach(() => {
   workspaceOpenMock.mockReset();
   panesListSilentMock.mockReset();
   panesListSilentMock.mockResolvedValue([]);
+  notificationListMock.mockReset();
+  notificationListMock.mockResolvedValue([]);
+  notificationUnreadCountMock.mockReset();
+  notificationUnreadCountMock.mockResolvedValue(0);
+  notificationSnapshotMock.mockReset();
+  notificationSnapshotMock.mockResolvedValue({
+    revision: 0,
+    counts: {
+      unread: 0,
+      unreadBySeverity: { info: 0, warn: 0, error: 0, critical: 0 },
+    },
+    items: [],
+    nextCursor: null,
+  });
+  notificationPageMock.mockReset();
+  nextNotificationRevision = 0;
   kvStore = {};
   toastMock.mockReset();
   toastMock.warning.mockReset();
@@ -478,6 +507,445 @@ describe('useLiveEvents — Fix 6: review refresh churn on session add/remove', 
 
 // ---- v1.13.1 notification sound tests ---------------------------------------
 
+function notificationCounts(unread = 0) {
+  return {
+    unread,
+    unreadBySeverity: { info: unread, warn: 0, error: 0, critical: 0 },
+  };
+}
+
+function changeSet(
+  revision: number,
+  added: Notification[] = [],
+): NotificationChangeSet {
+  const counts = notificationCounts(added.filter((row) => row.readAt === null).length);
+  return {
+    revision,
+    added,
+    updated: [],
+    removed: [],
+    counts,
+    unreadCount: counts.unread,
+  };
+}
+
+describe('useLiveEvents — versioned notification hydration', () => {
+  it('installs the snapshot before applying a change received during hydration', async () => {
+    let resolveSnapshot!: (snapshot: NotificationSnapshot) => void;
+    notificationSnapshotMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveSnapshot = resolve;
+      }),
+    );
+    await renderLiveEvents(stateWith([]));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const live = makeNotification({ id: 'live-during-hydration' });
+
+    await act(async () => {
+      sigma.emit('notifications:changed', changeSet(2, [live]));
+      resolveSnapshot({
+        revision: 1,
+        counts: notificationCounts(0),
+        items: [],
+        nextCursor: null,
+      });
+      await flushAsync();
+    });
+
+    const actions = dispatch.mock.calls.map(([action]) => action);
+    const installIndex = actions.findIndex(
+      (action) => action.type === 'INSTALL_NOTIFICATION_SNAPSHOT',
+    );
+    const applyIndex = actions.findIndex(
+      (action) =>
+        action.type === 'APPLY_NOTIFICATION_CHANGE_SET' &&
+        action.changeSet.added.some((row) => row.id === live.id),
+    );
+    expect(notificationSnapshotMock).toHaveBeenCalledTimes(1);
+    expect(installIndex).toBeGreaterThanOrEqual(0);
+    expect(applyIndex).toBeGreaterThan(installIndex);
+  });
+
+  it('bounds the live buffer and recovers from a snapshot after overflow', async () => {
+    vi.useFakeTimers();
+    try {
+      let resolveFirstSnapshot!: (snapshot: NotificationSnapshot) => void;
+      notificationSnapshotMock
+        .mockReturnValueOnce(
+          new Promise((resolve) => {
+            resolveFirstSnapshot = resolve;
+          }),
+        )
+        .mockResolvedValueOnce({
+          revision: 257,
+          counts: notificationCounts(0),
+          items: [],
+          nextCursor: null,
+        });
+      await renderLiveEvents(stateWith([]));
+      await act(async () => {
+        await Promise.resolve();
+        for (let revision = 1; revision <= 257; revision += 1) {
+          sigma.emit('notifications:changed', changeSet(revision));
+        }
+        resolveFirstSnapshot({
+          revision: 0,
+          counts: notificationCounts(0),
+          items: [],
+          nextCursor: null,
+        });
+        await flushAsync();
+      });
+
+      expect(notificationSnapshotMock).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(250);
+        await flushAsync();
+      });
+
+      expect(notificationSnapshotMock).toHaveBeenCalledTimes(2);
+      expect(dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'INSTALL_NOTIFICATION_SNAPSHOT',
+          snapshot: expect.objectContaining({ revision: 257 }),
+        }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('refetches one snapshot after a live revision gap', async () => {
+    notificationSnapshotMock
+      .mockResolvedValueOnce({
+        revision: 1,
+        counts: notificationCounts(0),
+        items: [],
+        nextCursor: null,
+      })
+      .mockResolvedValueOnce({
+        revision: 3,
+        counts: notificationCounts(1),
+        items: [makeNotification({ id: 'gap-row' })],
+        nextCursor: null,
+      });
+    await renderLiveEvents(stateWith([]));
+    await act(async () => {
+      await flushAsync();
+    });
+    dispatch.mockClear();
+
+    await act(async () => {
+      sigma.emit('notifications:changed', changeSet(3, [makeNotification({ id: 'gap-row' })]));
+      await flushAsync();
+    });
+
+    expect(notificationSnapshotMock).toHaveBeenCalledTimes(2);
+    expect(
+      dispatch.mock.calls
+        .map(([action]) => action)
+        .filter((action) => action.type === 'SET_NOTIFICATION_HYDRATION')
+        .map((action) => action.status),
+    ).toEqual(['retrying', 'retrying']);
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'INSTALL_NOTIFICATION_SNAPSHOT',
+        snapshot: expect.objectContaining({ revision: 3 }),
+      }),
+    );
+  });
+
+  it('retries a failed notification snapshot instead of abandoning hydration', async () => {
+    vi.useFakeTimers();
+    try {
+      notificationSnapshotMock
+        .mockRejectedValueOnce(new Error('temporary snapshot failure'))
+        .mockResolvedValueOnce({
+          revision: 0,
+          counts: notificationCounts(0),
+          items: [],
+          nextCursor: null,
+        });
+      await renderLiveEvents(stateWith([]));
+      await act(async () => {
+        await flushAsync();
+      });
+      expect(notificationSnapshotMock).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(250);
+        await flushAsync();
+      });
+
+      expect(notificationSnapshotMock).toHaveBeenCalledTimes(2);
+      expect(dispatch).toHaveBeenCalledWith({
+        type: 'SET_NOTIFICATION_HYDRATION',
+        status: 'retrying',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('requests a fresh snapshot after a malformed live envelope while idle', async () => {
+    notificationSnapshotMock
+      .mockResolvedValueOnce({
+        revision: 1,
+        counts: notificationCounts(0),
+        items: [],
+        nextCursor: null,
+      })
+      .mockResolvedValueOnce({
+        revision: 2,
+        counts: notificationCounts(1),
+        items: [makeNotification({ id: 'recovered-malformed-row' })],
+        nextCursor: null,
+      });
+    await renderLiveEvents(stateWith([]));
+    await act(async () => {
+      await flushAsync();
+    });
+    expect(notificationSnapshotMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      sigma.emit('notifications:changed', {
+        revision: 2,
+        added: 'not-an-array',
+        updated: [],
+        removed: [],
+        counts: notificationCounts(1),
+      });
+      await flushAsync();
+    });
+
+    expect(notificationSnapshotMock).toHaveBeenCalledTimes(2);
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'SET_NOTIFICATION_HYDRATION',
+      status: 'retrying',
+    });
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'INSTALL_NOTIFICATION_SNAPSHOT',
+        snapshot: expect.objectContaining({ revision: 2 }),
+      }),
+    );
+  });
+
+  it('recovers when severity buckets do not add up to the unread total', async () => {
+    const recoveredRow = makeNotification({ id: 'recovered-count-mismatch' });
+    notificationSnapshotMock
+      .mockResolvedValueOnce({
+        revision: 1,
+        counts: notificationCounts(0),
+        items: [],
+        nextCursor: null,
+      })
+      .mockResolvedValueOnce({
+        revision: 2,
+        counts: notificationCounts(1),
+        items: [recoveredRow],
+        nextCursor: null,
+      });
+    await renderLiveEvents(stateWith([]));
+    await act(async () => {
+      await flushAsync();
+    });
+
+    await act(async () => {
+      sigma.emit('notifications:changed', {
+        revision: 2,
+        added: [recoveredRow],
+        updated: [],
+        removed: [],
+        counts: {
+          unread: 1,
+          unreadBySeverity: { info: 0, warn: 0, error: 0, critical: 0 },
+        },
+        unreadCount: 1,
+      });
+      await flushAsync();
+    });
+
+    expect(notificationSnapshotMock).toHaveBeenCalledTimes(2);
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'APPLY_NOTIFICATION_CHANGE_SET',
+        changeSet: expect.objectContaining({ revision: 2 }),
+      }),
+    );
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'INSTALL_NOTIFICATION_SNAPSHOT',
+      snapshot: {
+        revision: 2,
+        counts: notificationCounts(1),
+        items: [recoveredRow],
+        nextCursor: null,
+      },
+    });
+  });
+
+  it('recovers instead of applying a change set with a malformed notification row', async () => {
+    const recoveredRow = makeNotification({ id: 'recovered-after-invalid-row' });
+    notificationSnapshotMock
+      .mockResolvedValueOnce({
+        revision: 1,
+        counts: notificationCounts(0),
+        items: [],
+        nextCursor: null,
+      })
+      .mockResolvedValueOnce({
+        revision: 2,
+        counts: notificationCounts(1),
+        items: [recoveredRow],
+        nextCursor: null,
+      });
+    await renderLiveEvents(stateWith([]));
+    await act(async () => {
+      await flushAsync();
+    });
+
+    await act(async () => {
+      sigma.emit('notifications:changed', {
+        revision: 2,
+        added: [{ id: 'only-an-id' }],
+        updated: [],
+        removed: [],
+        counts: notificationCounts(1),
+        unreadCount: 1,
+      });
+      await flushAsync();
+    });
+
+    expect(notificationSnapshotMock).toHaveBeenCalledTimes(2);
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'APPLY_NOTIFICATION_CHANGE_SET',
+        changeSet: expect.objectContaining({ revision: 2 }),
+      }),
+    );
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'INSTALL_NOTIFICATION_SNAPSHOT',
+      snapshot: {
+        revision: 2,
+        counts: notificationCounts(1),
+        items: [recoveredRow],
+        nextCursor: null,
+      },
+    });
+  });
+
+  it('retries hydration instead of installing a snapshot with a malformed row', async () => {
+    vi.useFakeTimers();
+    try {
+      const validRow = makeNotification({ id: 'valid-after-malformed-snapshot' });
+      notificationSnapshotMock
+        .mockResolvedValueOnce({
+          revision: 1,
+          counts: notificationCounts(1),
+          items: [{ id: 'only-an-id' } as Notification],
+          nextCursor: null,
+        })
+        .mockResolvedValueOnce({
+          revision: 1,
+          counts: notificationCounts(1),
+          items: [validRow],
+          nextCursor: null,
+        });
+      await renderLiveEvents(stateWith([]));
+      await act(async () => {
+        await flushAsync();
+      });
+
+      expect(dispatch).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'INSTALL_NOTIFICATION_SNAPSHOT' }),
+      );
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(250);
+        await flushAsync();
+      });
+
+      expect(notificationSnapshotMock).toHaveBeenCalledTimes(2);
+      expect(dispatch).toHaveBeenCalledWith({
+        type: 'INSTALL_NOTIFICATION_SNAPSHOT',
+        snapshot: {
+          revision: 1,
+          counts: notificationCounts(1),
+          items: [validRow],
+          nextCursor: null,
+        },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('queues one recovery snapshot when a malformed envelope arrives during hydration', async () => {
+    let resolveInitialSnapshot!: (snapshot: NotificationSnapshot) => void;
+    notificationSnapshotMock
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveInitialSnapshot = resolve;
+        }),
+      )
+      .mockResolvedValueOnce({
+        revision: 1,
+        counts: notificationCounts(0),
+        items: [],
+        nextCursor: null,
+      });
+    await renderLiveEvents(stateWith([]));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(notificationSnapshotMock).toHaveBeenCalledTimes(1);
+
+    const staleBufferedRow = makeNotification({ id: 'before-malformed' });
+    const replacementRow = makeNotification({ id: 'after-malformed' });
+    await act(async () => {
+      sigma.emit('notifications:changed', changeSet(2, [staleBufferedRow]));
+      sigma.emit('notifications:changed', null);
+      sigma.emit('notifications:changed', { revision: 'bad' });
+      sigma.emit('notifications:changed', changeSet(2, [replacementRow]));
+      await flushAsync();
+    });
+    expect(notificationSnapshotMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveInitialSnapshot({
+        revision: 0,
+        counts: notificationCounts(0),
+        items: [],
+        nextCursor: null,
+      });
+      await flushAsync();
+    });
+
+    expect(notificationSnapshotMock).toHaveBeenCalledTimes(2);
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'INSTALL_NOTIFICATION_SNAPSHOT',
+        snapshot: expect.objectContaining({ revision: 0 }),
+      }),
+    );
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'APPLY_NOTIFICATION_CHANGE_SET',
+        changeSet: expect.objectContaining({ added: [replacementRow] }),
+      }),
+    );
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'APPLY_NOTIFICATION_CHANGE_SET',
+        changeSet: expect.objectContaining({ added: [staleBufferedRow] }),
+      }),
+    );
+  });
+});
+
 function makeNotification(
   overrides: Partial<Notification> = {},
 ): Notification {
@@ -508,6 +976,7 @@ async function flushAsync(): Promise<void> {
 }
 
 interface DeltaInput {
+  revision?: number;
   added?: Notification[];
   removed?: string[];
   updated?: Notification[];
@@ -515,12 +984,29 @@ interface DeltaInput {
 }
 
 async function emitDelta(input: DeltaInput): Promise<void> {
+  const added = input.added ?? [];
+  const unread = input.unreadCount ?? added.filter((row) => row.readAt === null).length;
+  const counts = {
+    unread,
+    unreadBySeverity: { info: 0, warn: 0, error: 0, critical: 0 },
+  };
+  for (const row of added) {
+    if (row.readAt === null) counts.unreadBySeverity[row.severity] += 1;
+  }
+  const accounted = Object.values(counts.unreadBySeverity).reduce(
+    (sum, count) => sum + count,
+    0,
+  );
+  if (accounted < unread) counts.unreadBySeverity.info += unread - accounted;
+  const revision = input.revision ?? ++nextNotificationRevision;
   await act(async () => {
     sigma.emit('notifications:changed', {
-      added: input.added ?? [],
+      revision,
+      added,
       removed: input.removed ?? [],
       updated: input.updated ?? [],
-      unreadCount: input.unreadCount ?? (input.added ?? []).length,
+      counts,
+      unreadCount: unread,
     });
     await flushAsync();
   });
@@ -540,9 +1026,8 @@ describe('useLiveEvents — `updated` read-state reconcile lane', () => {
 
     expect(dispatch).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'NOTIFICATIONS_DELTA',
-        updated: [n],
-        unreadCount: 0,
+        type: 'APPLY_NOTIFICATION_CHANGE_SET',
+        changeSet: expect.objectContaining({ updated: [n], unreadCount: 0 }),
       }),
     );
   });
@@ -667,7 +1152,10 @@ describe('useLiveEvents — scoped windows never tone/toast', () => {
       await emitDelta({ added: [n] });
 
       expect(dispatch).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'NOTIFICATIONS_DELTA', added: [n] }),
+        expect.objectContaining({
+          type: 'APPLY_NOTIFICATION_CHANGE_SET',
+          changeSet: expect.objectContaining({ added: [n] }),
+        }),
       );
       expect(playNotificationToneMock).not.toHaveBeenCalled();
       expect(toastMock).not.toHaveBeenCalled();
@@ -802,7 +1290,7 @@ describe('useLiveEvents — P3 toast↔bell handoff', () => {
     expect(toastMock.error).not.toHaveBeenCalled();
     // The reducer upsert (recording in the bell) still happened synchronously.
     expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'NOTIFICATIONS_DELTA' }),
+      expect.objectContaining({ type: 'APPLY_NOTIFICATION_CHANGE_SET' }),
     );
   });
 

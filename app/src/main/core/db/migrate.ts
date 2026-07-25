@@ -48,6 +48,7 @@ import * as mig0039 from './migrations/0039_missions';
 import * as mig0040 from './migrations/0040_missions_autonomy_kv';
 import * as mig0041 from './migrations/0041_jorvis_identity';
 import * as mig0042 from './migrations/0042_jorvis_channels_kv';
+import * as mig0043 from './migrations/0043_notification_state_revision';
 
 export interface Migration {
   name: string;
@@ -106,6 +107,7 @@ export const ALL_MIGRATIONS: Migration[] = [
   mig0040,
   mig0041,
   mig0042,
+  mig0043,
 ];
 
 const SCHEMA_MIGRATIONS_DDL = `

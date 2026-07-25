@@ -1,14 +1,15 @@
 // v1.4.9 #07 — Top-right notification bell.
 // UX-2 — rebuilt on the Radix Popover primitive (src/components/ui/popover).
 //
-// Renders a Bell icon button with the D4 badge (`unreadCount`) and pulses
-// when any unread row is `critical` (D1). The bell is now the PopoverTrigger;
+// Renders a Bell icon button with the D4 badge and pulses when authoritative
+// counts report any unread `critical` row (D1), including off-page rows. The
+// bell is now the PopoverTrigger;
 // the dropdown is its PopoverContent so it gets focus-trap, Escape-to-close,
 // return-focus, portal, and the MOT-1 spring enter/exit for free. The
 // dropdown itself is owned by `<NotificationDropdown />`.
 
 import { Bell } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { noDragStyle } from '@/renderer/lib/drag-region';
@@ -17,29 +18,18 @@ import { NotificationDropdown } from './NotificationDropdown';
 import { deriveBadgeState } from './helpers';
 
 export function NotificationBell() {
-  // PERF-3 — granular selectors: re-render only when the notifications list or
-  // the unread count changes (not on every unrelated dispatch). Both selectors
-  // return referentially-stable slices straight off the store, so the
-  // useSyncExternalStore Object.is bail-out holds.
-  const notifications = useAppStateSelector((s) => s.notifications);
-  const notificationsUnreadCount = useAppStateSelector((s) => s.notificationsUnreadCount);
+  // Counts cover every retained row, including critical notifications outside
+  // the currently loaded page. Deriving urgency from rendered rows made the
+  // bell silently downgrade as soon as a critical row moved off-page.
+  const notificationCounts = useAppStateSelector((s) => s.notificationCounts);
   const [open, setOpen] = useState(false);
 
-  const { hasError, hasCritical, hasWarn } = useMemo(() => {
-    let hasError = false;
-    let hasCritical = false;
-    let hasWarn = false;
-    for (const n of notifications) {
-      if (n.readAt !== null) continue;
-      if (n.severity === 'critical') hasCritical = true;
-      else if (n.severity === 'error') hasError = true;
-      else if (n.severity === 'warn') hasWarn = true;
-    }
-    return { hasError, hasCritical, hasWarn };
-  }, [notifications]);
+  const hasCritical = notificationCounts.unreadBySeverity.critical > 0;
+  const hasError = notificationCounts.unreadBySeverity.error > 0;
+  const hasWarn = notificationCounts.unreadBySeverity.warn > 0;
 
   const badge = deriveBadgeState(
-    notificationsUnreadCount,
+    notificationCounts.unread,
     hasError,
     hasCritical,
     hasWarn,

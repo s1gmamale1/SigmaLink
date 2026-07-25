@@ -10,6 +10,10 @@ import type {
   Memory,
   MemoryGraph,
   Notification,
+  NotificationChangeSet,
+  NotificationCounts,
+  NotificationPage,
+  NotificationSnapshot,
   ReviewState,
   RufloEntry,
   Skill,
@@ -160,13 +164,25 @@ export interface AppState {
   // `null` on workspace close and active-workspace switch so the user always
   // lands back on the regular grid.
   focusedPaneId: string | null;
-  // v1.4.9 #07 — Notifications. Newest-first id-keyed list; the reducer
-  // upserts on every NOTIFICATIONS_DELTA. `unreadCount` is the source of
-  // truth from the main process (the reducer does NOT derive it locally,
+  // Notifications. Newest-first id-keyed list; versioned snapshots/change
+  // sets reconcile it. `unreadCount` is the source of truth from the main
+  // process (the reducer does NOT derive it locally,
   // because evictions over the hard cap may DELETE rows without surfacing
   // a markRead — the main process owns the count).
   notifications: Notification[];
   notificationsUnreadCount: number;
+  notificationRevision: number | null;
+  notificationCounts: NotificationCounts;
+  notificationNextCursor: string | null;
+  notificationHydration: 'idle' | 'loading' | 'ready' | 'retrying';
+  /**
+   * Renderer writes awaiting an authoritative echo. Ownership is per row so
+   * an unrelated live revision cannot suppress compensation for a failed RPC.
+   */
+  notificationOptimisticMutations: Record<
+    string,
+    { kind: 'mark-read'; readAt: number } | { kind: 'dismiss' }
+  >;
 }
 
 export type Action =
@@ -272,19 +288,27 @@ export type Action =
       direction: 'horizontal' | 'vertical';
     }
   | { type: 'MINIMISE_PANE'; paneId: string; minimised: boolean }
-  // v1.4.9 #07 — Notifications reducer actions.
-  // SET_NOTIFICATIONS: full replace (initial mount; paginated list response).
-  // NOTIFICATIONS_DELTA: merge `added` + `updated` + remove `removed` + set
-  // unreadCount (`updated` = read-state reconcile rows — upsert, never alert).
-  // MARK_NOTIFICATION_READ / DISMISS_NOTIFICATION: optimistic local edits;
-  // the main process echoes back via NOTIFICATIONS_DELTA which reconciles.
-  | { type: 'SET_NOTIFICATIONS'; notifications: Notification[]; unreadCount: number }
+  // Notifications reducer actions. Snapshot/change-set actions are the sole
+  // authoritative reconciliation protocol; mark/dismiss are optimistic edits.
+  | { type: 'INSTALL_NOTIFICATION_SNAPSHOT'; snapshot: NotificationSnapshot }
+  | { type: 'APPLY_NOTIFICATION_CHANGE_SET'; changeSet: NotificationChangeSet }
   | {
-      type: 'NOTIFICATIONS_DELTA';
-      added: Notification[];
-      removed: string[];
-      updated?: Notification[];
-      unreadCount: number;
+      type: 'APPEND_NOTIFICATION_PAGE';
+      page: NotificationPage;
+      /** Cursor used to request this page; guards against stale async responses. */
+      sourceCursor: string;
+      /** Authoritative revision observed when the page request started. */
+      sourceRevision: number;
+    }
+  | {
+      type: 'SET_NOTIFICATION_HYDRATION';
+      status: AppState['notificationHydration'];
+    }
+  | {
+      type: 'ROLLBACK_NOTIFICATION_OPTIMISTIC';
+      notification: Notification;
+      /** Apply compensation only while this exact row mutation is still owned. */
+      expected: { kind: 'mark-read'; readAt: number } | { kind: 'dismiss' };
     }
   | { type: 'MARK_NOTIFICATION_READ'; id: string; readAt: number }
   | { type: 'DISMISS_NOTIFICATION'; id: string };
@@ -327,6 +351,14 @@ export const initialAppState: AppState = {
   focusedPaneId: null,
   notifications: [],
   notificationsUnreadCount: 0,
+  notificationRevision: null,
+  notificationCounts: {
+    unread: 0,
+    unreadBySeverity: { info: 0, warn: 0, error: 0, critical: 0 },
+  },
+  notificationNextCursor: null,
+  notificationHydration: 'idle',
+  notificationOptimisticMutations: {},
 };
 
 export function selectActiveWorkspace(

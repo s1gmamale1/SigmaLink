@@ -781,19 +781,54 @@ export interface Notification {
   readAt: number | null;
 }
 
-/** D2 — IPC delta envelope. Main emits this on every change rather than the
- *  full list (the original v1.4.7 brief's full-list approach saturates IPC
- *  under broadcast flood). Renderer reconciles via reducer. */
-export interface NotificationsDelta {
+export interface NotificationCounts {
+  unread: number;
+  unreadBySeverity: Record<NotificationSeverity, number>;
+}
+
+/** Versioned notification mutation committed by the main process. */
+export interface NotificationChangeSet {
+  /** Monotonic persisted state revision. */
+  revision: number;
   /** Newly-surfaced rows — drive alerts (toast / tone / OS banner) AND the
    *  store upsert. Dedup-absorbing re-emits ride here by design (re-alert). */
   added: Notification[];
   removed: string[];
   /** Read-state reconcile rows (markRead / markAllRead / markUnread) — upsert
-   *  into every window's store but NEVER alert. Optional for wire
-   *  back-compat with older senders. */
-  updated?: Notification[];
+   *  into every window's store but NEVER alert. */
+  updated: Notification[];
+  /** Authoritative global counts; renderer urgency must not inspect only its
+   *  currently loaded page. */
+  counts: NotificationCounts;
+  /** @deprecated Compatibility alias while renderer consumers migrate to
+   *  `counts.unread`. */
   unreadCount: number;
+}
+
+/** @deprecated Compatibility name while existing consumers migrate to the
+ *  versioned `NotificationChangeSet` terminology. */
+export type NotificationsDelta = NotificationChangeSet;
+
+/** Opaque keyset cursor returned by the main process. */
+export type NotificationCursor = string;
+
+export interface NotificationPageInput {
+  limit?: number;
+  cursor?: NotificationCursor | null;
+  workspaceId?: WorkspaceId | null;
+  severities?: NotificationSeverity[];
+}
+
+export type NotificationSnapshotInput = Omit<NotificationPageInput, 'cursor'>;
+
+export interface NotificationPage {
+  items: Notification[];
+  nextCursor: NotificationCursor | null;
+}
+
+export interface NotificationSnapshot extends NotificationPage {
+  revision: number;
+  counts: NotificationCounts;
 }
 
 // ──────────────────────────────────────────────────────────────────────────

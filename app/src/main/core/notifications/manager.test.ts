@@ -48,6 +48,24 @@ interface Row {
 
 class NotificationsTestDb {
   rows: Row[] = [];
+  revision = 0;
+  failRevisionUpdate = false;
+
+  transaction<TArgs extends unknown[], TResult>(
+    fn: (...args: TArgs) => TResult,
+  ): (...args: TArgs) => TResult {
+    return (...args: TArgs): TResult => {
+      const rowsBefore = this.rows.map((row) => ({ ...row }));
+      const revisionBefore = this.revision;
+      try {
+        return fn(...args);
+      } catch (error) {
+        this.rows = rowsBefore;
+        this.revision = revisionBefore;
+        throw error;
+      }
+    };
+  }
 
   prepare(sql: string) {
     const s = sql.replace(/\s+/g, ' ').trim();
@@ -145,11 +163,39 @@ class NotificationsTestDb {
       };
     }
     // ── COUNT unread ──────────────────────────────────────────────────
+    if (s.includes('SELECT severity, COUNT(*) AS n') && s.includes('GROUP BY severity')) {
+      return {
+        all: (): { severity: NotificationSeverity; n: number }[] => {
+          const counts = new Map<NotificationSeverity, number>();
+          for (const row of this.rows) {
+            if (row.read_at !== null) continue;
+            counts.set(row.severity, (counts.get(row.severity) ?? 0) + 1);
+          }
+          return Array.from(counts, ([severity, n]) => ({ severity, n }));
+        },
+      };
+    }
     if (s.includes('COUNT(*) as n FROM notifications WHERE read_at IS NULL')) {
       return {
         get: (): { n: number } => ({
           n: this.rows.filter((r) => r.read_at === null).length,
         }),
+      };
+    }
+    if (
+      s.startsWith('UPDATE notification_state SET revision = revision + 1') &&
+      s.includes('RETURNING revision')
+    ) {
+      return {
+        get: (): { revision: number } => {
+          if (this.failRevisionUpdate) throw new Error('forced revision failure');
+          return { revision: ++this.revision };
+        },
+      };
+    }
+    if (s === 'SELECT revision FROM notification_state WHERE singleton = 1') {
+      return {
+        get: (): { revision: number } => ({ revision: this.revision }),
       };
     }
     // ── COUNT all ────────────────────────────────────────────────────
@@ -278,7 +324,7 @@ class NotificationsTestDb {
       };
     }
     if (
-      s.includes("severity = 'info'") &&
+      s.includes("severity NOT IN ('warn', 'error', 'critical')") &&
       s.includes('read_at IS NULL') &&
       s.includes('ORDER BY created_at ASC') &&
       s.includes('LIMIT ?')
@@ -286,7 +332,13 @@ class NotificationsTestDb {
       return {
         all: (lim: number): { id: string }[] => {
           const sorted = this.rows
-            .filter((r) => r.read_at === null && r.severity === 'info')
+            .filter(
+              (r) =>
+                r.read_at === null &&
+                r.severity !== 'warn' &&
+                r.severity !== 'error' &&
+                r.severity !== 'critical',
+            )
             .sort((a, b) => a.created_at - b.created_at)
             .slice(0, lim);
           return sorted.map((r) => ({ id: r.id }));
@@ -368,7 +420,9 @@ class NotificationsTestDb {
               (r) =>
                 r.workspace_id === workspaceId &&
                 r.kind === kind &&
-                r.read_at === null,
+                r.read_at === null &&
+                r.severity !== 'error' &&
+                r.severity !== 'critical',
             )
             .sort((a, b) => a.created_at - b.created_at)
             .slice(0, lim);
@@ -387,10 +441,69 @@ class NotificationsTestDb {
       return {
         all: (kind: string, lim: number): { id: string }[] => {
           const sorted = this.rows
-            .filter((r) => r.workspace_id === null && r.kind === kind && r.read_at === null)
+            .filter(
+              (r) =>
+                r.workspace_id === null &&
+                r.kind === kind &&
+                r.read_at === null &&
+                r.severity !== 'error' &&
+                r.severity !== 'critical',
+            )
             .sort((a, b) => a.created_at - b.created_at)
             .slice(0, lim);
           return sorted.map((r) => ({ id: r.id }));
+        },
+      };
+    }
+
+    // ── KEYSET PAGE query ────────────────────────────────────────────
+    if (
+      s.startsWith('SELECT * FROM notifications') &&
+      s.includes('ORDER BY created_at DESC, id DESC')
+    ) {
+      return {
+        all: (...args: unknown[]): Row[] => {
+          let pos = 0;
+          let filtered = this.rows.slice();
+          if (s.includes('workspace_id = ?')) {
+            const wsId = args[pos++] as string;
+            filtered = filtered.filter((r) => r.workspace_id === wsId);
+          } else if (s.includes('workspace_id IS NULL')) {
+            filtered = filtered.filter((r) => r.workspace_id === null);
+          }
+          const sevMatch = s.match(/(?:END|severity) IN \((\?(?:,\?)*)\)/);
+          if (sevMatch) {
+            const count = sevMatch[1].split(',').length;
+            const severities = args.slice(pos, pos + count) as NotificationSeverity[];
+            pos += count;
+            filtered = filtered.filter((r) =>
+              severities.includes(
+                r.severity === 'info' ||
+                  r.severity === 'warn' ||
+                  r.severity === 'error' ||
+                  r.severity === 'critical'
+                  ? r.severity
+                  : 'info',
+              ),
+            );
+          }
+          if (s.includes('(created_at < ? OR (created_at = ? AND id < ?))')) {
+            const createdAt = args[pos++] as number;
+            pos++;
+            const id = args[pos++] as string;
+            filtered = filtered.filter(
+              (row) =>
+                row.created_at < createdAt ||
+                (row.created_at === createdAt && row.id < id),
+            );
+          }
+          const limit = args[pos] as number;
+          filtered.sort((a, b) => {
+            if (a.created_at !== b.created_at) return b.created_at - a.created_at;
+            if (a.id === b.id) return 0;
+            return a.id > b.id ? -1 : 1;
+          });
+          return filtered.slice(0, limit);
         },
       };
     }
@@ -410,12 +523,21 @@ class NotificationsTestDb {
           } else if (s.includes('workspace_id IS NULL')) {
             filtered = filtered.filter((r) => r.workspace_id === null);
           }
-          const sevMatch = s.match(/severity IN \(([^)]+)\)/);
+          const sevMatch = s.match(/(?:END|severity) IN \((\?(?:,\?)*)\)/);
           if (sevMatch) {
             const count = sevMatch[1].split(',').length;
             const sevs = args.slice(pos, pos + count) as NotificationSeverity[];
             pos += count;
-            filtered = filtered.filter((r) => sevs.includes(r.severity));
+            filtered = filtered.filter((r) =>
+              sevs.includes(
+                r.severity === 'info' ||
+                  r.severity === 'warn' ||
+                  r.severity === 'error' ||
+                  r.severity === 'critical'
+                  ? r.severity
+                  : 'info',
+              ),
+            );
           }
           const limit = args[args.length - 2] as number;
           const offset = args[args.length - 1] as number;
@@ -603,6 +725,90 @@ describe('NotificationsManager.add', () => {
     // First row is read — the new event creates a fresh row, not absorbed.
     expect(fakeDb.rows).toHaveLength(2);
     expect(second.id).not.toBe(first.id);
+  });
+
+  it('emits authoritative unread counts for every severity', () => {
+    const mgr = makeManager();
+    const severities: NotificationSeverity[] = [
+      'info',
+      'warn',
+      'error',
+      'critical',
+    ];
+    for (const severity of severities) {
+      mgr.add({
+        workspaceId: 'ws-1',
+        kind: `kind-${severity}`,
+        severity,
+        title: severity,
+        dedupKey: `counts-${severity}`,
+      });
+      now += 1;
+    }
+
+    expect(emitted.at(-1)?.counts).toEqual({
+      unread: 4,
+      unreadBySeverity: {
+        info: 1,
+        warn: 1,
+        error: 1,
+        critical: 1,
+      },
+    });
+  });
+
+  it('counts legacy unknown severities as info instead of dropping unread rows', () => {
+    fakeDb.rows.push(
+      {
+        id: 'valid-info-severity',
+        workspace_id: 'ws-1',
+        kind: 'current',
+        severity: 'info',
+        title: 'current row',
+        body: null,
+        payload: null,
+        source_event: null,
+        dedup_key: 'valid-info-severity',
+        dup_count: 1,
+        created_at: now,
+        read_at: null,
+      },
+      {
+        id: 'legacy-unknown-severity',
+        workspace_id: 'ws-1',
+        kind: 'legacy',
+        severity: 'fatal' as NotificationSeverity,
+        title: 'legacy row',
+        body: null,
+        payload: null,
+        source_event: null,
+        dedup_key: 'legacy-unknown-severity',
+        dup_count: 1,
+        created_at: now - 1,
+        read_at: null,
+      },
+    );
+
+    expect(makeManager().unreadCounts()).toEqual({
+      unread: 2,
+      unreadBySeverity: { info: 2, warn: 0, error: 0, critical: 0 },
+    });
+  });
+
+  it('advances revision exactly once per changing mutation and never for no-ops', () => {
+    const mgr = makeManager();
+    const row = mgr.add({
+      workspaceId: 'ws-1',
+      kind: 'pty-exit',
+      severity: 'info',
+      title: 'shell exited',
+      dedupKey: 'revision-row',
+    });
+    mgr.markRead(row.id);
+    mgr.markRead(row.id);
+    mgr.dismiss('missing-id');
+
+    expect(emitted.map((delta) => delta.revision)).toEqual([1, 2]);
   });
 });
 
@@ -819,6 +1025,34 @@ describe('NotificationsManager hard-cap eviction (D2)', () => {
     expect(fakeDb.rows.find((r) => r.id === 'r-0250')).toBeDefined();
   });
 
+  it('evicts a legacy unknown severity through the normalized INFO lane', () => {
+    seedRow(fakeDb, {
+      id: 'legacy-unknown',
+      created_at: 1,
+      severity: 'fatal' as NotificationSeverity,
+    });
+    for (let i = 1; i < HARD_CAP_TOTAL; i++) {
+      seedRow(fakeDb, {
+        id: `protected-${i}`,
+        created_at: 100 + i,
+        severity: 'error',
+      });
+    }
+
+    const mgr = makeManager();
+    now = 2_000_000;
+    mgr.add({
+      workspaceId: 'ws-1',
+      kind: 'pty-exit',
+      severity: 'critical',
+      title: 'fresh',
+      dedupKey: 'legacy-eviction-trigger',
+    });
+
+    expect(fakeDb.rows).toHaveLength(HARD_CAP_TOTAL);
+    expect(fakeDb.rows.find((row) => row.id === 'legacy-unknown')).toBeUndefined();
+  });
+
   it('never auto-evicts critical even under pressure', () => {
     // Half critical so eviction pass 3 (warn) doesn't catch them.
     for (let i = 0; i < HARD_CAP_TOTAL; i++) {
@@ -874,6 +1108,105 @@ describe('NotificationsManager.list', () => {
     mgr.add({ workspaceId: 'ws-1', kind: 'a', severity: 'critical', title: 'd', dedupKey: 'k4' });
     const errs = mgr.list({ severities: ['error', 'critical'] });
     expect(errs.map((n: Notification) => n.title).sort()).toEqual(['c', 'd']);
+  });
+});
+
+describe('NotificationsManager cursor pages', () => {
+  function seedCursorRow(id: string, createdAt: number, severity: NotificationSeverity = 'info') {
+    fakeDb.rows.push({
+      id,
+      workspace_id: 'ws-1',
+      kind: 'cursor-test',
+      severity,
+      title: id,
+      body: null,
+      payload: null,
+      source_event: null,
+      dedup_key: `cursor-${id}`,
+      dup_count: 1,
+      created_at: createdAt,
+      read_at: null,
+    });
+  }
+
+  it('pages equal timestamps deterministically without gaps or duplicates', () => {
+    for (const id of ['a', 'b', 'c', 'd', 'e']) seedCursorRow(id, 100);
+    const manager = makeManager();
+
+    const first = manager.page({ limit: 2 });
+    const second = manager.page({ limit: 2, cursor: first.nextCursor });
+    const third = manager.page({ limit: 2, cursor: second.nextCursor });
+
+    expect(first.items.map((row) => row.id)).toEqual(['e', 'd']);
+    expect(second.items.map((row) => row.id)).toEqual(['c', 'b']);
+    expect(third.items.map((row) => row.id)).toEqual(['a']);
+    expect(third.nextCursor).toBeNull();
+    expect(
+      new Set([...first.items, ...second.items, ...third.items].map((row) => row.id)),
+    ).toEqual(new Set(['a', 'b', 'c', 'd', 'e']));
+  });
+
+  it('rejects a malformed cursor', () => {
+    const manager = makeManager();
+
+    expect(() => manager.page({ cursor: 'not-a-valid-cursor' })).toThrow(
+      'invalid notification cursor',
+    );
+  });
+
+  it('reapplies workspace and severity filters to cursor pages', () => {
+    seedCursorRow('ws-info', 100, 'info');
+    seedCursorRow('ws-error', 101, 'error');
+    seedCursorRow('ws-critical', 102, 'critical');
+    fakeDb.rows.push({
+      ...fakeDb.rows[2],
+      id: 'other-critical',
+      workspace_id: 'ws-2',
+      dedup_key: 'cursor-other-critical',
+      created_at: 103,
+    });
+    const manager = makeManager();
+
+    const page = manager.page({
+      workspaceId: 'ws-1',
+      severities: ['error', 'critical'],
+      limit: 10,
+    });
+
+    expect(page.items.map((row) => row.id)).toEqual(['ws-critical', 'ws-error']);
+  });
+
+  it('includes a legacy unknown severity in the normalized info page', () => {
+    seedCursorRow('legacy-unknown', 100, 'fatal' as NotificationSeverity);
+
+    const page = makeManager().page({ severities: ['info'], limit: 10 });
+
+    expect(page.items).toEqual([
+      expect.objectContaining({ id: 'legacy-unknown', severity: 'info' }),
+    ]);
+  });
+});
+
+describe('NotificationsManager.snapshot', () => {
+  it('returns one internally consistent revision, count set, and first page', () => {
+    const manager = makeManager();
+    manager.add({
+      workspaceId: 'ws-1', kind: 'a', severity: 'info', title: 'a', dedupKey: 'snapshot-a',
+    });
+    now += 1;
+    manager.add({
+      workspaceId: 'ws-1', kind: 'b', severity: 'critical', title: 'b', dedupKey: 'snapshot-b',
+    });
+
+    const snapshot = manager.snapshot({ limit: 1 });
+
+    expect(snapshot.revision).toBe(2);
+    expect(snapshot.counts).toEqual({
+      unread: 2,
+      unreadBySeverity: { info: 1, warn: 0, error: 0, critical: 1 },
+    });
+    expect(snapshot.items.map((row) => row.title)).toEqual(['b']);
+    expect(snapshot.nextCursor).not.toBeNull();
   });
 });
 
@@ -970,4 +1303,206 @@ describe('NotificationsManager soft-cap collapse (D2.2)', () => {
     expect(summaryRows).toHaveLength(1);
     expect(summaryRows[0].body).toContain('collapsed');
   });
+
+  it('preserves protected unread rows during soft-cap collapse', () => {
+    const protectedIds: string[] = [];
+    for (let i = 0; i < SOFT_CAP_COLLAPSE_BATCH; i++) {
+      const id = `protected-${i.toString().padStart(4, '0')}`;
+      protectedIds.push(id);
+      seedUnreadRow(fakeDb, {
+        id,
+        created_at: 100 + i,
+        severity: i % 2 === 0 ? 'error' : 'critical',
+      });
+    }
+    for (let i = 0; i < SOFT_CAP_PER_KIND_WS - SOFT_CAP_COLLAPSE_BATCH + 1; i++) {
+      seedUnreadRow(fakeDb, {
+        id: `eligible-${i.toString().padStart(4, '0')}`,
+        created_at: 1_000 + i,
+        severity: 'info',
+      });
+    }
+
+    const mgr = makeManager();
+    now = 3_000_000;
+    mgr.add({
+      workspaceId: 'ws-1',
+      kind: 'pty-exit',
+      severity: 'info',
+      title: 'trigger',
+      dedupKey: 'dk-protected-trigger',
+    });
+
+    expect(
+      protectedIds.filter((id) => fakeDb.rows.some((row) => row.id === id)),
+    ).toEqual(protectedIds);
+  });
+
+  it('collapses a legacy unknown severity through the normalized info lane', () => {
+    seedUnreadRow(fakeDb, {
+      id: 'legacy-unknown',
+      created_at: 1,
+      severity: 'fatal' as NotificationSeverity,
+    });
+    for (let i = 0; i < SOFT_CAP_PER_KIND_WS; i++) {
+      seedUnreadRow(fakeDb, {
+        id: `protected-${i}`,
+        created_at: 100 + i,
+        severity: 'error',
+      });
+    }
+
+    const mgr = makeManager();
+    now = 3_000_000;
+    mgr.add({
+      workspaceId: 'ws-1',
+      kind: 'pty-exit',
+      severity: 'critical',
+      title: 'trigger',
+      dedupKey: 'legacy-collapse-trigger',
+    });
+
+    expect(fakeDb.rows.find((row) => row.id === 'legacy-unknown')).toBeUndefined();
+    expect(fakeDb.rows.filter((row) => row.kind === 'pty-exit-summary')).toHaveLength(1);
+  });
+
+  it('emits the soft-cap summary in the added lane', () => {
+    for (let i = 0; i < SOFT_CAP_PER_KIND_WS + 1; i++) {
+      seedUnreadRow(fakeDb, {
+        id: `r-${i.toString().padStart(4, '0')}`,
+        created_at: 100 + i,
+      });
+    }
+    const mgr = makeManager();
+    now = 3_000_000;
+
+    mgr.add({
+      workspaceId: 'ws-1',
+      kind: 'pty-exit',
+      severity: 'info',
+      title: 'trigger',
+      dedupKey: 'dk-summary-trigger',
+    });
+
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].added.map((row) => row.kind)).toEqual([
+      'pty-exit',
+      'pty-exit-summary',
+    ]);
+    expect(emitted[0].removed).toHaveLength(SOFT_CAP_COLLAPSE_BATCH);
+  });
+
+  it('rolls back the complete mutation when revision advancement fails', () => {
+    for (let i = 0; i < SOFT_CAP_PER_KIND_WS + 1; i++) {
+      seedUnreadRow(fakeDb, {
+        id: `r-${i.toString().padStart(4, '0')}`,
+        created_at: 100 + i,
+      });
+    }
+    const before = fakeDb.rows.map((row) => ({ ...row }));
+    fakeDb.failRevisionUpdate = true;
+    const mgr = makeManager();
+    now = 3_000_000;
+
+    expect(() =>
+      mgr.add({
+        workspaceId: 'ws-1',
+        kind: 'pty-exit',
+        severity: 'info',
+        title: 'trigger',
+        dedupKey: 'dk-rollback-trigger',
+      }),
+    ).toThrow('forced revision failure');
+
+    expect(fakeDb.rows).toEqual(before);
+    expect(fakeDb.revision).toBe(0);
+    expect(emitted).toHaveLength(0);
+  });
+});
+
+describe('NotificationsManager atomic mutations', () => {
+  const cases: Array<{
+    name: string;
+    prepare: (manager: NotificationsManager) => () => unknown;
+  }> = [
+    {
+      name: 'markRead',
+      prepare: (manager) => {
+        const row = manager.add({
+          workspaceId: 'ws-1', kind: 'a', severity: 'info', title: 't', dedupKey: 'atomic-read',
+        });
+        return () => manager.markRead(row.id);
+      },
+    },
+    {
+      name: 'markAllRead',
+      prepare: (manager) => {
+        manager.add({
+          workspaceId: 'ws-1', kind: 'a', severity: 'info', title: 'a', dedupKey: 'atomic-all-a',
+        });
+        manager.add({
+          workspaceId: 'ws-1', kind: 'b', severity: 'warn', title: 'b', dedupKey: 'atomic-all-b',
+        });
+        return () => manager.markAllRead();
+      },
+    },
+    {
+      name: 'markUnread',
+      prepare: (manager) => {
+        const row = manager.add({
+          workspaceId: 'ws-1', kind: 'a', severity: 'info', title: 't', dedupKey: 'atomic-unread',
+        });
+        manager.markRead(row.id);
+        return () => manager.markUnread(row.id);
+      },
+    },
+    {
+      name: 'dismiss',
+      prepare: (manager) => {
+        const row = manager.add({
+          workspaceId: 'ws-1', kind: 'a', severity: 'info', title: 't', dedupKey: 'atomic-dismiss',
+        });
+        return () => manager.dismiss(row.id);
+      },
+    },
+    {
+      name: 'clearRead',
+      prepare: (manager) => {
+        const row = manager.add({
+          workspaceId: 'ws-1', kind: 'a', severity: 'info', title: 't', dedupKey: 'atomic-clear',
+        });
+        manager.markRead(row.id);
+        return () => manager.clearRead();
+      },
+    },
+    {
+      name: 'gc',
+      prepare: (manager) => {
+        const row = manager.add({
+          workspaceId: 'ws-1', kind: 'a', severity: 'info', title: 't', dedupKey: 'atomic-gc',
+        });
+        manager.markRead(row.id);
+        now += READ_TTL_MS + 1;
+        return () => manager.gc();
+      },
+    },
+  ];
+
+  it.each(cases)(
+    '$name rolls back state when revision advancement fails',
+    ({ prepare }) => {
+      const manager = makeManager();
+      const mutate = prepare(manager);
+      const rowsBefore = fakeDb.rows.map((row) => ({ ...row }));
+      const revisionBefore = fakeDb.revision;
+      emitted.length = 0;
+      fakeDb.failRevisionUpdate = true;
+
+      expect(mutate).toThrow('forced revision failure');
+
+      expect(fakeDb.rows).toEqual(rowsBefore);
+      expect(fakeDb.revision).toBe(revisionBefore);
+      expect(emitted).toHaveLength(0);
+    },
+  );
 });
