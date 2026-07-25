@@ -783,7 +783,11 @@ describe('spawnLocalPty: win32 shell-first mode (Phase 5)', () => {
         '#!/usr/bin/env pwsh',
         '$basedir=Split-Path $MyInvocation.MyCommand.Definition -Parent',
         '$ret=0',
-        '[Console]::Out.Write((ConvertTo-Json -Compress -InputObject @($args)))',
+        // Terminate the native child record explicitly. Windows PowerShell's
+        // nested native-output collector can keep a non-newline-terminated
+        // pipe open until the harness timeout even after the exact JSON has
+        // already reached stdout (the repeated CI failure mode).
+        '[Console]::Out.WriteLine((ConvertTo-Json -Compress -InputObject @($args)))',
         'exit $ret',
         '',
       ].join('\r\n'),
