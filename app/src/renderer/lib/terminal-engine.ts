@@ -90,7 +90,9 @@ export class TerminalEngine {
 
   private readonly disposers: Disposer[] = [];
   private readonly changeSubs = new Set<() => void>();
+  private readonly titleSubs = new Set<(title: string) => void>();
   private notifyScheduled = false;
+  private syncWatchdog: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
   private sgrMouseMode = false;
   private readonly marks: PromptMark[] = [];
@@ -110,7 +112,14 @@ export class TerminalEngine {
     this.disposers.push(this.term.onData((d) => delegate.writeToPty(d)));
     // Coalesced change notify: bursts of writes collapse to one callback per
     // frame (rAF in the renderer; setTimeout(0) under node tests).
-    this.disposers.push(this.term.onWriteParsed(() => this.scheduleNotify()));
+    // DECSET 2026 (synchronized output, BSU/ESU): the app — e.g. Kimi Code's
+    // OpenTUI inline renderer — wraps each repaint frame in ?2026h/?2026l and
+    // repaints via erase-then-rewrite. xterm tracks the mode but mutates the
+    // buffer as bytes arrive, so an unguarded notify can paint the erased
+    // intermediate state (the streaming flicker). Hold the notify while sync
+    // mode is set; fire once when it clears. A 1s watchdog paints anyway if
+    // the app died mid-frame so the pane can never freeze on a held notify.
+    this.disposers.push(this.term.onWriteParsed(() => this.onWriteParsedNotify()));
     // DECSET/DECRST 1006 watcher — xterm's public modes API exposes
     // mouseTrackingMode but NOT the report ENCODING; the presenter needs it
     // to emit well-formed SGR wheel reports (claude fullscreen consumes the
@@ -146,6 +155,25 @@ export class TerminalEngine {
         return true;
       }),
     );
+    // OSC 0/2 (icon+window / window title): agent-initiated session renames
+    // (Kimi Code, claude /rename). xterm tracks the title internally but
+    // nothing surfaces it — sink it to subscribers so the pane label can
+    // follow. Return false: xterm's own title bookkeeping still runs.
+    const onOscTitle = (data: string): boolean => {
+      const title = data.trim();
+      if (title) {
+        for (const cb of Array.from(this.titleSubs)) {
+          try {
+            cb(title);
+          } catch {
+            /* one broken subscriber must never starve the others */
+          }
+        }
+      }
+      return false;
+    };
+    this.disposers.push(this.term.parser.registerOscHandler(0, onOscTitle));
+    this.disposers.push(this.term.parser.registerOscHandler(2, onOscTitle));
   }
 
   write(data: string): void {
@@ -168,6 +196,15 @@ export class TerminalEngine {
     };
   }
 
+  /** Subscribe to OSC 0/2 window-title sets (Kimi/claude rename the session
+   *  this way). Raw payload; consumers sanitize. Returns the unsubscribe. */
+  onTitleChange(cb: (title: string) => void): () => void {
+    this.titleSubs.add(cb);
+    return () => {
+      this.titleSubs.delete(cb);
+    };
+  }
+
   get bufferType(): 'normal' | 'alternate' {
     return this.term.buffer.active.type;
   }
@@ -177,6 +214,14 @@ export class TerminalEngine {
    *  via the parser hook (the public modes API hides the report encoding). */
   get mouseTracking(): { mode: 'none' | 'x10' | 'vt200' | 'drag' | 'any'; sgr: boolean } {
     return { mode: this.term.modes.mouseTrackingMode, sgr: this.sgrMouseMode };
+  }
+
+  /** DECSET 1004 — the app asked to be told when the terminal gains/loses
+   *  focus (claude's Ink renderer repaints its frame on focus-in, which is how
+   *  the xterm path self-healed a torn frame; the DOM presenter must send the
+   *  same CSI I / CSI O reports). */
+  get focusReporting(): boolean {
+    return this.term.modes.sendFocusMode;
   }
 
   /** OSC-133 shell-integration marks (FinalTerm protocol), oldest first. */
@@ -362,9 +407,32 @@ export class TerminalEngine {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    if (this.syncWatchdog) {
+      clearTimeout(this.syncWatchdog);
+      this.syncWatchdog = null;
+    }
     this.changeSubs.clear();
+    this.titleSubs.clear();
     for (const d of this.disposers) d.dispose();
     this.term.dispose();
+  }
+
+  private onWriteParsedNotify(): void {
+    if (this.term.modes.synchronizedOutputMode) {
+      if (!this.syncWatchdog) {
+        this.syncWatchdog = setTimeout(() => {
+          this.syncWatchdog = null;
+          this.scheduleNotify();
+        }, 1000);
+        (this.syncWatchdog as { unref?: () => void }).unref?.();
+      }
+      return;
+    }
+    if (this.syncWatchdog) {
+      clearTimeout(this.syncWatchdog);
+      this.syncWatchdog = null;
+    }
+    this.scheduleNotify();
   }
 
   private scheduleNotify(): void {
@@ -373,7 +441,19 @@ export class TerminalEngine {
     schedule(() => {
       this.notifyScheduled = false;
       if (this.disposed) return;
-      for (const cb of this.changeSubs) cb();
+      // Per-subscriber isolation: the engine-cache attaches the label reader
+      // BEFORE any presenter subscribes, so an unguarded loop let one throwing
+      // subscriber abort the rest — the pane would freeze on a half-painted
+      // frame until something forced a re-render (the "garbled until I
+      // refocus" report). Snapshot first so a subscriber that unsubscribes
+      // itself mid-notify can't mutate the Set we're iterating.
+      for (const cb of Array.from(this.changeSubs)) {
+        try {
+          cb();
+        } catch {
+          /* one broken subscriber must never starve the presenters */
+        }
+      }
     });
   }
 }

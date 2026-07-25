@@ -128,6 +128,11 @@ export function CommandRoom() {
     if (!focusedPaneId) return;
     const onKey = (ev: KeyboardEvent) => {
       if (ev.key !== 'Escape') return;
+      // A terminal-consumed Esc (DomTerminalView / xterm preventDefault every
+      // key they encode into PTY bytes) is an agent interrupt, not an exit-
+      // fullscreen request — swallowing it here also blurred the pane the
+      // operator was actively typing into.
+      if (ev.defaultPrevented) return;
       ev.preventDefault();
       dispatch({ type: 'UNFOCUS_PANE' });
     };

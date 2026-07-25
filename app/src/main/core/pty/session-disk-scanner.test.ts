@@ -200,6 +200,77 @@ describe('findLatestSessionId — kimi', () => {
     });
     expect(id).toBe(null);
   });
+
+  it('discovers sessions in the modern ~/.kimi-code layout', async () => {
+    const now = 1_700_000_000_000;
+    const uuid = makeUuid('aaaa1111');
+    const sessionDir = path.join(
+      tmpHome,
+      '.kimi-code',
+      'sessions',
+      'wd_app_35facf05b7a7',
+      `session_${uuid}`,
+    );
+    touchDir(sessionDir, now - 1_000);
+
+    const id = await findLatestSessionId('kimi', '/tmp/proj', {
+      homeDir: tmpHome,
+      now,
+    });
+    expect(id).toBe(uuid);
+  });
+
+  it('reads the modern state.json shape (ISO timestamps + real title)', async () => {
+    const now = 1_700_000_000_000;
+    const uuid = makeUuid('bbbb2222');
+    const sessionDir = path.join(
+      tmpHome,
+      '.kimi-code',
+      'sessions',
+      'wd_proj_0123456789ab',
+      `session_${uuid}`,
+    );
+    touchDir(sessionDir, now - 1_000);
+    fs.writeFileSync(
+      path.join(sessionDir, 'state.json'),
+      JSON.stringify({
+        createdAt: '2026-07-24T15:51:27.018Z',
+        updatedAt: '2026-07-24T18:04:06.506Z',
+        title: 'School Account Fix-Agent',
+        isCustomTitle: true,
+      }),
+    );
+
+    const items = await listSessionsInCwd('kimi', '/tmp/proj', { homeDir: tmpHome });
+    const hit = items.find((i) => i.id === uuid);
+    expect(hit).toBeDefined();
+    expect(hit!.providerId).toBe('kimi');
+    expect(hit!.title).toBe('School Account Fix-Agent');
+    expect(hit!.createdAt).toBe(Date.parse('2026-07-24T15:51:27.018Z'));
+    expect(hit!.updatedAt).toBe(Date.parse('2026-07-24T18:04:06.506Z'));
+  });
+
+  it('lists legacy and modern layouts side by side, deduped by id', async () => {
+    const now = 1_700_000_000_000;
+    const legacyUuid = makeUuid('cccc3333');
+    const modernUuid = makeUuid('dddd4444');
+    touchDir(path.join(tmpHome, '.kimi', 'sessions', 'project-hash-abc', legacyUuid), now - 2_000);
+    touchDir(
+      path.join(tmpHome, '.kimi-code', 'sessions', 'wd_proj_0123456789ab', `session_${modernUuid}`),
+      now - 1_000,
+    );
+    // Same uuid present in BOTH layouts must appear exactly once.
+    touchDir(
+      path.join(tmpHome, '.kimi', 'sessions', 'project-hash-abc', modernUuid),
+      now - 3_000,
+    );
+
+    const items = await listSessionsInCwd('kimi', '/tmp/proj', { homeDir: tmpHome });
+    const ids = items.map((i) => i.id);
+    expect(ids).toContain(legacyUuid);
+    expect(ids).toContain(modernUuid);
+    expect(ids.filter((x) => x === modernUuid)).toHaveLength(1);
+  });
 });
 
 describe('findLatestSessionId — opencode', () => {

@@ -275,7 +275,9 @@ describe('writeWorkspaceMcpConfig', () => {
   it('writes Kimi mcp.json when kimi binary is detected', () => {
     const root = tmpDir('sigmalink-ruflo-root-');
     const home = tmpDir('sigmalink-ruflo-home-');
-    const kimiPath = path.join(home, '.kimi', 'mcp.json');
+    // 2026-07 migration: no existing config file → the modern ~/.kimi-code
+    // target is preferred.
+    const kimiPath = path.join(home, '.kimi-code', 'mcp.json');
 
     const detectCli = (name: 'kimi' | 'opencode') => name === 'kimi';
     const result = writeWorkspaceMcpConfig(root, { homeDir: home, logger: quietLogger, detectCli });
@@ -610,7 +612,8 @@ describe('writeWorkspaceMcpConfig', () => {
     expect(result.claude).toBe(path.join(root, '.mcp.json'));
     expect(result.codex).toBe(path.join(home, '.codex', 'config.toml'));
     expect(result.gemini).toBe(path.join(home, '.gemini', 'settings.json'));
-    expect(result.kimi).toBe(path.join(home, '.kimi', 'mcp.json'));
+    // 2026-07 migration: kimi now targets the modern ~/.kimi-code path.
+    expect(result.kimi).toBe(path.join(home, '.kimi-code', 'mcp.json'));
     expect(result.opencode).toBe(path.join(home, '.config', 'opencode', 'opencode.json'));
     expect(result.cursor).toBe(path.join(root, '.cursor', 'mcp.json'));
 
@@ -907,5 +910,46 @@ describe('writeRufloConventionBlock', () => {
     expect(content).toContain('namespace');
     expect(content).toContain('patterns');
     expect(content).toContain('memory_search_unified');
+  });
+});
+
+// ─── Task 6: kimi-code migration target selection (~/.kimi-code vs ~/.kimi) ──
+
+describe('kimi-code migration target selection', () => {
+  it('writes the modern ~/.kimi-code/mcp.json when the migrated home exists', () => {
+    const root = tmpDir('sigma-mcp-root-');
+    const home = tmpDir('sigma-mcp-home-');
+    fs.mkdirSync(path.join(home, '.kimi-code'), { recursive: true });
+    const result = writeWorkspaceMcpConfig(root, {
+      homeDir: home,
+      logger: quietLogger,
+      detectCli: () => true,
+    });
+    expect(result.kimi).toBe(path.join(home, '.kimi-code', 'mcp.json'));
+    expect(fs.existsSync(path.join(home, '.kimi-code', 'mcp.json'))).toBe(true);
+  });
+
+  it('falls back to legacy ~/.kimi/mcp.json when only the legacy file exists', () => {
+    const root = tmpDir('sigma-mcp-root-');
+    const home = tmpDir('sigma-mcp-home-');
+    fs.mkdirSync(path.join(home, '.kimi'), { recursive: true });
+    fs.writeFileSync(path.join(home, '.kimi', 'mcp.json'), '{}');
+    const result = writeWorkspaceMcpConfig(root, {
+      homeDir: home,
+      logger: quietLogger,
+      detectCli: () => true,
+    });
+    expect(result.kimi).toBe(path.join(home, '.kimi', 'mcp.json'));
+  });
+
+  it('prefers the modern path for fresh machines (neither file exists)', () => {
+    const root = tmpDir('sigma-mcp-root-');
+    const home = tmpDir('sigma-mcp-home-');
+    const result = writeWorkspaceMcpConfig(root, {
+      homeDir: home,
+      logger: quietLogger,
+      detectCli: () => true,
+    });
+    expect(result.kimi).toBe(path.join(home, '.kimi-code', 'mcp.json'));
   });
 });

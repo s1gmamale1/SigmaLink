@@ -8,12 +8,15 @@
 //
 // `spawnLocalPty` now resolves the command against PATH up-front and throws a
 // real ENOENT before invoking node-pty, restoring the fallback contract.
+// (2026-07 kimi migration: POSIX shell-first is the exception — a pre-flight
+// miss defers to the pane's login shell; see "shell-first POSIX soft-miss".)
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import * as nodePty from 'node-pty';
 
 // We DON'T mock node-pty here: the ENOENT check fires before node-pty is
 // touched, so the native module is never loaded during these tests.
@@ -32,6 +35,24 @@ import { extractSentinel, SENTINEL_PREFIX, SENTINEL_SUFFIX } from './sentinel';
 
 const originalPath = process.env.PATH;
 const originalPlatform = process.platform;
+
+// CI installs with --ignore-scripts (no node-pty native build): a real fork
+// fails there and spawnShellFirstPty returns the synthetic pid:-1 handle.
+// Probe once; assert the live-fork pid only when a fork can work.
+const ptyForkWorks: boolean = (() => {
+  if (process.platform === 'win32') return false;
+  try {
+    const p = nodePty.spawn('/bin/true', [], { name: 'xterm-256color', cols: 80, rows: 24 });
+    try {
+      p.kill();
+    } catch {
+      // Already exited — the fork itself worked, which is all we probed.
+    }
+    return true;
+  } catch {
+    return false;
+  }
+})();
 
 afterEach(() => {
   process.env.PATH = originalPath;
@@ -502,15 +523,17 @@ describe('spawnLocalPty: shell-first mode', () => {
     expect(e.code).toBe('ENOENT');
   });
 
-  it('H-9: shell-first throws synchronous ENOENT for a missing binary (drives the launcher alt-command walk)', () => {
-    // Empty PATH so no binary resolves. Previously shell-first injected the
-    // command into a live shell, so a missing binary produced only "command
-    // not found" output + sentinel — never a synchronous throw — and the
-    // launcher's [command, ...altCommands] walk was dead in this mode.
+  it('H-9 (revised 2026-07): POSIX shell-first does NOT throw synchronously for a missing binary (login shell resolves it)', () => {
+    if (process.platform === 'win32') return; // POSIX path (win32 degrades to direct)
+    // Behavior change: Electron's PATH is the wrong oracle on POSIX shell-first
+    // (dev: no login-shell PATH bootstrap; packaged: stale warm-boot cache).
+    // A pre-flight miss now degrades to injecting the bare command; a genuine
+    // not-found surfaces via the shell's "command not found" + exit-127
+    // sentinel. Empty PATH so Electron-side resolution must miss.
     process.env.PATH = '/does/not/exist';
-    let caught: unknown = null;
-    try {
-      spawnLocalPty({
+    let handle: ReturnType<typeof spawnLocalPty> | undefined;
+    expect(() => {
+      handle = spawnLocalPty({
         command: 'definitely-not-a-real-binary-xyz',
         args: [],
         cwd: process.cwd(),
@@ -518,12 +541,15 @@ describe('spawnLocalPty: shell-first mode', () => {
         rows: 24,
         spawnMode: 'shell-first',
       });
-    } catch (err) {
-      caught = err;
+    }).not.toThrow();
+    try {
+      // Without a node-pty native build (CI --ignore-scripts) the spawn
+      // degrades to the synthetic pid:-1 handle; only assert a live fork
+      // pid when the probe showed a fork can work here.
+      if (ptyForkWorks) expect(handle?.pid).toBeGreaterThan(0);
+    } finally {
+      handle?.kill();
     }
-    const e = caught as NodeJS.ErrnoException;
-    expect(e).toBeInstanceOf(Error);
-    expect(e.code).toBe('ENOENT');
   });
 });
 
@@ -1103,5 +1129,48 @@ describe('defaultShell on linux', () => {
   it('falls back to bash when SHELL is fish', () => {
     Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
     expect(defaultShell({ SHELL: '/usr/bin/fish' })).toEqual({ command: '/bin/bash', args: ['-l'] });
+  });
+});
+
+describe('spawnLocalPty shell-first POSIX soft-miss', () => {
+  it.skipIf(process.platform === 'win32')(
+    'does NOT throw synchronously when the command is missing from Electron PATH (login shell resolves it)',
+    () => {
+      // Kimi-after-migration regression: ~/.kimi-code/bin is only on the login
+      // shell's PATH (via ~/.zshrc), not Electron's. Shell-first must defer to
+      // the pane's own shell instead of hard-failing the launch.
+      let handle: ReturnType<typeof spawnLocalPty> | undefined;
+      expect(() => {
+        handle = spawnLocalPty({
+          command: 'sigmalink-definitely-not-a-real-command-xyz',
+          args: [],
+          cwd: os.homedir(),
+          cols: 80,
+          rows: 24,
+          spawnMode: 'shell-first',
+        });
+      }).not.toThrow();
+      try {
+        // Without a node-pty native build (CI --ignore-scripts) the spawn
+        // degrades to the synthetic pid:-1 handle; only assert a live fork
+        // pid when the probe showed a fork can work here.
+        if (ptyForkWorks) expect(handle?.pid).toBeGreaterThan(0);
+      } finally {
+        handle?.kill();
+      }
+    },
+  );
+
+  it('direct mode still throws ENOENT synchronously for a missing command', () => {
+    expect(() =>
+      spawnLocalPty({
+        command: 'sigmalink-definitely-not-a-real-command-xyz',
+        args: [],
+        cwd: os.homedir(),
+        cols: 80,
+        rows: 24,
+        spawnMode: 'direct',
+      }),
+    ).toThrowError(/ENOENT/);
   });
 });

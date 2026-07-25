@@ -43,6 +43,7 @@ import {
   type TerminalCacheContext,
 } from '@/renderer/lib/terminal-cache';
 import { useAppStateSelector } from '@/renderer/app/state';
+import { setTitleFollow } from '@/renderer/lib/pane-title-follow';
 import { useRightRail } from '@/renderer/features/right-rail/RightRailContext.data';
 import { RefitController } from './refit-controller';
 import { DomTerminalView } from './DomTerminalView';
@@ -68,6 +69,16 @@ function XtermTerminalHost({ sessionId, className }: Props) {
   // The cache's link-handler closure reads from this holder, so updating
   // the ref is enough — no terminal recreation needed.
   const wsIdRef = useRef<string | undefined>(activeWorkspaceId);
+  const providerId = useAppStateSelector((s) =>
+    s.sessions.find((sess) => sess.id === sessionId)?.providerId,
+  );
+  // OSC title-follow gate (mirrors DomTerminalView): plain-shell panes must
+  // not forward shell auto-titles (oh-my-zsh precmd) into the pane label.
+  // Evaluated live in terminal-cache; cleanup restores FOLLOW.
+  useEffect(() => {
+    setTitleFollow(sessionId, providerId !== 'shell');
+    return () => setTitleFollow(sessionId, true);
+  }, [sessionId, providerId]);
   useEffect(() => {
     wsIdRef.current = activeWorkspaceId;
   }, [activeWorkspaceId]);

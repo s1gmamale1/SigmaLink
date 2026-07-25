@@ -514,3 +514,36 @@ describe('CommandRoom — v1.4.8 drag-drop file @-mention', () => {
     expect(ptyWriteMock).not.toHaveBeenCalled();
   });
 });
+
+describe('CommandRoom — Esc exits fullscreen only when the terminal did not consume it', () => {
+  async function renderFocused() {
+    mockState.sessionsByWorkspace = { 'ws-1': [makeSession({ id: 's1' })] };
+    mockState.swarmsByWorkspace = { 'ws-1': [makeSwarm('running')] };
+    mockState.activeSessionId = 's1';
+    mockState.focusedPaneId = 's1';
+    await renderCommandRoom();
+    await waitFor(() => screen.getByTestId('terminal-s1'));
+  }
+
+  it('plain Escape (chrome-focused) dispatches UNFOCUS_PANE', async () => {
+    await renderFocused();
+    dispatchMock.mockClear();
+    document.body.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    );
+    expect(dispatchMock).toHaveBeenCalledWith({ type: 'UNFOCUS_PANE' });
+  });
+
+  it('terminal-consumed Escape (defaultPrevented) does NOT unfocus the pane', async () => {
+    // DomTerminalView / xterm preventDefault() every key they encode into PTY
+    // bytes — Esc typed to interrupt an agent arrives at window already
+    // consumed. It must interrupt the agent, not also kick the pane out of
+    // fullscreen.
+    await renderFocused();
+    dispatchMock.mockClear();
+    const ev = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    ev.preventDefault();
+    document.body.dispatchEvent(ev);
+    expect(dispatchMock).not.toHaveBeenCalledWith({ type: 'UNFOCUS_PANE' });
+  });
+});
