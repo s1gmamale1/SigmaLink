@@ -65,6 +65,19 @@ describe('persistScrollback()', () => {
     expect(written).toBe(bigText.slice(-SCROLLBACK_MAX_BYTES));
   });
 
+  it('caps multibyte content by UTF-8 bytes without splitting code points', () => {
+    const euro = '€';
+    const keptCodePoints = Math.floor(SCROLLBACK_MAX_BYTES / Buffer.byteLength(euro, 'utf8'));
+    const bigText = 'old-prefix' + euro.repeat(keptCodePoints + 2);
+
+    persistScrollback('/userData', 'sess-utf8', bigText);
+
+    const written = writeFileSync.mock.calls[0]?.[1] as string;
+    expect(Buffer.byteLength(written, 'utf8')).toBeLessThanOrEqual(SCROLLBACK_MAX_BYTES);
+    expect(written).toBe(euro.repeat(keptCodePoints));
+    expect(written).not.toContain('\uFFFD');
+  });
+
   it('does not truncate content at exactly SCROLLBACK_MAX_BYTES', () => {
     const exact = 'y'.repeat(SCROLLBACK_MAX_BYTES);
     persistScrollback('/userData', 'sess-exact', exact);

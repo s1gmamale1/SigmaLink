@@ -76,9 +76,15 @@ jobs:
         # auto-detected here or its node-gyp build hard-fails the whole step.
         run: npx @electron/rebuild -f -o better-sqlite3,node-pty
 
-      - name: Win32 spawn correctness tests (unit + .cmd shim round-trip)
+      - name: Win32 spawn and PTY lifecycle tests
         if: runner.os == 'Windows'
-        run: pnpm exec vitest run src/main/core/util
+        run: >-
+          pnpm exec vitest run
+          src/main/core/util
+          src/main/core/pty/local-pty.test.ts
+          src/main/core/pty/sentinel.test.ts
+          src/main/core/pty/registry.test.ts
+          src/main/core/pty/registry-lifecycle.test.ts
 
       - name: Build renderer + electron
         run: pnpm run build && node scripts/build-electron.cjs

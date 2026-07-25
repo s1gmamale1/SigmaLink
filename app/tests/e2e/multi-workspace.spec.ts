@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createElectronTestProfile } from '../../src/test-utils/electron-test-profile';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -84,11 +85,12 @@ test('room switch preserves the xterm DOM instance (no replay flash)', async () 
   const wsA = path.join(tmpRoot, 'workspace-a');
   fs.mkdirSync(wsA);
 
+  const profile = createElectronTestProfile('sigmalink-e2e-multi-a-');
   let app: ElectronApplication | null = null;
   try {
     app = await electron.launch({
-      args: [mainEntry],
-      env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1', NODE_ENV: 'test' },
+      args: [mainEntry, ...profile.args],
+      env: { ...profile.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1' },
       timeout: 60_000,
     });
     const win = await app.firstWindow({ timeout: 30_000 });
@@ -187,7 +189,7 @@ test('room switch preserves the xterm DOM instance (no replay flash)', async () 
     }
     expect(survived).toBe(true);
   } finally {
-    if (app) await app.close().catch(() => undefined);
+    await profile.close(app);
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   }
 });
@@ -200,11 +202,12 @@ test('workspace switching keeps PTY pid alive and stable', async () => {
   fs.mkdirSync(wsA);
   fs.mkdirSync(wsB);
 
+  const profile = createElectronTestProfile('sigmalink-e2e-multi-b-');
   let app: ElectronApplication | null = null;
   try {
     app = await electron.launch({
-      args: [mainEntry],
-      env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1', NODE_ENV: 'test' },
+      args: [mainEntry, ...profile.args],
+      env: { ...profile.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1' },
       timeout: 60_000,
     });
     const win = await app.firstWindow({ timeout: 30_000 });
@@ -252,7 +255,7 @@ test('workspace switching keeps PTY pid alive and stable', async () => {
     });
     expect(processIsAlive(before!.pid)).toBe(true);
   } finally {
-    if (app) await app.close().catch(() => undefined);
+    await profile.close(app);
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   }
 });

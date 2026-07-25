@@ -9,6 +9,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { analyzeTrace, type TraceEvent, type FlaggedWindow } from './trace-analyzer';
+import { createElectronTestProfile } from '../../src/test-utils/electron-test-profile';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -70,12 +71,14 @@ test.describe.configure({ retries: 0 });
 test('jank-review: capture video + CPU-throttled perf trace over a room sweep', async () => {
   test.setTimeout(240_000);
 
+  const profile = createElectronTestProfile('sigmalink-perf-');
   let app: ElectronApplication | null = null;
+  try {
   // electron.launch does NOT read use.video from the config — pass recordVideo
   // directly. The .webm path is only resolvable AFTER app.close().
   app = await electron.launch({
-    args: [mainEntry],
-    env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1', NODE_ENV: 'test' },
+    args: [mainEntry, ...profile.args],
+    env: { ...profile.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1' },
     timeout: 60_000,
     recordVideo: { dir: perfOutDir, size: { width: 1440, height: 900 } },
   });
@@ -134,6 +137,7 @@ test('jank-review: capture video + CPU-throttled perf trace over a room sweep', 
   // The video path is only available after the app (and its page) close.
   const videoHandle = win.video();
   await app.close().catch(() => undefined);
+  app = null;
   const videoPath = videoHandle ? await videoHandle.path().catch(() => null) : null;
 
   // --- Analyze + emit the review inputs --------------------------------
@@ -185,4 +189,7 @@ test('jank-review: capture video + CPU-throttled perf trace over a room sweep', 
   expect(collected.length, 'CDP Tracing returned no events — trace capture broke').toBeGreaterThan(0);
   expect(videoPath, 'recordVideo produced no .webm — video capture broke').toBeTruthy();
   expect(fs.existsSync(path.join(perfOutDir, 'perf-summary.json'))).toBe(true);
+  } finally {
+    await profile.close(app);
+  }
 });

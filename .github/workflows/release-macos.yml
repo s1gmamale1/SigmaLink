@@ -87,7 +87,7 @@ jobs:
         # absence of vendor sources — when missing, the stub handles graceful
         # degradation.
         run: |
-          if [ -d "app/native/voice-whisper/vendor/whisper.cpp" ] && [ "$(ls -A app/native/voice-whisper/vendor/whisper.cpp 2>/dev/null)" ]; then
+          if [ -d "native/voice-whisper/vendor/whisper.cpp" ] && [ "$(ls -A native/voice-whisper/vendor/whisper.cpp 2>/dev/null)" ]; then
             npx @electron/rebuild -f -w better-sqlite3 -w node-pty -w sigmavoice_mac -w whisper_bridge
           else
             echo "voice-whisper vendor sources absent — rebuilding without whisper_bridge"

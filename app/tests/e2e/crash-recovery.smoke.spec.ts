@@ -53,6 +53,10 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import {
+  createElectronTestProfile,
+  type ElectronTestProfile,
+} from '../../src/test-utils/electron-test-profile';
 
 // node:sqlite is a Node >=22.5 built-in. A STATIC top-level import crashes the
 // whole file at module-load on older Node (e.g. CI's Node 20) — which fails the
@@ -145,10 +149,10 @@ interface WorkspaceRow {
 // Launch the app against a fixed temp userData. The --user-data-dir Chromium
 // switch redirects app.getPath('userData') so the app never reads/writes the
 // operator's real profile.
-async function launchApp(userDataDir: string): Promise<ElectronApplication> {
+async function launchApp(profile: ElectronTestProfile): Promise<ElectronApplication> {
   return electron.launch({
-    args: [mainEntry, `--user-data-dir=${userDataDir}`],
-    env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1', NODE_ENV: 'test' },
+    args: [mainEntry, ...profile.args],
+    env: { ...profile.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1' },
     timeout: 60_000,
   });
 }
@@ -229,7 +233,8 @@ test('force-quit → relaunch recovers workspaces, panes, and bounded worktrees'
   test.setTimeout(180_000);
 
   // Throwaway userData — NEVER the operator's real profile.
-  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sigmalink-crash-ud-'));
+  const profile = createElectronTestProfile('sigmalink-crash-');
+  const userDataDir = profile.userDataDir;
   // Throwaway git repo used as the workspace, so the launcher creates worktrees
   // (the realistic path that leaked to 49 GB in the incident).
   const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sigmalink-crash-repo-'));
@@ -245,7 +250,7 @@ test('force-quit → relaunch recovers workspaces, panes, and bounded worktrees'
 
   try {
     // ── PHASE 1 — seed: open workspace, launch ≥2 shell panes ────────────────
-    app = await launchApp(userDataDir);
+    app = await launchApp(profile);
     const win = await app.firstWindow({ timeout: 30_000 });
     await win.waitForLoadState('domcontentloaded').catch(() => undefined);
     const ready = await waitForSigmaBridge(win);
@@ -304,7 +309,7 @@ test('force-quit → relaunch recovers workspaces, panes, and bounded worktrees'
     expect(stillRunning.length, 'SIGKILL left dead rows as running').toBeGreaterThan(0);
 
     // ── PHASE 3 — RELAUNCH with the SAME userData ────────────────────────────
-    app = await launchApp(userDataDir);
+    app = await launchApp(profile);
     const win2 = await app.firstWindow({ timeout: 30_000 });
     await win2.waitForLoadState('domcontentloaded').catch(() => undefined);
     const ready2 = await waitForSigmaBridge(win2);
@@ -385,8 +390,7 @@ test('force-quit → relaunch recovers workspaces, panes, and bounded worktrees'
       'app.lastSession is written on a CLEAN quit (the value SIGKILL skipped)',
     ).not.toBeNull();
   } finally {
-    if (app) await app.close().catch(() => undefined);
-    fs.rmSync(userDataDir, { recursive: true, force: true });
+    await profile.close(app);
     fs.rmSync(repoDir, { recursive: true, force: true });
   }
 });

@@ -62,6 +62,31 @@ describe('TerminalEngine — buffer + logical lines', () => {
     expect(fromMid[0]!.text).toBe('abcdefghijklmnopqrstuvwxy');
   });
 
+  it('extracts a bounded logical tail without reading older scrollback', async () => {
+    const { engine } = makeEngine({ cols: 6, rows: 3 });
+    track(engine);
+    await flushWrite(
+      engine,
+      Array.from({ length: 20 }, (_, index) => `line-${index.toString().padStart(2, '0')}`).join('\r\n'),
+    );
+    const expected = engine.logicalLines().slice(-2);
+    const oldestTailRow = expected[0]!.startRow;
+    expect(oldestTailRow).toBeGreaterThan(0);
+
+    const buffer = engine.term.buffer.active;
+    const getLine = buffer.getLine.bind(buffer);
+    const olderReads: number[] = [];
+    vi.spyOn(buffer, 'getLine').mockImplementation((row) => {
+      if (row < oldestTailRow) olderReads.push(row);
+      return getLine(row);
+    });
+
+    const tailLogicalLines = Reflect.get(engine, 'tailLogicalLines');
+    expect(tailLogicalLines).toBeTypeOf('function');
+    expect(Reflect.apply(tailLogicalLines, engine, [2])).toEqual(expected);
+    expect(olderReads).toEqual([]);
+  });
+
   it('SGR styling does not corrupt extracted text', async () => {
     const { engine } = makeEngine({ cols: 40, rows: 5 });
     track(engine);

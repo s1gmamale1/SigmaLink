@@ -10,20 +10,18 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // Mock node-pty entirely so we never touch a real PTY. The registry only
 // cares about the `PtyHandle` interface returned by spawnLocalPty.
 //
-// H-6: the registry now imports `resolveEffectiveSpawnMode` from local-pty to
-// decide whether to arm the sentinel watcher. Provide the REAL implementation
-// in the mock (it is pure, platform-aware logic) so the win32 consistency test
-// below exercises the genuine coercion rather than a stub.
+// H-6: keep this pure mock aligned with local-pty's shared mode resolver so the
+// registry tests exercise the same shell-wrap/sentinel-watch decision.
 vi.mock('./local-pty', () => {
   return {
     spawnLocalPty: vi.fn(),
-    resolveEffectiveSpawnMode: (
+    resolveEffectiveSpawnMode: vi.fn((
       spawnMode: 'direct' | 'shell-first' | undefined,
       command: string,
     ): 'direct' | 'shell-first' =>
-      spawnMode === 'shell-first' && command !== '' && process.platform !== 'win32'
+      spawnMode === 'shell-first' && command !== ''
         ? 'shell-first'
-        : 'direct',
+        : 'direct'),
   };
 });
 
@@ -35,7 +33,7 @@ const processTreeMock = vi.hoisted(() => ({
 
 vi.mock('../process/process-tree', () => processTreeMock);
 
-import { spawnLocalPty } from './local-pty';
+import { resolveEffectiveSpawnMode, spawnLocalPty } from './local-pty';
 import { PtyRegistry } from './registry';
 import type { PtyHandle } from './local-pty';
 import { SENTINEL_PREFIX, SENTINEL_SUFFIX } from './sentinel';
@@ -1104,12 +1102,9 @@ describe('PtyRegistry — Phase 2 direct-mode regression guard', () => {
 // H-6 (Wave-2 hardening) — win32 shell-first sentinel consistency in the registry
 //
 // The registry decides whether to arm the sentinel watcher via the shared
-// `resolveEffectiveSpawnMode` helper (mocked above with the real impl). On win32
-// a shell-first request must be coerced to direct so the watcher is NOT armed —
-// matching spawnLocalPty, which also coerces win32 to direct (no shell wrap, no
-// sentinel emitted). Previously the inline duplicate in the registry kept the
-// win32 check while spawnLocalPty's inline duplicate had dropped it, so a win32
-// pane was wrapped-and-sentinelled but watched as direct (or vice-versa).
+// `resolveEffectiveSpawnMode` helper (mirrored by the pure mock above). Windows
+// follows the same shell-first contract as macOS: the watcher strips the marker
+// and reports CLI exit without treating it as a PTY/pane exit.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1285,14 +1280,53 @@ describe('PtyRegistry — H-6 win32 shell-first consistency', () => {
     Object.defineProperty(process, 'platform', { value: originalPlatform });
   });
 
-  it('simulated win32: a shell-first request records spawnMode=direct and arms NO sentinel watcher', () => {
+  it('simulated win32: cmd-only environments record direct mode and arm no sentinel watcher', () => {
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    const env = {
+      PATH: 'C:\\cmd-only',
+      PATHEXT: '.EXE',
+    };
+    vi.mocked(resolveEffectiveSpawnMode).mockReturnValueOnce('direct');
+    const { pty, fireData } = makeSentinelTestPty();
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+
+    const forwarded: string[] = [];
+    const cliExits: Array<{ sessionId: string; exitCode: number }> = [];
+    const registry = new PtyRegistry(
+      (_sessionId, data) => forwarded.push(data),
+      () => undefined,
+      { onCliExited: (info) => cliExits.push(info) },
+    );
+    const sess = registry.create({
+      providerId: 'claude',
+      command: 'claude',
+      args: [],
+      cwd: '/tmp',
+      env,
+      cols: 80,
+      rows: 24,
+      spawnMode: 'shell-first',
+    });
+
+    expect(resolveEffectiveSpawnMode).toHaveBeenCalledWith('shell-first', 'claude', env);
+    expect(sess.spawnMode).toBe('direct');
+
+    const sentinel = `\r\n${SENTINEL_PREFIX}130${SENTINEL_SUFFIX}\r\n`;
+    fireData(sentinel);
+
+    expect(cliExits).toHaveLength(0);
+    expect(forwarded).toEqual([sentinel]);
+  });
+
+  it('simulated win32: PowerShell CLI exit returns to the live shell-first pane', () => {
     Object.defineProperty(process, 'platform', { value: 'win32' });
     const { pty, fireData } = makeSentinelTestPty();
     vi.mocked(spawnLocalPty).mockReturnValue(pty);
 
-    const cliExits: unknown[] = [];
+    const forwarded: string[] = [];
+    const cliExits: Array<{ sessionId: string; exitCode: number }> = [];
     const registry = new PtyRegistry(
-      () => undefined,
+      (_sessionId, data) => forwarded.push(data),
       () => undefined,
       { onCliExited: (info) => cliExits.push(info) },
     );
@@ -1303,17 +1337,19 @@ describe('PtyRegistry — H-6 win32 shell-first consistency', () => {
       cwd: '/tmp',
       cols: 80,
       rows: 24,
-      spawnMode: 'shell-first', // requested, but win32 coerces to direct
+      spawnMode: 'shell-first',
     });
 
-    // The record reflects the coerced mode.
-    expect(sess.spawnMode).toBe('direct');
+    expect(sess.spawnMode).toBe('shell-first');
+    fireData(`CLI stopped\r\n${SENTINEL_PREFIX}130${SENTINEL_SUFFIX}\r\nPS> `);
 
-    // Even if a sentinel-shaped chunk arrives, the watcher must NOT be armed in
-    // direct mode → onCliExited never fires. This is the invariant that broke
-    // when the wrap-side and watch-side disagreed on win32.
-    fireData(`\n${SENTINEL_PREFIX}0${SENTINEL_SUFFIX}\n`);
-    expect(cliExits).toHaveLength(0);
+    expect(cliExits).toHaveLength(1);
+    expect(cliExits[0]?.sessionId).toBe(sess.id);
+    expect(cliExits[0]?.exitCode).toBe(130);
+    expect(forwarded.join('')).not.toContain(SENTINEL_PREFIX);
+    expect(forwarded.join('')).toContain('PS> ');
+    expect(registry.get(sess.id)?.alive).toBe(true);
+    expect(pty.killCalls).toBe(0);
   });
 
   it('non-win32 (darwin): a shell-first request records spawnMode=shell-first and arms the watcher', () => {
