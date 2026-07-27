@@ -68,6 +68,7 @@ __pycache__/
 *.pyc
 
 # Worktrees + temp data created at runtime
+.worktrees/
 worktrees/
 
 # Test output
