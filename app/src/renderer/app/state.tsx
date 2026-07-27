@@ -41,6 +41,7 @@ export { useAppDispatch, useAppState, useAppStateSelector } from './state.hook';
 
 export function AppStateProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(appStateReducer, initialAppState);
+  const rendererTestMode = window.sigma.testMode === true;
 
   useLayoutEffect(() => {
     appStateStore.setState(state);
@@ -131,17 +132,19 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   // registrations and exposes an observable lifecycle marker; cleanup clears
   // it so a renderer reload cannot inherit stale readiness from the old tree.
   useEffect(() => {
+    if (!rendererTestMode) return undefined;
     const root = document.documentElement;
     root.dataset.sigmaTestStateHooksReady = 'true';
     return () => {
       delete root.dataset.sigmaTestStateHooksReady;
     };
-  }, []);
+  }, [rendererTestMode]);
 
   // Observable acknowledgement for test-event state transitions. E2E callers
   // can wait for the exact committed workspace/room instead of inferring it
   // from a view that may render different empty and populated layouts.
   useEffect(() => {
+    if (!rendererTestMode) return undefined;
     const root = document.documentElement;
     root.dataset.sigmaTestActiveWorkspaceId = state.activeWorkspaceId ?? '';
     root.dataset.sigmaTestRoom = state.room;
@@ -149,7 +152,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       delete root.dataset.sigmaTestActiveWorkspaceId;
       delete root.dataset.sigmaTestRoom;
     };
-  }, [state.activeWorkspaceId, state.room]);
+  }, [rendererTestMode, state.activeWorkspaceId, state.room]);
 
   useSessionRestore(state, dispatch);
   // Multi-window B4 — scoped (secondary) windows don't receive

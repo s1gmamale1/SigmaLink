@@ -83,12 +83,16 @@ async function waitForRendererTestHooks(win: Page): Promise<void> {
   await expect
     .poll(
       () =>
-        win.evaluate(
-          () => document.documentElement.dataset.sigmaTestStateHooksReady,
-        ),
+        win.evaluate(() => {
+          const candidate = window as unknown as { sigma?: { testMode?: unknown } };
+          return {
+            testMode: candidate.sigma?.testMode,
+            ready: document.documentElement.dataset.sigmaTestStateHooksReady,
+          };
+        }),
       { timeout: 15_000 },
     )
-    .toBe('true');
+    .toEqual({ testMode: true, ready: 'true' });
 }
 
 async function activateCommandRoom(win: Page, workspace: WorkspaceRow): Promise<void> {

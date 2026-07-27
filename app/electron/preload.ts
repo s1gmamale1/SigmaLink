@@ -31,6 +31,10 @@ const windowContext = {
 };
 
 const api = {
+  // Explicit, launch-scoped capability for renderer E2E acknowledgements.
+  // Exact comparison prevents arbitrary non-empty production values from
+  // enabling test-only DOM state markers.
+  testMode: process.env.SIGMA_TEST === '1',
   invoke: (channel: string, ...args: unknown[]): Promise<unknown> => {
     if (typeof channel !== 'string' || !isAllowedChannel(channel)) {
       return Promise.reject(new Error(`IPC channel not allowed: ${String(channel)}`));
