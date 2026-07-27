@@ -214,14 +214,16 @@ export function usePaneOrder({
     const isActiveWorkspace = latestWorkspaceIdRef.current === targetWorkspaceId;
     const loadedOrderMatchesTarget =
       loadedOrderRef.current.workspaceId === targetWorkspaceId;
-    const currentLoadedOrder = loadedOrderMatchesTarget
+    const canUseLiveLoadedOrder = isActiveWorkspace && loadedOrderMatchesTarget;
+    const currentLoadedOrder = canUseLiveLoadedOrder
       ? loadedOrderRef.current
-      : ordersByWorkspaceRef.current.get(targetWorkspaceId);
+      : ordersByWorkspaceRef.current.get(targetWorkspaceId)
+        ?? (loadedOrderMatchesTarget ? loadedOrderRef.current : undefined);
     if (!currentLoadedOrder || currentLoadedOrder.workspaceId !== targetWorkspaceId) {
       return false;
     }
 
-    const currentOrder = isActiveWorkspace && loadedOrderMatchesTarget
+    const currentOrder = canUseLiveLoadedOrder
       ? latestOrderedSessionIdsRef.current
       : currentLoadedOrder.preferredIds;
     const nextOrder = replacePaneOrderId(currentOrder, oldId, newId);
