@@ -97,23 +97,49 @@ function PaneGridDndFrame({
   const [storedActiveReorderId, setActiveReorderId] = useState<string | null>(
     null,
   );
+  const mountedRef = useRef(false);
+  const dragEpochRef = useRef(0);
+  const activeDragRef = useRef<{
+    epoch: number;
+    sourceSessionId: string;
+  } | null>(null);
   const activeReorderId =
     reorderEnabled &&
     storedActiveReorderId &&
     sessionIds.includes(storedActiveReorderId)
       ? storedActiveReorderId
       : null;
-  useEffect(() => {
+
+  useLayoutEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      dragEpochRef.current += 1;
+      activeDragRef.current = null;
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    const activeDrag = activeDragRef.current;
+    if (!activeDrag) return;
     if (
-      reorderEnabled &&
-      (!storedActiveReorderId ||
-        sessionIds.includes(storedActiveReorderId))
+      !reorderEnabled ||
+      !sessionIds.includes(activeDrag.sourceSessionId)
     ) {
-      return;
+      const invalidatedEpoch = dragEpochRef.current + 1;
+      dragEpochRef.current = invalidatedEpoch;
+      activeDragRef.current = null;
+      queueMicrotask(() => {
+        if (
+          mountedRef.current &&
+          dragEpochRef.current === invalidatedEpoch &&
+          activeDragRef.current === null
+        ) {
+          setActiveReorderId(null);
+        }
+      });
     }
-    const timer = window.setTimeout(() => setActiveReorderId(null), 0);
-    return () => window.clearTimeout(timer);
-  }, [reorderEnabled, sessionIds, storedActiveReorderId]);
+  }, [reorderEnabled, sessionIds]);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, {
@@ -132,18 +158,34 @@ function PaneGridDndFrame({
       setActiveReorderId(null);
       return;
     }
+    const epoch = dragEpochRef.current + 1;
+    dragEpochRef.current = epoch;
+    activeDragRef.current = { epoch, sourceSessionId };
     setActiveReorderId(sourceSessionId);
   };
 
   const handleReorderEnd = ({ active, over }: DragEndEvent) => {
+    const activeDrag = activeDragRef.current;
+    activeDragRef.current = null;
     setActiveReorderId(null);
-    if (!reorderEnabled) return;
+    if (
+      !mountedRef.current ||
+      !activeDrag ||
+      activeDrag.epoch !== dragEpochRef.current ||
+      !reorderEnabled
+    ) {
+      return;
+    }
+    // Consume this exact generation before parsing or notifying the parent so
+    // duplicate/retained end callbacks from the same sensor are inert.
+    dragEpochRef.current += 1;
 
     const sourceSessionId = sessionIdFromPaneDragId(active.id);
     const targetSessionId = sessionIdFromPaneDropId(over?.id);
     if (
       !sourceSessionId ||
       !targetSessionId ||
+      activeDrag.sourceSessionId !== sourceSessionId ||
       sourceSessionId === targetSessionId ||
       !sessionIds.includes(sourceSessionId) ||
       !sessionIds.includes(targetSessionId)
@@ -197,7 +239,11 @@ function PaneGridDndFrame({
       accessibility={{ announcements }}
       onDragStart={handleReorderStart}
       onDragEnd={handleReorderEnd}
-      onDragCancel={() => setActiveReorderId(null)}
+      onDragCancel={() => {
+        dragEpochRef.current += 1;
+        activeDragRef.current = null;
+        setActiveReorderId(null);
+      }}
     >
       {children(activeReorderId)}
       <DragOverlay
