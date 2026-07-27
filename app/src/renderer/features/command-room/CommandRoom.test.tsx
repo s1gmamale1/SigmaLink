@@ -669,6 +669,117 @@ describe('CommandRoom — pane-order lifecycle integration', () => {
     ]);
     expect(silentKvSetMock).toHaveBeenCalledTimes(1);
   });
+
+  it('finishes a deferred relaunch in its starting workspace after switching away', async () => {
+    const workspaceA = makeWorkspace('ws-a');
+    const workspaceB = makeWorkspace('ws-b');
+    const a1 = makeSession({ id: 'a1', workspaceId: 'ws-a', name: 'A One' });
+    const crashed = makeSession({
+      id: 'crashed',
+      workspaceId: 'ws-a',
+      name: 'A Crashed',
+      status: 'error',
+      exitCode: 1,
+      providerId: 'codex',
+    });
+    const a3 = makeSession({ id: 'a3', workspaceId: 'ws-a', name: 'A Three' });
+    const b1 = makeSession({ id: 'b1', workspaceId: 'ws-b', name: 'B One' });
+    const b2 = makeSession({ id: 'b2', workspaceId: 'ws-b', name: 'B Two' });
+    const canonicalB = [b1, b2];
+    mockState.activeWorkspace = workspaceA;
+    mockState.activeWorkspaceId = workspaceA.id;
+    mockState.activeSessionId = crashed.id;
+    mockState.activeSwarmId = 'swarm-1';
+    mockState.sessionsByWorkspace = {
+      'ws-a': [a1, crashed, a3],
+      'ws-b': canonicalB,
+    };
+    mockState.swarmsByWorkspace = {
+      'ws-a': [makeSwarm('running')],
+      'ws-b': [],
+    };
+    const orderRecords = new Map<string, string>([
+      [paneOrderKey('ws-a'), '{"version":1,"sessionIds":["a3","crashed","a1"]}'],
+      [paneOrderKey('ws-b'), '{"version":1,"sessionIds":["b2","b1"]}'],
+    ]);
+    silentKvGetMock.mockImplementation((key) => Promise.resolve(orderRecords.get(key) ?? null));
+    silentKvSetMock.mockImplementation(async (key, value) => {
+      orderRecords.set(key, value);
+    });
+    const addAgentResult = deferred<{
+      sessionId: string;
+      paneIndex: number;
+      agentKey: string;
+      session: AgentSession;
+      swarm: Swarm;
+    }>();
+    addAgentMock.mockReturnValue(addAgentResult.promise);
+    const replacement = makeSession({
+      id: 'replacement',
+      workspaceId: 'ws-a',
+      name: 'A Replacement',
+      providerId: 'codex',
+    });
+    const view = await renderCommandRoom();
+    await waitFor(() => {
+      expect(paneCellIds()).toEqual(['a3', 'crashed', 'a1']);
+    });
+
+    fireEvent.click(screen.getByTestId('pane-relaunch-button'));
+    await waitFor(() => {
+      expect(addAgentMock).toHaveBeenCalledTimes(1);
+    });
+
+    mockState.activeWorkspace = workspaceB;
+    mockState.activeWorkspaceId = workspaceB.id;
+    mockState.activeSessionId = b1.id;
+    mockState.activeSwarmId = null;
+    view.rerenderCommandRoom();
+    await waitFor(() => {
+      expect(paneCellIds()).toEqual(['b2', 'b1']);
+    });
+    silentKvSetMock.mockClear();
+
+    addAgentResult.resolve({
+      sessionId: replacement.id,
+      paneIndex: 1,
+      agentKey: 'codex-2',
+      session: replacement,
+      swarm: makeSwarm('running'),
+    });
+    await waitFor(() => {
+      expect(dispatchMock).toHaveBeenCalledWith({ type: 'REMOVE_SESSION', id: crashed.id });
+    });
+
+    expect(paneCellIds()).toEqual(['b2', 'b1']);
+    expect(mockState.sessionsByWorkspace['ws-b']).toBe(canonicalB);
+    expect(silentKvSetMock).not.toHaveBeenCalledWith(
+      paneOrderKey('ws-b'),
+      expect.any(String),
+    );
+    expect(silentKvSetMock.mock.calls.filter(([key]) => key === paneOrderKey('ws-a'))).toEqual([
+      [paneOrderKey('ws-a'), '{"version":1,"sessionIds":["a3","replacement","a1"]}'],
+    ]);
+
+    const canonicalA = [a1, replacement, a3];
+    mockState.sessionsByWorkspace = {
+      'ws-a': canonicalA,
+      'ws-b': canonicalB,
+    };
+    mockState.activeWorkspace = workspaceA;
+    mockState.activeWorkspaceId = workspaceA.id;
+    mockState.activeSessionId = replacement.id;
+    mockState.activeSwarmId = 'swarm-1';
+    view.rerenderCommandRoom();
+    await waitFor(() => {
+      expect(paneCellIds()).toEqual(['a3', 'replacement', 'a1']);
+    });
+    expect(mockState.sessionsByWorkspace['ws-a']).toBe(canonicalA);
+    expect(mockState.sessionsByWorkspace['ws-b']).toBe(canonicalB);
+    expect(silentKvSetMock.mock.calls.filter(([key]) => (
+      key.includes('commandRoom.paneOrder')
+    ))).toHaveLength(1);
+  });
 });
 
 describe('CommandRoom — v1.4.3 #05 EmptyState defensive UX', () => {

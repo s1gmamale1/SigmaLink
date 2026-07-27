@@ -315,7 +315,7 @@ export function CommandRoom() {
       });
       dispatch({ type: 'UPSERT_SWARM', swarm: result.swarm });
       dispatch({ type: 'ADD_SESSIONS', sessions: [result.session] });
-      replaceSessionId(session.id, result.sessionId);
+      replaceSessionId(session.workspaceId, session.id, result.sessionId);
       dispatch({ type: 'SET_ACTIVE_SESSION', id: result.sessionId });
       // session-persistence fix (2026-07-18) — close the crashed ROW in the DB,
       // not just the renderer (REMOVE_SESSION is UI-only). Without this the row

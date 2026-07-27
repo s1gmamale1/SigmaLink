@@ -20,7 +20,7 @@ export interface UsePaneOrderResult {
   orderedSessionIds: string[];
   reorderReady: boolean;
   swapPanes: (sourceId: string, targetId: string) => boolean;
-  replaceSessionId: (oldId: string, newId: string) => boolean;
+  replaceSessionId: (workspaceId: string, oldId: string, newId: string) => boolean;
 }
 
 interface PendingReplacement {
@@ -54,7 +54,11 @@ export function usePaneOrder({
     pendingReplacements: [],
   }));
   const loadedOrderRef = useRef(loadedOrder);
-  const pendingOrdersByWorkspaceRef = useRef(new Map<string, LoadedPaneOrder>());
+  const ordersByWorkspaceRef = useRef(new Map<string, LoadedPaneOrder>(
+    loadedOrder.workspaceId === null
+      ? []
+      : [[loadedOrder.workspaceId, loadedOrder]],
+  ));
 
   const orderForWorkspace = loadedOrder.workspaceId === workspaceId
     ? loadedOrder
@@ -77,10 +81,22 @@ export function usePaneOrder({
     latestWorkspaceIdRef.current = workspaceId;
     latestOrderedSessionIdsRef.current = orderedSessionIds;
     latestReorderReadyRef.current = reorderReady;
+    if (
+      workspaceId !== null
+      && loadedOrderRef.current.workspaceId === workspaceId
+    ) {
+      ordersByWorkspaceRef.current.set(workspaceId, {
+        ...loadedOrderRef.current,
+        preferredIds: orderedSessionIds,
+      });
+    }
   }, [orderedSessionIds, reorderReady, workspaceId]);
 
   const commitLoadedOrder = useCallback((nextOrder: LoadedPaneOrder): void => {
     loadedOrderRef.current = nextOrder;
+    if (nextOrder.workspaceId !== null) {
+      ordersByWorkspaceRef.current.set(nextOrder.workspaceId, nextOrder);
+    }
     setLoadedOrder(nextOrder);
   }, []);
 
@@ -100,8 +116,8 @@ export function usePaneOrder({
     let cancelled = false;
 
     if (loadedOrderRef.current.workspaceId !== requestedWorkspaceId) {
-      const pendingOrder = pendingOrdersByWorkspaceRef.current.get(requestedWorkspaceId);
-      commitLoadedOrder(pendingOrder ?? {
+      const workspaceOrder = ordersByWorkspaceRef.current.get(requestedWorkspaceId);
+      commitLoadedOrder(workspaceOrder ?? {
         workspaceId: requestedWorkspaceId,
         preferredIds: [...latestOrderedSessionIdsRef.current],
         ready: false,
@@ -128,7 +144,7 @@ export function usePaneOrder({
         return;
       }
 
-      const pendingReplacements = pendingOrdersByWorkspaceRef.current
+      const pendingReplacements = ordersByWorkspaceRef.current
         .get(requestedWorkspaceId)?.pendingReplacements
         ?? loadedOrderRef.current.pendingReplacements;
       let preferredIds = parsePaneOrder(rawOrder);
@@ -143,7 +159,6 @@ export function usePaneOrder({
         preferredIds = nextIds;
       }
 
-      pendingOrdersByWorkspaceRef.current.delete(requestedWorkspaceId);
       commitLoadedOrder({
         workspaceId: requestedWorkspaceId,
         preferredIds,
@@ -183,40 +198,49 @@ export function usePaneOrder({
     return true;
   }, [commitLoadedOrder]);
 
-  const replaceSessionId = useCallback((oldId: string, newId: string): boolean => {
-    const currentWorkspaceId = latestWorkspaceIdRef.current;
-    if (currentWorkspaceId === null) {
+  const replaceSessionId = useCallback((
+    targetWorkspaceId: string,
+    oldId: string,
+    newId: string,
+  ): boolean => {
+    const isActiveWorkspace = latestWorkspaceIdRef.current === targetWorkspaceId;
+    const currentLoadedOrder = isActiveWorkspace
+      ? loadedOrderRef.current
+      : ordersByWorkspaceRef.current.get(targetWorkspaceId);
+    if (!currentLoadedOrder || currentLoadedOrder.workspaceId !== targetWorkspaceId) {
       return false;
     }
 
-    const currentOrder = latestOrderedSessionIdsRef.current;
+    const currentOrder = isActiveWorkspace
+      ? latestOrderedSessionIdsRef.current
+      : currentLoadedOrder.preferredIds;
     const nextOrder = replacePaneOrderId(currentOrder, oldId, newId);
     if (nextOrder === currentOrder) {
       return false;
     }
 
-    const currentLoadedOrder = loadedOrderRef.current;
-    const ready = latestReorderReadyRef.current;
+    const ready = isActiveWorkspace
+      ? latestReorderReadyRef.current
+      : currentLoadedOrder.ready;
     const nextLoadedOrder: LoadedPaneOrder = {
-      workspaceId: currentWorkspaceId,
+      workspaceId: targetWorkspaceId,
       preferredIds: nextOrder,
       ready,
       pendingReplacements: ready
         ? []
         : [
-            ...(currentLoadedOrder.workspaceId === currentWorkspaceId
-              ? currentLoadedOrder.pendingReplacements
-              : []),
+            ...currentLoadedOrder.pendingReplacements,
             { oldId, newId },
           ],
     };
-    if (!ready) {
-      pendingOrdersByWorkspaceRef.current.set(currentWorkspaceId, nextLoadedOrder);
+    if (isActiveWorkspace) {
+      commitLoadedOrder(nextLoadedOrder);
+    } else {
+      ordersByWorkspaceRef.current.set(targetWorkspaceId, nextLoadedOrder);
     }
-    commitLoadedOrder(nextLoadedOrder);
 
     if (ready) {
-      persistPaneOrder(currentWorkspaceId, nextOrder);
+      persistPaneOrder(targetWorkspaceId, nextOrder);
     }
     return true;
   }, [commitLoadedOrder]);
