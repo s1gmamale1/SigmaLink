@@ -448,6 +448,9 @@ export function CommandRoom() {
             dispatch({ type: 'CLEAR_SESSION_ATTENTION', sessionId: id });
             if (activeSessionId !== id) dispatch({ type: 'SET_ACTIVE_SESSION', id });
           }}
+          reorderEnabled={false}
+          onSwapPanes={() => false}
+          getPaneLabel={(id) => id}
           renderLeaf={(sessionId) => {
             const session = sessions.find((s) => s.id === sessionId);
             if (!session) return null;
@@ -463,6 +466,8 @@ export function CommandRoom() {
                 <PaneShell
                   session={session}
                   paneIndex={paneIndex}
+                  paneCount={sessions.length}
+                  canReorder={false}
                   providers={providers}
                   workspaceRootPath={activeWorkspace.rootPath}
                   onFocus={() => {
