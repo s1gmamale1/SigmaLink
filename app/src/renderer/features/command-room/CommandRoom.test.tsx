@@ -55,6 +55,8 @@ const ptyKillMock = vi.fn();
 const ptyWriteMock = vi.fn();
 // session-persistence fix (2026-07-18) — relaunch must close the crashed ROW.
 const panesCloseMock = vi.fn();
+const silentKvGetMock = vi.fn<(key: string) => Promise<string | null>>();
+const silentKvSetMock = vi.fn<(key: string, value: string) => Promise<void>>();
 
 vi.mock('@/renderer/lib/rpc', () => ({
   rpc: {
@@ -97,7 +99,10 @@ vi.mock('@/renderer/lib/rpc', () => ({
   rpcSilent: {
     providers: { list: vi.fn(() => Promise.resolve([])) },
     // PaneHeader drag-grip coachmark (FEAT-12) + git-activity strip (FEAT-8) read via rpcSilent.
-    kv: { get: vi.fn(() => Promise.resolve(null)), set: vi.fn(() => Promise.resolve()) },
+    kv: {
+      get: (key: string) => silentKvGetMock(key),
+      set: (key: string, value: string) => silentKvSetMock(key, value),
+    },
     git: { activityLog: vi.fn(() => Promise.resolve([])) },
     ruflo: { daemonStatus: vi.fn(() => Promise.resolve([]) ) },
   },
@@ -159,6 +164,10 @@ beforeEach(() => {
   ptyWriteMock.mockReset();
   panesCloseMock.mockReset();
   panesCloseMock.mockResolvedValue(undefined);
+  silentKvGetMock.mockReset();
+  silentKvGetMock.mockResolvedValue(null);
+  silentKvSetMock.mockReset();
+  silentKvSetMock.mockResolvedValue(undefined);
   listProvidersMock.mockResolvedValue([
     { id: 'claude', name: 'Claude' },
     { id: 'codex', name: 'Codex' },
@@ -168,13 +177,14 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
 });
 
-function makeWorkspace(): Workspace {
+function makeWorkspace(id = 'ws-1'): Workspace {
   return {
-    id: 'ws-1',
-    name: 'Workspace 1',
-    rootPath: '/tmp/ws-1',
+    id,
+    name: id === 'ws-1' ? 'Workspace 1' : `Workspace ${id}`,
+    rootPath: `/tmp/${id}`,
     repoRoot: null,
     repoMode: 'plain',
     createdAt: 0,
@@ -214,8 +224,452 @@ function makeSession(overrides: Partial<AgentSession> = {}): AgentSession {
 // captures the per-test setup.
 async function renderCommandRoom() {
   const { CommandRoom } = await import('./CommandRoom');
-  return render(<CommandRoom />);
+  const view = render(<CommandRoom />);
+  return {
+    ...view,
+    rerenderCommandRoom: () => view.rerender(<CommandRoom />),
+  };
 }
+
+function paneCellIds(): Array<string | null> {
+  return screen.getAllByTestId('pane-cell').map((cell) => cell.getAttribute('data-session-id'));
+}
+
+function paneOrderKey(workspaceId = 'ws-1'): string {
+  return `ui.${workspaceId}.commandRoom.paneOrder`;
+}
+
+interface Deferred<T> {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+}
+
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
+function rect(left: number, top = 0, width = 100, height = 100): DOMRect {
+  return {
+    x: left,
+    y: top,
+    left,
+    right: left + width,
+    top,
+    bottom: top + height,
+    width,
+    height,
+    toJSON: () => ({}),
+  } as DOMRect;
+}
+
+function mockPaneRects(sessionIds: string[]): void {
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
+    function getBoundingClientRect(this: HTMLElement) {
+      const index = sessionIds.indexOf(this.getAttribute('data-session-id') ?? '');
+      return index >= 0 ? rect(index * 100) : rect(0, 0, sessionIds.length * 100, 100);
+    },
+  );
+}
+
+async function keyboardSwap(
+  paneName: string,
+  position: number,
+  count: number,
+  direction: 'ArrowLeft' | 'ArrowRight',
+): Promise<void> {
+  const handle = screen.getByRole('button', {
+    name: `Reorder ${paneName}, position ${position} of ${count}`,
+  });
+  fireEvent.keyDown(handle, { key: ' ', code: 'Space' });
+  await screen.findByTestId('pane-reorder-overlay');
+  fireEvent.keyDown(document, { key: direction, code: direction });
+  fireEvent.keyDown(document, { key: ' ', code: 'Space' });
+  await waitFor(() => {
+    expect(screen.queryByTestId('pane-reorder-overlay')).toBeNull();
+  });
+}
+
+describe('CommandRoom — persisted visual pane order', () => {
+  it('projects cells and header ordinals from saved order without mutating canonical sessions', async () => {
+    const canonicalSessions = [
+      makeSession({ id: 's1', name: 'One' }),
+      makeSession({ id: 's2', name: 'Two' }),
+      makeSession({ id: 's3', name: 'Three' }),
+    ];
+    mockState.sessionsByWorkspace = { 'ws-1': canonicalSessions };
+    silentKvGetMock.mockImplementation((key) => Promise.resolve(
+      key === paneOrderKey()
+        ? '{"version":1,"sessionIds":["s3","s1","s2"]}'
+        : null,
+    ));
+
+    await renderCommandRoom();
+
+    await waitFor(() => {
+      expect(paneCellIds()).toEqual(['s3', 's1', 's2']);
+    });
+    expect(screen.getByRole('button', {
+      name: 'Reorder Three, position 1 of 3',
+    })).toBeTruthy();
+    expect(screen.getByRole('button', {
+      name: 'Reorder One, position 2 of 3',
+    })).toBeTruthy();
+    expect(screen.getByRole('button', {
+      name: 'Reorder Two, position 3 of 3',
+    })).toBeTruthy();
+    expect(mockState.sessionsByWorkspace['ws-1']).toBe(canonicalSessions);
+    expect(mockState.sessionsByWorkspace['ws-1']?.map((session) => session.id)).toEqual([
+      's1',
+      's2',
+      's3',
+    ]);
+  });
+
+  it('keeps reordering disabled until pane-order hydration finishes', async () => {
+    const orderRead = deferred<string | null>();
+    mockState.sessionsByWorkspace = {
+      'ws-1': [
+        makeSession({ id: 's1', name: 'One' }),
+        makeSession({ id: 's2', name: 'Two' }),
+      ],
+    };
+    silentKvGetMock.mockImplementation((key) => (
+      key === paneOrderKey() ? orderRead.promise : Promise.resolve(null)
+    ));
+
+    await renderCommandRoom();
+
+    const firstHandle = screen.getByRole('button', {
+      name: 'Reorder One, position 1 of 2',
+    });
+    expect((firstHandle as HTMLButtonElement).disabled).toBe(true);
+
+    orderRead.resolve('{"version":1,"sessionIds":["s1","s2"]}');
+    await waitFor(() => {
+      expect((firstHandle as HTMLButtonElement).disabled).toBe(false);
+    });
+  });
+
+  it.each([
+    ['one pane', [makeSession({ id: 's1', name: 'One' })], null],
+    [
+      'a fullscreen pane',
+      [
+        makeSession({ id: 's1', name: 'One' }),
+        makeSession({ id: 's2', name: 'Two' }),
+      ],
+      's1',
+    ],
+  ])('keeps reordering disabled with %s after hydration', async (_name, sessions, focusedPaneId) => {
+    mockState.sessionsByWorkspace = { 'ws-1': sessions };
+    mockState.focusedPaneId = focusedPaneId;
+
+    await renderCommandRoom();
+
+    await waitFor(() => {
+      expect(silentKvGetMock).toHaveBeenCalledWith(paneOrderKey());
+    });
+    for (const handle of document.querySelectorAll<HTMLButtonElement>('[data-pane-reorder-handle]')) {
+      expect(handle.disabled).toBe(true);
+    }
+  });
+
+  it('keeps minimised panes eligible for reorder after hydration', async () => {
+    mockState.sessionsByWorkspace = {
+      'ws-1': [
+        makeSession({ id: 's1', name: 'One', minimised: true }),
+        makeSession({ id: 's2', name: 'Two' }),
+      ],
+    };
+
+    await renderCommandRoom();
+
+    await waitFor(() => {
+      expect((screen.getByRole('button', {
+        name: 'Reorder One, position 1 of 2',
+      }) as HTMLButtonElement).disabled).toBe(false);
+    });
+  });
+});
+
+describe('CommandRoom — pane-order lifecycle integration', () => {
+  it('appends a passively added or split pane without rewriting saved order', async () => {
+    const s1 = makeSession({ id: 's1', name: 'One' });
+    const s2 = makeSession({ id: 's2', name: 'Two' });
+    mockState.sessionsByWorkspace = { 'ws-1': [s1, s2] };
+    silentKvGetMock.mockImplementation((key) => Promise.resolve(
+      key === paneOrderKey()
+        ? '{"version":1,"sessionIds":["s2","s1"]}'
+        : null,
+    ));
+    const view = await renderCommandRoom();
+    await waitFor(() => {
+      expect(paneCellIds()).toEqual(['s2', 's1']);
+    });
+    silentKvSetMock.mockClear();
+
+    const splitParent = {
+      ...s1,
+      splitGroupId: 'split-1',
+      splitDirection: 'vertical' as const,
+      splitIndex: 0,
+    };
+    const splitChild = makeSession({
+      id: 's3',
+      name: 'Three',
+      splitGroupId: 'split-1',
+      splitDirection: 'vertical',
+      splitIndex: 1,
+    });
+    mockState.sessionsByWorkspace = { 'ws-1': [splitParent, s2, splitChild] };
+    view.rerenderCommandRoom();
+
+    expect(paneCellIds()).toEqual(['s2', 's1', 's3']);
+    expect(silentKvSetMock).not.toHaveBeenCalledWith(
+      paneOrderKey(),
+      expect.any(String),
+    );
+  });
+
+  it('drops a closed pane without resurrection, order writes, or session mutation', async () => {
+    const s1 = makeSession({ id: 's1', name: 'One' });
+    const s2 = makeSession({ id: 's2', name: 'Two' });
+    mockState.sessionsByWorkspace = { 'ws-1': [s1, s2] };
+    silentKvGetMock.mockImplementation((key) => Promise.resolve(
+      key === paneOrderKey()
+        ? '{"version":1,"sessionIds":["s2","s1"]}'
+        : null,
+    ));
+    const view = await renderCommandRoom();
+    await waitFor(() => {
+      expect(paneCellIds()).toEqual(['s2', 's1']);
+    });
+    dispatchMock.mockClear();
+    silentKvSetMock.mockClear();
+
+    const s1Cell = screen.getAllByTestId('pane-cell').find(
+      (cell) => cell.getAttribute('data-session-id') === 's1',
+    );
+    fireEvent.click(s1Cell!.querySelector('[aria-label="Close pane"]')!);
+
+    expect(panesCloseMock).toHaveBeenCalledWith('s1');
+    expect(dispatchMock).toHaveBeenCalledTimes(1);
+    expect(dispatchMock).toHaveBeenCalledWith({ type: 'REMOVE_SESSION', id: 's1' });
+    mockState.sessionsByWorkspace = { 'ws-1': [s2] };
+    view.rerenderCommandRoom();
+
+    expect(paneCellIds()).toEqual(['s2']);
+    expect(mockState.sessionsByWorkspace['ws-1']?.[0]).toBe(s2);
+    expect(silentKvSetMock).not.toHaveBeenCalledWith(
+      paneOrderKey(),
+      expect.any(String),
+    );
+  });
+
+  it('reads and writes presentation order only under each active workspace key', async () => {
+    mockPaneRects(['a1', 'a2', 'b1', 'b2']);
+    const workspaceA = makeWorkspace('ws-a');
+    const workspaceB = makeWorkspace('ws-b');
+    mockState.activeWorkspace = workspaceA;
+    mockState.activeWorkspaceId = workspaceA.id;
+    mockState.activeSessionId = 'a1';
+    mockState.sessionsByWorkspace = {
+      'ws-a': [
+        makeSession({ id: 'a1', workspaceId: 'ws-a', name: 'A One' }),
+        makeSession({ id: 'a2', workspaceId: 'ws-a', name: 'A Two' }),
+      ],
+      'ws-b': [
+        makeSession({ id: 'b1', workspaceId: 'ws-b', name: 'B One' }),
+        makeSession({ id: 'b2', workspaceId: 'ws-b', name: 'B Two' }),
+      ],
+    };
+    mockState.swarmsByWorkspace = { 'ws-a': [], 'ws-b': [] };
+    silentKvGetMock.mockImplementation((key) => Promise.resolve(
+      key === paneOrderKey('ws-a')
+        ? '{"version":1,"sessionIds":["a1","a2"]}'
+        : key === paneOrderKey('ws-b')
+          ? '{"version":1,"sessionIds":["b1","b2"]}'
+          : null,
+    ));
+    const view = await renderCommandRoom();
+    await waitFor(() => {
+      expect((screen.getByRole('button', {
+        name: 'Reorder A One, position 1 of 2',
+      }) as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    await keyboardSwap('A One', 1, 2, 'ArrowRight');
+    await waitFor(() => {
+      expect(paneCellIds()).toEqual(['a2', 'a1']);
+    });
+    expect(silentKvSetMock).toHaveBeenCalledWith(
+      paneOrderKey('ws-a'),
+      '{"version":1,"sessionIds":["a2","a1"]}',
+    );
+
+    mockState.activeWorkspace = workspaceB;
+    mockState.activeWorkspaceId = workspaceB.id;
+    mockState.activeSessionId = 'b1';
+    view.rerenderCommandRoom();
+    await waitFor(() => {
+      expect((screen.getByRole('button', {
+        name: 'Reorder B One, position 1 of 2',
+      }) as HTMLButtonElement).disabled).toBe(false);
+    });
+    await keyboardSwap('B One', 1, 2, 'ArrowRight');
+    await waitFor(() => {
+      expect(paneCellIds()).toEqual(['b2', 'b1']);
+    });
+
+    expect(silentKvGetMock).toHaveBeenCalledWith(paneOrderKey('ws-a'));
+    expect(silentKvGetMock).toHaveBeenCalledWith(paneOrderKey('ws-b'));
+    expect(silentKvSetMock).toHaveBeenCalledWith(
+      paneOrderKey('ws-b'),
+      '{"version":1,"sessionIds":["b2","b1"]}',
+    );
+    expect(silentKvSetMock.mock.calls.filter(([key]) => (
+      key.includes('commandRoom.paneOrder')
+    )).map(([key]) => key)).toEqual([
+      paneOrderKey('ws-a'),
+      paneOrderKey('ws-b'),
+    ]);
+  });
+
+  it('keeps an optimistic visual swap when its best-effort order write fails', async () => {
+    mockPaneRects(['s1', 's2']);
+    mockState.activeSessionId = 's1';
+    mockState.sessionsByWorkspace = {
+      'ws-1': [
+        makeSession({ id: 's1', name: 'One' }),
+        makeSession({ id: 's2', name: 'Two' }),
+      ],
+    };
+    silentKvSetMock.mockRejectedValue(new Error('disk full'));
+    await renderCommandRoom();
+    await waitFor(() => {
+      expect((screen.getByRole('button', {
+        name: 'Reorder One, position 1 of 2',
+      }) as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    await keyboardSwap('One', 1, 2, 'ArrowRight');
+
+    await waitFor(() => {
+      expect(paneCellIds()).toEqual(['s2', 's1']);
+    });
+    expect(silentKvSetMock).toHaveBeenCalledWith(
+      paneOrderKey(),
+      '{"version":1,"sessionIds":["s2","s1"]}',
+    );
+  });
+
+  it('preserves active pane identity and attention dispatches across a visual swap', async () => {
+    mockPaneRects(['s1', 's2']);
+    const s1 = makeSession({ id: 's1', name: 'One' });
+    const s2 = makeSession({ id: 's2', name: 'Two' });
+    mockState.activeSessionId = 's1';
+    mockState.sessionsByWorkspace = { 'ws-1': [s1, s2] };
+    await renderCommandRoom();
+    await waitFor(() => {
+      expect((screen.getByRole('button', {
+        name: 'Reorder One, position 1 of 2',
+      }) as HTMLButtonElement).disabled).toBe(false);
+    });
+    const terminalS1 = screen.getByTestId('terminal-s1');
+    dispatchMock.mockClear();
+
+    await keyboardSwap('One', 1, 2, 'ArrowRight');
+
+    const activeCell = screen.getAllByTestId('pane-cell').find(
+      (cell) => cell.getAttribute('data-active') === 'true',
+    );
+    expect(activeCell?.getAttribute('data-session-id')).toBe('s1');
+    expect(screen.getByTestId('terminal-s1')).toBe(terminalS1);
+    expect(mockState.sessionsByWorkspace['ws-1']).toEqual([s1, s2]);
+    expect(dispatchMock).not.toHaveBeenCalled();
+
+    const s2Cell = screen.getAllByTestId('pane-cell').find(
+      (cell) => cell.getAttribute('data-session-id') === 's2',
+    );
+    fireEvent.mouseDown(s2Cell!);
+    expect(dispatchMock.mock.calls.map(([action]) => action)).toEqual([
+      { type: 'CLEAR_SESSION_ATTENTION', sessionId: 's2' },
+      { type: 'SET_ACTIVE_SESSION', id: 's2' },
+    ]);
+  });
+
+  it('replaces a crashed session in its visual slot before activation and removal', async () => {
+    const crashed = makeSession({
+      id: 'crashed',
+      name: 'Crashed',
+      status: 'error',
+      exitCode: 1,
+      providerId: 'codex',
+    });
+    mockState.sessionsByWorkspace = {
+      'ws-1': [
+        makeSession({ id: 's1', name: 'One' }),
+        crashed,
+        makeSession({ id: 's3', name: 'Three' }),
+      ],
+    };
+    mockState.swarmsByWorkspace = { 'ws-1': [makeSwarm('running')] };
+    mockState.activeSwarmId = 'swarm-1';
+    silentKvGetMock.mockImplementation((key) => Promise.resolve(
+      key === paneOrderKey()
+        ? '{"version":1,"sessionIds":["s1","crashed","s3"]}'
+        : null,
+    ));
+    const replacement = makeSession({
+      id: 'replacement',
+      name: 'Replacement',
+      providerId: 'codex',
+    });
+    addAgentMock.mockResolvedValue({
+      sessionId: replacement.id,
+      paneIndex: 1,
+      agentKey: 'codex-2',
+      session: replacement,
+      swarm: makeSwarm('running'),
+    });
+    const sequence: string[] = [];
+    dispatchMock.mockImplementation((action: { type: string }) => {
+      if (['ADD_SESSIONS', 'SET_ACTIVE_SESSION', 'REMOVE_SESSION'].includes(action.type)) {
+        sequence.push(action.type);
+      }
+    });
+    silentKvSetMock.mockImplementation(async (key, value) => {
+      if (key === paneOrderKey()) sequence.push(`PERSIST:${value}`);
+    });
+    panesCloseMock.mockImplementation(async (id: string) => {
+      sequence.push(`CLOSE:${id}`);
+    });
+    await renderCommandRoom();
+    await waitFor(() => {
+      expect(paneCellIds()).toEqual(['s1', 'crashed', 's3']);
+    });
+    sequence.length = 0;
+    silentKvSetMock.mockClear();
+
+    fireEvent.click(screen.getByTestId('pane-relaunch-button'));
+
+    await waitFor(() => {
+      expect(dispatchMock).toHaveBeenCalledWith({ type: 'REMOVE_SESSION', id: 'crashed' });
+    });
+    expect(sequence).toEqual([
+      'ADD_SESSIONS',
+      'PERSIST:{"version":1,"sessionIds":["s1","replacement","s3"]}',
+      'SET_ACTIVE_SESSION',
+      'CLOSE:crashed',
+      'REMOVE_SESSION',
+    ]);
+    expect(silentKvSetMock).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('CommandRoom — v1.4.3 #05 EmptyState defensive UX', () => {
   it('shows both "Add first pane" + "Go to Workspaces" when swarm running + providers loaded', async () => {
