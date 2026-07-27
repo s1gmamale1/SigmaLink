@@ -5,7 +5,7 @@
 // re-render when an unrelated slice (notificationsUnreadCount) changes.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, render } from '@testing-library/react';
+import { act, cleanup, render, waitFor } from '@testing-library/react';
 
 vi.mock('@/renderer/lib/rpc', () => ({
   rpc: {
@@ -60,6 +60,28 @@ function WsIdProbe({ onRender }: { onRender: () => void }) {
   onRender();
   return <span data-testid="wsid">{wsId ?? 'none'}</span>;
 }
+
+describe('pane reorder E2E test-hook readiness', () => {
+  it('acknowledges when the renderer test-event hooks are mounted and clears readiness on unmount', async () => {
+    expect(document.documentElement.dataset.sigmaTestStateHooksReady).toBeUndefined();
+    const view = render(
+      <AppStateProvider>
+        <RoomProbe onRender={() => undefined} />
+      </AppStateProvider>,
+    );
+
+    await waitFor(() => {
+      expect(document.documentElement.dataset.sigmaTestStateHooksReady).toBe('true');
+    });
+    expect(document.documentElement.dataset.sigmaTestActiveWorkspaceId).toBe('');
+    expect(document.documentElement.dataset.sigmaTestRoom).toBe('workspaces');
+
+    view.unmount();
+    expect(document.documentElement.dataset.sigmaTestStateHooksReady).toBeUndefined();
+    expect(document.documentElement.dataset.sigmaTestActiveWorkspaceId).toBeUndefined();
+    expect(document.documentElement.dataset.sigmaTestRoom).toBeUndefined();
+  });
+});
 
 describe('PERF-3: room-slice selector isolation', () => {
   it('a room-only consumer does NOT re-render on an unrelated notificationsUnreadCount change', () => {

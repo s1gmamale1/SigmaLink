@@ -79,23 +79,72 @@ async function waitForSigmaBridge(win: Page): Promise<void> {
     .toBe(true);
 }
 
+async function waitForRendererTestHooks(win: Page): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        win.evaluate(
+          () => document.documentElement.dataset.sigmaTestStateHooksReady,
+        ),
+      { timeout: 15_000 },
+    )
+    .toBe('true');
+}
+
 async function activateCommandRoom(win: Page, workspace: WorkspaceRow): Promise<void> {
-  // The preload bridge exists before React's test-only event listeners mount.
-  // Dispatch after the first committed frame, then repeat once so a cold page
-  // reload cannot lose activation between preload readiness and useEffect.
-  await win.waitForTimeout(300);
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    await win.evaluate(({ id, rootPath }) => {
-      window.dispatchEvent(
-        new CustomEvent('sigma:test:activate-workspace', { detail: { id, rootPath } }),
-      );
-      window.dispatchEvent(
-        new CustomEvent('sigma:test:set-room', { detail: { room: 'command' } }),
-      );
-      window.dispatchEvent(new CustomEvent('sigma:test:reload-sessions'));
-    }, workspace);
-    await win.waitForTimeout(300);
+  await waitForRendererTestHooks(win);
+  await win.evaluate(({ id, rootPath }) => {
+    window.dispatchEvent(
+      new CustomEvent('sigma:test:activate-workspace', { detail: { id, rootPath } }),
+    );
+    window.dispatchEvent(
+      new CustomEvent('sigma:test:set-room', { detail: { room: 'command' } }),
+    );
+  }, workspace);
+
+  // Observe the exact async activation + room transition in committed React
+  // state. Only then ask the active-workspace-bound reload hook to run.
+  await expect
+    .poll(() =>
+      win.evaluate(() => ({
+        workspaceId:
+          document.documentElement.dataset.sigmaTestActiveWorkspaceId,
+        room: document.documentElement.dataset.sigmaTestRoom,
+      })),
+    )
+    .toEqual({ workspaceId: workspace.id, room: 'command' });
+  await win.evaluate(() => {
+    window.dispatchEvent(new CustomEvent('sigma:test:reload-sessions'));
+  });
+}
+
+async function cleanupRun(
+  app: ElectronApplication | null,
+  tmpRoot: string,
+  bodyFailed: boolean,
+): Promise<void> {
+  const cleanupErrors: unknown[] = [];
+  try {
+    if (app) await app.close();
+  } catch (error) {
+    cleanupErrors.push(error);
   }
+  try {
+    await fs.promises.rm(tmpRoot, { recursive: true, force: true });
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
+
+  if (cleanupErrors.length === 0) return;
+  const cleanupFailure = new AggregateError(
+    cleanupErrors,
+    `pane reorder cleanup failed for ${tmpRoot}`,
+  );
+  if (bodyFailed) {
+    console.error('[pane-reorder] cleanup failed after test failure', cleanupFailure);
+    return;
+  }
+  throw cleanupFailure;
 }
 
 async function visualOrder(win: Page): Promise<string[]> {
@@ -171,10 +220,28 @@ async function assertGridGeometry(win: Page, paneCount: number): Promise<void> {
         height: rect.height,
       };
     });
-    const visibleArea = rects.reduce((total, rect) => total + rect.width * rect.height, 0);
+    const clippedVisibleArea = rects.reduce((total, rect) => {
+      const width = Math.max(
+        0,
+        Math.min(rect.right, gridRect.right) - Math.max(rect.left, gridRect.left),
+      );
+      const height = Math.max(
+        0,
+        Math.min(rect.bottom, gridRect.bottom) - Math.max(rect.top, gridRect.top),
+      );
+      return total + width * height;
+    }, 0);
     const gridArea = gridRect.width * gridRect.height;
     return {
-      fillRatio: gridArea > 0 ? visibleArea / gridArea : 0,
+      gridRect: {
+        left: gridRect.left,
+        right: gridRect.right,
+        top: gridRect.top,
+        bottom: gridRect.bottom,
+        width: gridRect.width,
+        height: gridRect.height,
+      },
+      clippedFillRatio: gridArea > 0 ? clippedVisibleArea / gridArea : 0,
       radii: cells.map((cell) => getComputedStyle(cell).borderRadius),
       rects,
     };
@@ -182,9 +249,22 @@ async function assertGridGeometry(win: Page, paneCount: number): Promise<void> {
 
   expect(result, 'pane grid is mounted').not.toBeNull();
   if (!result) return;
+  expect(result.gridRect.width).toBeGreaterThan(0);
+  expect(result.gridRect.height).toBeGreaterThan(0);
   expect(result.rects).toHaveLength(paneCount);
-  expect(result.fillRatio).toBeGreaterThanOrEqual(0.9);
+  expect(result.clippedFillRatio).toBeGreaterThanOrEqual(0.9);
   expect(result.radii).toEqual(Array.from({ length: paneCount }, () => '0px'));
+
+  const containmentTolerance = 1;
+  for (const [index, rect] of result.rects.entries()) {
+    expect(
+      rect.left >= result.gridRect.left - containmentTolerance
+        && rect.right <= result.gridRect.right + containmentTolerance
+        && rect.top >= result.gridRect.top - containmentTolerance
+        && rect.bottom <= result.gridRect.bottom + containmentTolerance,
+      `pane rectangle ${index + 1} stays inside the pane grid`,
+    ).toBe(true);
+  }
 
   for (let left = 0; left < result.rects.length; left += 1) {
     for (let right = left + 1; right < result.rects.length; right += 1) {
@@ -210,11 +290,12 @@ for (const paneCount of paneCounts) {
       );
       const userDataDir = path.join(tmpRoot, 'user-data');
       const workspaceRoot = path.join(tmpRoot, 'workspace');
-      fs.mkdirSync(userDataDir);
-      fs.mkdirSync(workspaceRoot);
 
       let app: ElectronApplication | null = null;
+      let bodyFailed = false;
       try {
+        fs.mkdirSync(userDataDir);
+        fs.mkdirSync(workspaceRoot);
         expect(fs.existsSync(mainEntry), 'electron-dist/main.js is built').toBe(true);
         app = await electron.launch({
           args: [mainEntry, `--user-data-dir=${userDataDir}`],
@@ -354,9 +435,11 @@ for (const paneCount of paneCounts) {
         await expect
           .poll(() => win.locator('[role="status"]').allTextContents())
           .toContainEqual(expect.stringContaining('Pane move cancelled.'));
+      } catch (error) {
+        bodyFailed = true;
+        throw error;
       } finally {
-        await app?.close().catch(() => undefined);
-        await fs.promises.rm(tmpRoot, { recursive: true, force: true });
+        await cleanupRun(app, tmpRoot, bodyFailed);
       }
     },
   );
