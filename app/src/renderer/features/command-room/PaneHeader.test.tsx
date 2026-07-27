@@ -225,11 +225,65 @@ describe('PaneHeader (Phase 4 BridgeSpace strip)', () => {
     render(<PaneHeader {...baseProps()} session={makeSession({ id: 's1', branch: 'feat/x' })} />);
     const pill = screen.getByTestId('pane-title-pill');
     const setData = vi.fn();
-    fireEvent.dragStart(pill, { dataTransfer: { setData, effectAllowed: '' } });
+    const dataTransfer = { setData, effectAllowed: '' };
+    fireEvent.dragStart(pill, { dataTransfer });
+    expect(dataTransfer.effectAllowed).toBe('copy');
+    expect(setData).toHaveBeenCalledTimes(1);
     expect(setData).toHaveBeenCalledWith(
       'application/sigmalink-pane',
       expect.stringContaining('"sessionId":"s1"'),
     );
+  });
+
+  it('keeps pane reordering separate from the native context-copy drag', () => {
+    render(
+      <PaneHeader
+        {...baseProps({ paneCount: 5, canReorder: true })}
+        session={makeSession({ id: 's2', name: 'Claude Alpha' })}
+        paneIndex={2}
+      />,
+    );
+    const grip = screen.getByRole('button', {
+      name: 'Reorder Claude Alpha, position 2 of 5',
+    });
+    const setData = vi.fn();
+
+    expect(grip.getAttribute('draggable')).not.toBe('true');
+    fireEvent.dragStart(grip, { dataTransfer: { setData, effectAllowed: '' } });
+    expect(setData).not.toHaveBeenCalled();
+
+    const pill = screen.getByTestId('pane-title-pill');
+    expect(pill.getAttribute('draggable')).toBe('true');
+  });
+
+  it.each([
+    ['canReorder=false', { paneCount: 5, canReorder: false, isFullscreen: false }],
+    ['only one pane', { paneCount: 1, canReorder: true, isFullscreen: false }],
+    ['fullscreen', { paneCount: 5, canReorder: true, isFullscreen: true }],
+  ])('disables the reorder grip when %s', (_condition, overrides) => {
+    render(<PaneHeader {...baseProps(overrides)} />);
+
+    const grip = screen.getByRole('button', { name: /^Reorder / }) as HTMLButtonElement;
+    expect(grip.disabled).toBe(true);
+    expect(grip.getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('keeps rename and header actions distinct from the reorder grip', () => {
+    render(<PaneHeader {...baseProps({ paneCount: 3, canReorder: true })} />);
+
+    const grip = screen.getByRole('button', { name: /^Reorder / });
+    const actions = [
+      screen.getByTestId('pane-rename-affordance'),
+      screen.getByTestId('pane-gear'),
+      screen.getByTestId('pane-split'),
+      screen.getByLabelText('Minimise pane'),
+      screen.getByLabelText('Fullscreen pane'),
+      screen.getByLabelText('Close pane'),
+    ];
+    expect(new Set([grip, ...actions]).size).toBe(7);
+
+    fireEvent.doubleClick(screen.getByTestId('pane-display-name'));
+    expect(screen.getByLabelText('Rename pane').tagName).toBe('INPUT');
   });
 
   it('header root div is NOT draggable (only the pill is)', () => {

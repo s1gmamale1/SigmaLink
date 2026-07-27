@@ -37,6 +37,9 @@ const worktreeCreateMock = vi.fn();
 const openInPaneMock = vi.fn();
 const openNewWorkspaceMock = vi.fn();
 const stageImageMock = vi.fn();
+const paneHeaderCapture = vi.hoisted(() => ({
+  props: null as Record<string, unknown> | null,
+}));
 
 vi.mock('@/renderer/lib/rpc', () => ({
   rpc: {
@@ -115,7 +118,18 @@ vi.mock('./PaneFooter', () => ({
 }));
 
 vi.mock('./PaneHeader', () => ({
-  PaneHeader: () => <div data-testid="pane-header" />,
+  PaneHeader: (props: Record<string, unknown>) => {
+    paneHeaderCapture.props = props;
+    return (
+      <button
+        type="button"
+        data-testid="pane-header"
+        data-pane-reorder-handle="true"
+      >
+        reorder
+      </button>
+    );
+  },
 }));
 
 vi.mock('@/renderer/lib/path-relative', () => ({
@@ -149,6 +163,7 @@ beforeEach(async () => {
   stageImageMock.mockReset();
   createWorktreeModalOpenChangeMock.mockReset();
   capturedCreateWorktreeModalProps = null;
+  paneHeaderCapture.props = null;
   // Default: spawnScratch resolves with a fresh id each time.
   let counter = 0;
   spawnScratchMock.mockImplementation(() =>
@@ -209,6 +224,8 @@ async function renderPaneShell(session: AgentSession = makeSession()) {
     <PaneShell
       session={session}
       paneIndex={0}
+      paneCount={4}
+      canReorder={true}
       providers={[{ id: 'claude', name: 'Claude' }]}
       workspaceRootPath="/tmp/ws-1"
       onFocus={vi.fn()}
@@ -221,6 +238,35 @@ async function renderPaneShell(session: AgentSession = makeSession()) {
     />,
   );
 }
+
+describe('PaneShell — pane reorder header contract', () => {
+  it('passes paneCount and canReorder through unchanged', async () => {
+    await renderPaneShell();
+
+    expect(paneHeaderCapture.props).toMatchObject({
+      paneCount: 4,
+      canReorder: true,
+    });
+  });
+
+  it('does not request terminal focus from reorder-handle gestures', async () => {
+    const focusTerminal = vi.fn();
+    window.addEventListener('sigma:pty-focus', focusTerminal);
+    try {
+      await renderPaneShell();
+      const handle = screen.getByTestId('pane-header');
+
+      fireEvent.pointerDown(handle);
+      fireEvent.keyDown(handle, { key: 'Enter', code: 'Enter' });
+      fireEvent.keyDown(handle, { key: ' ', code: 'Space' });
+      fireEvent.click(handle);
+
+      expect(focusTerminal).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('sigma:pty-focus', focusTerminal);
+    }
+  });
+});
 
 // ---------------------------------------------------------------------------
 // 1. ZERO-SUBTAB INVARIANT
@@ -460,6 +506,8 @@ describe('PaneShell — v1.13.2 crash banner', () => {
       <PaneShell
         session={session}
         paneIndex={0}
+        paneCount={4}
+        canReorder={true}
         providers={[{ id: 'claude', name: 'Claude' }]}
         workspaceRootPath="/tmp/ws-1"
         onFocus={vi.fn()}
@@ -542,6 +590,8 @@ describe('PaneShell — 2026-07-17 auth-error advisory chip', () => {
       <PaneShell
         session={session}
         paneIndex={0}
+        paneCount={4}
+        canReorder={true}
         providers={[{ id: 'codex', name: 'Codex' }]}
         workspaceRootPath="/tmp/ws-1"
         onFocus={vi.fn()}
@@ -645,6 +695,8 @@ describe('PaneShell — W-5 Phase 3 skill-drop injection', () => {
       <PaneShell
         session={makeSession({ providerId: 'claude', status: 'running' })}
         paneIndex={0}
+        paneCount={4}
+        canReorder={true}
         providers={[{ id: 'claude', name: 'Claude' }]}
         workspaceRootPath="/tmp/ws-1"
         onFocus={vi.fn()}
@@ -674,6 +726,8 @@ describe('PaneShell — W-5 Phase 3 skill-drop injection', () => {
       <PaneShell
         session={makeSession({ providerId: 'codex', status: 'running' })}
         paneIndex={0}
+        paneCount={4}
+        canReorder={true}
         providers={[{ id: 'codex', name: 'Codex' }]}
         workspaceRootPath="/tmp/ws-1"
         onFocus={vi.fn()}
@@ -701,6 +755,8 @@ describe('PaneShell — W-5 Phase 3 skill-drop injection', () => {
       <PaneShell
         session={makeSession({ providerId: 'gemini', status: 'running' })}
         paneIndex={0}
+        paneCount={4}
+        canReorder={true}
         providers={[{ id: 'gemini', name: 'Gemini' }]}
         workspaceRootPath="/tmp/ws-1"
         onFocus={vi.fn()}
@@ -729,6 +785,8 @@ describe('PaneShell — W-5 Phase 3 skill-drop injection', () => {
       <PaneShell
         session={makeSession({ providerId: 'kimi', status: 'running' })}
         paneIndex={0}
+        paneCount={4}
+        canReorder={true}
         providers={[{ id: 'kimi', name: 'Kimi' }]}
         workspaceRootPath="/tmp/ws-1"
         onFocus={vi.fn()}
@@ -763,6 +821,8 @@ describe('PaneShell — W-5 Phase 3 skill-drop injection', () => {
       <PaneShell
         session={makeSession({ providerId: 'opencode', status: 'running' })}
         paneIndex={0}
+        paneCount={4}
+        canReorder={true}
         providers={[{ id: 'opencode', name: 'OpenCode' }]}
         workspaceRootPath="/tmp/ws-1"
         onFocus={vi.fn()}
@@ -792,6 +852,8 @@ describe('PaneShell — W-5 Phase 3 skill-drop injection', () => {
       <PaneShell
         session={makeSession({ providerId: 'claude', status: 'exited' })}
         paneIndex={0}
+        paneCount={4}
+        canReorder={true}
         providers={[{ id: 'claude', name: 'Claude' }]}
         workspaceRootPath="/tmp/ws-1"
         onFocus={vi.fn()}
@@ -987,6 +1049,8 @@ describe('image drop staging (spec 2026-06-10 B)', () => {
       <PaneShell
         session={makeSession({ providerId: 'claude', status: 'running' })}
         paneIndex={0}
+        paneCount={4}
+        canReorder={true}
         providers={[{ id: 'claude', name: 'Claude' }]}
         workspaceRootPath="/tmp/ws-1"
         onFocus={vi.fn()}
@@ -1035,6 +1099,8 @@ describe('image drop staging (spec 2026-06-10 B)', () => {
       <PaneShell
         session={makeSession({ providerId: 'shell', status: 'running' })}
         paneIndex={0}
+        paneCount={4}
+        canReorder={true}
         providers={[{ id: 'shell', name: 'Shell' }]}
         workspaceRootPath="/tmp/ws-1"
         onFocus={vi.fn()}
@@ -1061,6 +1127,8 @@ describe('image drop staging (spec 2026-06-10 B)', () => {
       <PaneShell
         session={makeSession({ providerId: 'claude', status: 'running' })}
         paneIndex={0}
+        paneCount={4}
+        canReorder={true}
         providers={[{ id: 'claude', name: 'Claude' }]}
         workspaceRootPath="/tmp/ws-1"
         onFocus={vi.fn()}

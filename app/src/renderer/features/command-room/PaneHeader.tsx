@@ -8,7 +8,7 @@
 // All metadata (branch, model, cwd, Ruflo health, usage, relabel, rewind, brief)
 // moved into the gear popover (PaneGearPopoverBody). The dot-soup is gone.
 //
-// Props interface: UNCHANGED — all existing callers keep working.
+// Reorder props default safely so isolated and split callers keep working.
 
 import { useState, useRef, useEffect, useCallback, useSyncExternalStore } from 'react';
 import {
@@ -45,6 +45,7 @@ import { agentColor } from '@/renderer/lib/workspace-color';
 import { subscribeAgentLabel, getAgentLabel, summarizePrompt } from '@/renderer/lib/pane-labels';
 import { derivePaneIdentity } from './pane-identity';
 import { PaneGearPopoverBody } from './PaneGearPopover';
+import { PaneReorderHandle } from './PaneReorderHandle';
 import { useCoachmark } from './use-coachmark';
 import { usePaneLiveStats } from './usePaneLiveStats';
 import { onEvent, rpc } from '@/renderer/lib/rpc';
@@ -52,13 +53,17 @@ import type { AgentSession } from '@/shared/types';
 import { getAgentRuntimeProfile } from '@/shared/runtime-profiles';
 
 // ---------------------------------------------------------------------------
-// Props — identical to the previous PaneHeader so callers need no changes.
+// Props — reorder metadata is optional here; the main PaneShell supplies it.
 // ---------------------------------------------------------------------------
 
 interface Props {
   session: AgentSession;
   /** 1-based pane index — derived from the session's order in the swarm roster. */
   paneIndex: number;
+  /** Total visible panes; defaults keep isolated and split callers safe. */
+  paneCount?: number;
+  /** Whether the parent grid currently permits pane reordering. */
+  canReorder?: boolean;
   /** Lift focus to this pane (binds to global `SET_ACTIVE_SESSION`). */
   onFocus: () => void;
   /** Close handler — keeps the existing `rpc.pty.kill(session.id)` behaviour. */
@@ -89,6 +94,8 @@ interface Props {
 export function PaneHeader({
   session,
   paneIndex,
+  paneCount = 1,
+  canReorder = false,
   onFocus,
   onClose,
   isFullscreen = false,
@@ -210,8 +217,8 @@ export function PaneHeader({
   const paneName = localName?.trim() || id.alias;
   const taskLabel = agentLabel?.trim() || initialLabel || null;
 
-  // FEAT-12 — drag-start handler. The pill is now the drag source.
-  function handleGripDragStart(e: React.DragEvent): void {
+  // FEAT-12 — native context-copy drag. The title pill remains the source.
+  function handleContextDragStart(e: React.DragEvent): void {
     e.dataTransfer.effectAllowed = 'copy';
     e.dataTransfer.setData(
       PANE_DRAG_MIME,
@@ -244,7 +251,15 @@ export function PaneHeader({
         style={{ backgroundColor: 'hsl(var(--muted))' }}
       >
 
-        {/* ── Title pill (drag handle, status glyph, alias·effort) ──────── */}
+        <PaneReorderHandle
+          sessionId={session.id}
+          paneName={paneName}
+          position={paneIndex}
+          count={paneCount}
+          disabled={!canReorder || paneCount <= 1 || isFullscreen}
+        />
+
+        {/* ── Title pill (context drag, status glyph, alias·effort) ─────── */}
         <TooltipProvider delayDuration={coachmark.loaded && !coachmark.seen ? 300 : 200}>
           <Tooltip defaultOpen={coachmark.loaded && !coachmark.seen}>
             <TooltipTrigger asChild>
@@ -252,7 +267,7 @@ export function PaneHeader({
                 role="button"
                 tabIndex={0}
                 draggable={!editing}
-                onDragStart={editing ? undefined : handleGripDragStart}
+                onDragStart={editing ? undefined : handleContextDragStart}
                 onMouseEnter={coachmark.seen ? undefined : coachmark.markSeen}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') coachmark.markSeen();
