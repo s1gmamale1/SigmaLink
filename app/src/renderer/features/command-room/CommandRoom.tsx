@@ -7,7 +7,7 @@
 // Cmd+Alt+<N> focus jumps. The legacy PaneStatusStrip was collapsed into
 // PaneHeader's provider-name tooltip; Stop moves to the right-click menu.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Terminal as TerminalIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -46,6 +46,12 @@ export function CommandRoom() {
   // Workspace-header drop state for skill drags.
   const [wsHeaderDragOver, setWsHeaderDragOver] = useState(false);
   const activeSessionId = useAppStateSelector((state) => state.activeSessionId);
+  const latestActiveWorkspaceIdRef = useRef(activeWorkspaceId);
+  const latestActiveSessionIdRef = useRef(activeSessionId);
+  useLayoutEffect(() => {
+    latestActiveWorkspaceIdRef.current = activeWorkspaceId;
+    latestActiveSessionIdRef.current = activeSessionId;
+  }, [activeSessionId, activeWorkspaceId]);
   const activeSwarmId = useAppStateSelector((state) => state.activeSwarmId);
   // v1.4.2 packet-12 — non-null when a pane is rendered fullscreen.
   const focusedPaneId = useAppStateSelector((state) => state.focusedPaneId);
@@ -316,7 +322,12 @@ export function CommandRoom() {
       dispatch({ type: 'UPSERT_SWARM', swarm: result.swarm });
       dispatch({ type: 'ADD_SESSIONS', sessions: [result.session] });
       replaceSessionId(session.workspaceId, session.id, result.sessionId);
-      dispatch({ type: 'SET_ACTIVE_SESSION', id: result.sessionId });
+      if (
+        latestActiveWorkspaceIdRef.current === session.workspaceId
+        && latestActiveSessionIdRef.current === session.id
+      ) {
+        dispatch({ type: 'SET_ACTIVE_SESSION', id: result.sessionId });
+      }
       // session-persistence fix (2026-07-18) — close the crashed ROW in the DB,
       // not just the renderer (REMOVE_SESSION is UI-only). Without this the row
       // lingered open (closed_at NULL) as a stale sibling in its slot and boot

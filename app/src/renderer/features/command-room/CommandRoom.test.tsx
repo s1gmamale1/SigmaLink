@@ -618,6 +618,7 @@ describe('CommandRoom — pane-order lifecycle integration', () => {
       ],
     };
     mockState.swarmsByWorkspace = { 'ws-1': [makeSwarm('running')] };
+    mockState.activeSessionId = crashed.id;
     mockState.activeSwarmId = 'swarm-1';
     silentKvGetMock.mockImplementation((key) => Promise.resolve(
       key === paneOrderKey()
@@ -732,12 +733,13 @@ describe('CommandRoom — pane-order lifecycle integration', () => {
 
     mockState.activeWorkspace = workspaceB;
     mockState.activeWorkspaceId = workspaceB.id;
-    mockState.activeSessionId = b1.id;
+    mockState.activeSessionId = b2.id;
     mockState.activeSwarmId = null;
     view.rerenderCommandRoom();
     await waitFor(() => {
       expect(paneCellIds()).toEqual(['b2', 'b1']);
     });
+    dispatchMock.mockClear();
     silentKvSetMock.mockClear();
 
     addAgentResult.resolve({
@@ -753,6 +755,11 @@ describe('CommandRoom — pane-order lifecycle integration', () => {
 
     expect(paneCellIds()).toEqual(['b2', 'b1']);
     expect(mockState.sessionsByWorkspace['ws-b']).toBe(canonicalB);
+    expect(mockState.activeSessionId).toBe(b2.id);
+    expect(dispatchMock).not.toHaveBeenCalledWith({
+      type: 'SET_ACTIVE_SESSION',
+      id: replacement.id,
+    });
     expect(silentKvSetMock).not.toHaveBeenCalledWith(
       paneOrderKey('ws-b'),
       expect.any(String),
@@ -779,6 +786,84 @@ describe('CommandRoom — pane-order lifecycle integration', () => {
     expect(silentKvSetMock.mock.calls.filter(([key]) => (
       key.includes('commandRoom.paneOrder')
     ))).toHaveLength(1);
+  });
+
+  it('does not steal a newer selection in the origin workspace when relaunch resolves', async () => {
+    const a1 = makeSession({ id: 'a1', workspaceId: 'ws-a', name: 'A One' });
+    const crashed = makeSession({
+      id: 'crashed',
+      workspaceId: 'ws-a',
+      name: 'A Crashed',
+      status: 'error',
+      exitCode: 1,
+      providerId: 'codex',
+    });
+    const a3 = makeSession({ id: 'a3', workspaceId: 'ws-a', name: 'A Three' });
+    mockState.activeWorkspace = makeWorkspace('ws-a');
+    mockState.activeWorkspaceId = 'ws-a';
+    mockState.activeSessionId = crashed.id;
+    mockState.activeSwarmId = 'swarm-1';
+    mockState.sessionsByWorkspace = { 'ws-a': [a1, crashed, a3] };
+    mockState.swarmsByWorkspace = { 'ws-a': [makeSwarm('running')] };
+    silentKvGetMock.mockImplementation((key) => Promise.resolve(
+      key === paneOrderKey('ws-a')
+        ? '{"version":1,"sessionIds":["a3","crashed","a1"]}'
+        : null,
+    ));
+    const addAgentResult = deferred<{
+      sessionId: string;
+      paneIndex: number;
+      agentKey: string;
+      session: AgentSession;
+      swarm: Swarm;
+    }>();
+    addAgentMock.mockReturnValue(addAgentResult.promise);
+    const replacement = makeSession({
+      id: 'replacement',
+      workspaceId: 'ws-a',
+      name: 'A Replacement',
+      providerId: 'codex',
+    });
+    const view = await renderCommandRoom();
+    await waitFor(() => {
+      expect(paneCellIds()).toEqual(['a3', 'crashed', 'a1']);
+    });
+
+    fireEvent.click(screen.getByTestId('pane-relaunch-button'));
+    await waitFor(() => {
+      expect(addAgentMock).toHaveBeenCalledTimes(1);
+    });
+
+    mockState.activeSessionId = a3.id;
+    view.rerenderCommandRoom();
+    dispatchMock.mockClear();
+    silentKvSetMock.mockClear();
+
+    addAgentResult.resolve({
+      sessionId: replacement.id,
+      paneIndex: 1,
+      agentKey: 'codex-2',
+      session: replacement,
+      swarm: makeSwarm('running'),
+    });
+    await waitFor(() => {
+      expect(dispatchMock).toHaveBeenCalledWith({
+        type: 'REMOVE_SESSION',
+        id: crashed.id,
+      });
+    });
+
+    expect(mockState.activeSessionId).toBe(a3.id);
+    expect(dispatchMock).not.toHaveBeenCalledWith({
+      type: 'SET_ACTIVE_SESSION',
+      id: replacement.id,
+    });
+    expect(panesCloseMock).toHaveBeenCalledWith(crashed.id);
+    expect(silentKvSetMock).toHaveBeenCalledTimes(1);
+    expect(silentKvSetMock).toHaveBeenCalledWith(
+      paneOrderKey('ws-a'),
+      '{"version":1,"sessionIds":["a3","replacement","a1"]}',
+    );
   });
 });
 

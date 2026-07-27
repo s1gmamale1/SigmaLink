@@ -179,6 +179,59 @@ describe('usePaneOrder mutations', () => {
     );
   });
 
+  it.each([
+    [
+      'null',
+      null,
+      ['a', 'new', 'b', 'c'],
+    ],
+    [
+      'malformed',
+      '{"version":1,"sessionIds":',
+      ['a', 'new', 'b', 'c'],
+    ],
+    [
+      'valid partial',
+      '{"version":1,"sessionIds":["c","a"]}',
+      ['c', 'a', 'new', 'b'],
+    ],
+  ] as const)(
+    'uses the complete optimistic projection when a %s record omits the queued old ID',
+    async (_recordKind, rawOrder, expectedOrder) => {
+      const read = deferred<string | null>();
+      readWorkspaceUiMock.mockReturnValue(read.promise);
+      const { result, rerender } = renderHook(
+        ({ canonicalSessionIds }: { canonicalSessionIds: string[] }) => usePaneOrder({
+          workspaceId: 'ws-1',
+          canonicalSessionIds,
+        }),
+        { initialProps: { canonicalSessionIds: ['a', 'old', 'b', 'c'] } },
+      );
+
+      act(() => {
+        expect(result.current.replaceSessionId('ws-1', 'old', 'new')).toBe(true);
+      });
+      rerender({ canonicalSessionIds: ['a', 'b', 'c', 'new'] });
+      expect(result.current.orderedSessionIds).toEqual(['a', 'new', 'b', 'c']);
+      expect(writeWorkspaceUiMock).not.toHaveBeenCalled();
+
+      act(() => {
+        read.resolve(rawOrder);
+      });
+      await waitFor(() => {
+        expect(result.current.reorderReady).toBe(true);
+      });
+
+      expect(result.current.orderedSessionIds).toEqual(expectedOrder);
+      expect(writeWorkspaceUiMock).toHaveBeenCalledTimes(1);
+      expect(writeWorkspaceUiMock).toHaveBeenCalledWith(
+        'ws-1',
+        'commandRoom.paneOrder',
+        JSON.stringify({ version: 1, sessionIds: expectedOrder }),
+      );
+    },
+  );
+
   it('persists an applied lifecycle replacement after hydration', async () => {
     readWorkspaceUiMock.mockResolvedValue(
       '{"version":1,"sessionIds":["b","old","a"]}',

@@ -82,7 +82,7 @@ const paneCollisionDetection: CollisionDetection = (args) =>
 interface PaneGridDndFrameProps {
   sessionIds: string[];
   reorderEnabled: boolean;
-  onDrop: (sourceSessionId: string, targetSessionId: string) => void;
+  onDrop: (sourceSessionId: string, targetSessionId: string) => boolean;
   getPaneLabel: (sessionId: string) => string;
   children: (activeReorderId: string | null) => React.ReactNode;
 }
@@ -102,6 +102,11 @@ function PaneGridDndFrame({
   const activeDragRef = useRef<{
     epoch: number;
     sourceSessionId: string;
+  } | null>(null);
+  const lastDropOutcomeRef = useRef<{
+    sourceSessionId: string;
+    targetSessionId: string;
+    committed: boolean;
   } | null>(null);
   const activeReorderId =
     reorderEnabled &&
@@ -149,6 +154,7 @@ function PaneGridDndFrame({
   const panePosition = (sessionId: string) => sessionIds.indexOf(sessionId) + 1;
 
   const handleReorderStart = ({ active }: DragStartEvent) => {
+    lastDropOutcomeRef.current = null;
     const sourceSessionId = sessionIdFromPaneDragId(active.id);
     if (
       !reorderEnabled ||
@@ -192,9 +198,14 @@ function PaneGridDndFrame({
     ) {
       return;
     }
-    onDrop(sourceSessionId, targetSessionId);
+    lastDropOutcomeRef.current = {
+      sourceSessionId,
+      targetSessionId,
+      committed: onDrop(sourceSessionId, targetSessionId),
+    };
   };
 
+  const noChangeAnnouncement = 'Pane move cancelled. No change.';
   const announcements: Announcements = {
     onDragStart({ active }) {
       const sourceSessionId = sessionIdFromPaneDragId(active.id);
@@ -212,6 +223,9 @@ function PaneGridDndFrame({
       ) {
         return;
       }
+      if (sourceSessionId === targetSessionId) {
+        return `${getPaneLabel(sourceSessionId)} is already at position ${panePosition(sourceSessionId)} of ${sessionIds.length}.`;
+      }
       return `${getPaneLabel(sourceSessionId)} will swap with position ${panePosition(targetSessionId)} of ${sessionIds.length}.`;
     },
     onDragEnd({ active, over }) {
@@ -221,9 +235,18 @@ function PaneGridDndFrame({
         !sourceSessionId ||
         !targetSessionId ||
         !sessionIds.includes(sourceSessionId) ||
-        !sessionIds.includes(targetSessionId)
+        !sessionIds.includes(targetSessionId) ||
+        sourceSessionId === targetSessionId
       ) {
-        return;
+        return noChangeAnnouncement;
+      }
+      const outcome = lastDropOutcomeRef.current;
+      if (
+        !outcome?.committed
+        || outcome.sourceSessionId !== sourceSessionId
+        || outcome.targetSessionId !== targetSessionId
+      ) {
+        return noChangeAnnouncement;
       }
       return `Moved ${getPaneLabel(sourceSessionId)} to position ${panePosition(targetSessionId)} of ${sessionIds.length}.`;
     },
@@ -242,6 +265,7 @@ function PaneGridDndFrame({
       onDragCancel={() => {
         dragEpochRef.current += 1;
         activeDragRef.current = null;
+        lastDropOutcomeRef.current = null;
         setActiveReorderId(null);
       }}
     >
@@ -515,21 +539,23 @@ export function PaneGrid({
   const handlePaneDrop = (
     sourceSessionId: string,
     targetSessionId: string,
-  ) => {
+  ): boolean => {
     const sourceRow = rows.findIndex((row) => row.includes(sourceSessionId));
     const targetRow = rows.findIndex((row) => row.includes(targetSessionId));
-    if (sourceRow === -1 || targetRow === -1) return;
+    if (sourceRow === -1 || targetRow === -1) return false;
 
     // Arm these before the callback so a synchronous parent commit can observe
     // them in the order-keyed layout effect. A rejected callback clears both.
     pendingFocusSessionIdRef.current = sourceSessionId;
     crossRowRefitArmedRef.current = sourceRow !== targetRow;
     pendingReorderWorkspaceRef.current = { workspaceId };
-    if (!onSwapPanes(sourceSessionId, targetSessionId)) {
+    const committed = onSwapPanes(sourceSessionId, targetSessionId);
+    if (!committed) {
       pendingFocusSessionIdRef.current = null;
       crossRowRefitArmedRef.current = false;
       pendingReorderWorkspaceRef.current = null;
     }
+    return committed;
   };
 
   if (rows.length === 0) return <div className="h-full w-full" data-testid="pane-grid-empty" />;

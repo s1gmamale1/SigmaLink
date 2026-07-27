@@ -342,7 +342,8 @@ describe('PaneGrid reorder lifecycle', () => {
   });
 
   it('announces pickup, target, drop, and cancellation using visual positions', () => {
-    renderGrid(['a', 'b', 'c']);
+    const onSwapPanes = vi.fn(() => true);
+    renderGrid(['a', 'b', 'c'], null, 'a', { onSwapPanes });
     const announcements = currentDndProps().accessibility.announcements;
     const source = active('pane-reorder:b');
     const target = over('pane-slot:c');
@@ -353,12 +354,70 @@ describe('PaneGrid reorder lifecycle', () => {
     expect(announcements.onDragOver({ active: source, over: target })).toBe(
       'Pane B will swap with position 3 of 3.',
     );
+
+    startDrag('b');
+    endDrag('b', 'c');
     expect(announcements.onDragEnd({ active: source, over: target })).toBe(
       'Moved Pane B to position 3 of 3.',
     );
     expect(announcements.onDragCancel({ active: source, over: target })).toBe(
       'Pane move cancelled.',
     );
+  });
+
+  it('announces no change when a valid target-slot commit is rejected', () => {
+    const onSwapPanes = vi.fn(() => false);
+    renderGrid(['a', 'b'], null, 'a', { onSwapPanes });
+    const source = active('pane-reorder:a');
+    const target = over('pane-slot:b');
+
+    startDrag('a');
+    endDrag('a', 'b');
+
+    expect(onSwapPanes).toHaveBeenCalledWith('a', 'b');
+    expect(
+      currentDndProps().accessibility.announcements.onDragEnd({
+        active: source,
+        over: target,
+      }),
+    ).toBe('Pane move cancelled. No change.');
+  });
+
+  it.each([
+    ['same target', 'pane-slot:a'],
+    ['missing target session', 'pane-slot:missing'],
+    ['wrong target prefix', 'pane-reorder:b'],
+    ['outside drop', null],
+  ])('announces no change for a %s', (_name, overId) => {
+    const onSwapPanes = vi.fn(() => true);
+    renderGrid(['a', 'b'], null, 'a', { onSwapPanes });
+    const source = active('pane-reorder:a');
+    const target = overId ? over(overId) : null;
+
+    act(() => {
+      currentDndProps().onDragStart({ active: source });
+      currentDndProps().onDragEnd({ active: source, over: target });
+    });
+
+    expect(onSwapPanes).not.toHaveBeenCalled();
+    expect(
+      currentDndProps().accessibility.announcements.onDragEnd({
+        active: source,
+        over: target,
+      }),
+    ).toBe('Pane move cancelled. No change.');
+  });
+
+  it('does not describe hovering the source pane as a swap', () => {
+    renderGrid(['a', 'b']);
+    const source = active('pane-reorder:a');
+
+    expect(
+      currentDndProps().accessibility.announcements.onDragOver({
+        active: source,
+        over: over('pane-slot:a'),
+      }),
+    ).toBe('Pane A is already at position 1 of 2.');
   });
 
   it('marks only the source, shields terminal hit testing, and renders a lightweight label overlay', () => {

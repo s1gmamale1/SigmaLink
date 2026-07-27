@@ -26,6 +26,7 @@ export interface UsePaneOrderResult {
 interface PendingReplacement {
   oldId: string;
   newId: string;
+  fallbackIds: string[];
 }
 
 interface LoadedPaneOrder {
@@ -156,14 +157,23 @@ export function usePaneOrder({
         .get(requestedWorkspaceId)?.pendingReplacements
         ?? loadedOrderRef.current.pendingReplacements;
       let preferredIds = parsePaneOrder(rawOrder);
-      let replacementApplied = false;
       for (const replacement of pendingReplacements) {
-        const nextIds = replacePaneOrderId(
+        let nextIds = replacePaneOrderId(
           preferredIds,
           replacement.oldId,
           replacement.newId,
         );
-        replacementApplied ||= nextIds !== preferredIds;
+        if (nextIds === preferredIds) {
+          const completeIds = reconcilePaneOrder(
+            preferredIds,
+            replacement.fallbackIds,
+          );
+          nextIds = replacePaneOrderId(
+            completeIds,
+            replacement.oldId,
+            replacement.newId,
+          );
+        }
         preferredIds = nextIds;
       }
 
@@ -174,7 +184,7 @@ export function usePaneOrder({
         pendingReplacements: [],
       });
 
-      if (replacementApplied) {
+      if (pendingReplacements.length > 0) {
         persistPaneOrder(requestedWorkspaceId, preferredIds);
       }
     })();
@@ -241,9 +251,9 @@ export function usePaneOrder({
       pendingReplacements: ready
         ? []
         : [
-            ...currentLoadedOrder.pendingReplacements,
-            { oldId, newId },
-          ],
+          ...currentLoadedOrder.pendingReplacements,
+          { oldId, newId, fallbackIds: [...currentOrder] },
+        ],
     };
     if (isActiveWorkspace) {
       commitLoadedOrder(nextLoadedOrder);
