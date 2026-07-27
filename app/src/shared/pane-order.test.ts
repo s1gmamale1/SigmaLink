@@ -12,8 +12,8 @@ describe('pane-order persistence', () => {
     expect(parsePaneOrder(serializePaneOrder(['a', 'b']))).toEqual(['a', 'b']);
   });
 
-  it.each([null, '', '{', '[]', '{"version":2,"sessionIds":["a"]}', '{"version":1,"sessionIds":"a"}'])
-    ('rejects malformed or unsupported input: %s', (raw) => {
+  it.each([null, '', '{', '[]', '{"version":2,"sessionIds":["a"]}', '{"version":1,"sessionIds":"a"}'])(
+    'rejects malformed or unsupported input: %s', (raw) => {
       expect(parsePaneOrder(raw)).toEqual([]);
     });
 
