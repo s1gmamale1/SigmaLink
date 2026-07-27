@@ -392,6 +392,152 @@ describe('usePaneOrder races and passive canonical changes', () => {
     firstWorkspaceARead.resolve(null);
   });
 
+  it('rejects swaps while a cached workspace fresh read is pending', async () => {
+    const secondWorkspaceARead = deferred<string | null>();
+    let workspaceAReadCount = 0;
+    readWorkspaceUiMock.mockImplementation((workspaceId) => {
+      if (workspaceId === 'ws-b') {
+        return Promise.resolve('{"version":1,"sessionIds":["b-2","b-1"]}');
+      }
+      workspaceAReadCount += 1;
+      return workspaceAReadCount === 1
+        ? Promise.resolve('{"version":1,"sessionIds":["a-2","a-1"]}')
+        : secondWorkspaceARead.promise;
+    });
+    const { result, rerender } = renderHook(
+      ({ workspaceId, canonicalSessionIds }: {
+        workspaceId: string;
+        canonicalSessionIds: string[];
+      }) => usePaneOrder({ workspaceId, canonicalSessionIds }),
+      {
+        initialProps: {
+          workspaceId: 'ws-a',
+          canonicalSessionIds: ['a-1', 'a-2'],
+        },
+      },
+    );
+    await waitFor(() => {
+      expect(result.current.reorderReady).toBe(true);
+    });
+
+    rerender({
+      workspaceId: 'ws-b',
+      canonicalSessionIds: ['b-1', 'b-2'],
+    });
+    await waitFor(() => {
+      expect(result.current.orderedSessionIds).toEqual(['b-2', 'b-1']);
+      expect(result.current.reorderReady).toBe(true);
+    });
+    writeWorkspaceUiMock.mockClear();
+
+    rerender({
+      workspaceId: 'ws-a',
+      canonicalSessionIds: ['a-1', 'a-2'],
+    });
+    expect(result.current.orderedSessionIds).toEqual(['a-2', 'a-1']);
+    let swapAccepted = true;
+    act(() => {
+      swapAccepted = result.current.swapPanes('a-2', 'a-1');
+    });
+
+    expect(swapAccepted).toBe(false);
+    expect(result.current.reorderReady).toBe(false);
+    expect(result.current.orderedSessionIds).toEqual(['a-2', 'a-1']);
+    expect(writeWorkspaceUiMock).not.toHaveBeenCalled();
+
+    act(() => {
+      secondWorkspaceARead.resolve('{"version":1,"sessionIds":["a-2","a-1"]}');
+    });
+    await waitFor(() => {
+      expect(result.current.reorderReady).toBe(true);
+    });
+    expect(result.current.orderedSessionIds).toEqual(['a-2', 'a-1']);
+    expect(writeWorkspaceUiMock).not.toHaveBeenCalled();
+  });
+
+  it('queues a lifecycle replacement behind a cached workspace fresh read', async () => {
+    const secondWorkspaceARead = deferred<string | null>();
+    let workspaceAReadCount = 0;
+    readWorkspaceUiMock.mockImplementation((workspaceId) => {
+      if (workspaceId === 'ws-b') {
+        return Promise.resolve('{"version":1,"sessionIds":["b2","b1"]}');
+      }
+      workspaceAReadCount += 1;
+      return workspaceAReadCount === 1
+        ? Promise.resolve('{"version":1,"sessionIds":["a3","old","a1"]}')
+        : secondWorkspaceARead.promise;
+    });
+    const { result, rerender } = renderHook(
+      ({ workspaceId, canonicalSessionIds }: {
+        workspaceId: string;
+        canonicalSessionIds: string[];
+      }) => usePaneOrder({ workspaceId, canonicalSessionIds }),
+      {
+        initialProps: {
+          workspaceId: 'ws-a',
+          canonicalSessionIds: ['a1', 'old', 'a3'],
+        },
+      },
+    );
+    await waitFor(() => {
+      expect(result.current.reorderReady).toBe(true);
+    });
+
+    rerender({
+      workspaceId: 'ws-b',
+      canonicalSessionIds: ['b1', 'b2'],
+    });
+    await waitFor(() => {
+      expect(result.current.orderedSessionIds).toEqual(['b2', 'b1']);
+      expect(result.current.reorderReady).toBe(true);
+    });
+    writeWorkspaceUiMock.mockClear();
+
+    rerender({
+      workspaceId: 'ws-a',
+      canonicalSessionIds: ['a1', 'old', 'a3'],
+    });
+    expect(result.current.orderedSessionIds).toEqual(['a3', 'old', 'a1']);
+    act(() => {
+      expect(result.current.replaceSessionId('ws-a', 'old', 'new')).toBe(true);
+    });
+    rerender({
+      workspaceId: 'ws-a',
+      canonicalSessionIds: ['a1', 'a3', 'new'],
+    });
+
+    expect(result.current.reorderReady).toBe(false);
+    expect(result.current.orderedSessionIds).toEqual(['a3', 'new', 'a1']);
+    expect(writeWorkspaceUiMock).not.toHaveBeenCalled();
+
+    act(() => {
+      secondWorkspaceARead.resolve('{"version":1,"sessionIds":["a3","old","a1"]}');
+    });
+    await waitFor(() => {
+      expect(result.current.reorderReady).toBe(true);
+    });
+    expect(result.current.orderedSessionIds).toEqual(['a3', 'new', 'a1']);
+    expect(writeWorkspaceUiMock).toHaveBeenCalledTimes(1);
+    expect(writeWorkspaceUiMock).toHaveBeenCalledWith(
+      'ws-a',
+      'commandRoom.paneOrder',
+      '{"version":1,"sessionIds":["a3","new","a1"]}',
+    );
+
+    rerender({
+      workspaceId: 'ws-b',
+      canonicalSessionIds: ['b1', 'b2'],
+    });
+    await waitFor(() => {
+      expect(result.current.orderedSessionIds).toEqual(['b2', 'b1']);
+    });
+    expect(writeWorkspaceUiMock).not.toHaveBeenCalledWith(
+      'ws-b',
+      'commandRoom.paneOrder',
+      expect.any(String),
+    );
+  });
+
   it('drops closed panes and appends added panes without a passive write', async () => {
     readWorkspaceUiMock.mockResolvedValue(
       '{"version":1,"sessionIds":["c","a","b"]}',

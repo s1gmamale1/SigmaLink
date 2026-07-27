@@ -115,13 +115,21 @@ export function usePaneOrder({
     const requestedWorkspaceId = workspaceId;
     let cancelled = false;
 
-    if (loadedOrderRef.current.workspaceId !== requestedWorkspaceId) {
-      const workspaceOrder = ordersByWorkspaceRef.current.get(requestedWorkspaceId);
-      commitLoadedOrder(workspaceOrder ?? {
+    const workspaceOrder = loadedOrderRef.current.workspaceId === requestedWorkspaceId
+      ? loadedOrderRef.current
+      : ordersByWorkspaceRef.current.get(requestedWorkspaceId) ?? {
         workspaceId: requestedWorkspaceId,
         preferredIds: [...latestOrderedSessionIdsRef.current],
         ready: false,
         pendingReplacements: [],
+      };
+    if (
+      loadedOrderRef.current.workspaceId !== requestedWorkspaceId
+      || workspaceOrder.ready
+    ) {
+      commitLoadedOrder({
+        ...workspaceOrder,
+        ready: false,
       });
     }
 
