@@ -54,6 +54,7 @@ export function usePaneOrder({
     pendingReplacements: [],
   }));
   const loadedOrderRef = useRef(loadedOrder);
+  const pendingOrdersByWorkspaceRef = useRef(new Map<string, LoadedPaneOrder>());
 
   const orderForWorkspace = loadedOrder.workspaceId === workspaceId
     ? loadedOrder
@@ -99,7 +100,8 @@ export function usePaneOrder({
     let cancelled = false;
 
     if (loadedOrderRef.current.workspaceId !== requestedWorkspaceId) {
-      commitLoadedOrder({
+      const pendingOrder = pendingOrdersByWorkspaceRef.current.get(requestedWorkspaceId);
+      commitLoadedOrder(pendingOrder ?? {
         workspaceId: requestedWorkspaceId,
         preferredIds: [...latestOrderedSessionIdsRef.current],
         ready: false,
@@ -126,7 +128,9 @@ export function usePaneOrder({
         return;
       }
 
-      const pendingReplacements = loadedOrderRef.current.pendingReplacements;
+      const pendingReplacements = pendingOrdersByWorkspaceRef.current
+        .get(requestedWorkspaceId)?.pendingReplacements
+        ?? loadedOrderRef.current.pendingReplacements;
       let preferredIds = parsePaneOrder(rawOrder);
       let replacementApplied = false;
       for (const replacement of pendingReplacements) {
@@ -139,6 +143,7 @@ export function usePaneOrder({
         preferredIds = nextIds;
       }
 
+      pendingOrdersByWorkspaceRef.current.delete(requestedWorkspaceId);
       commitLoadedOrder({
         workspaceId: requestedWorkspaceId,
         preferredIds,
@@ -192,7 +197,7 @@ export function usePaneOrder({
 
     const currentLoadedOrder = loadedOrderRef.current;
     const ready = latestReorderReadyRef.current;
-    commitLoadedOrder({
+    const nextLoadedOrder: LoadedPaneOrder = {
       workspaceId: currentWorkspaceId,
       preferredIds: nextOrder,
       ready,
@@ -204,7 +209,11 @@ export function usePaneOrder({
               : []),
             { oldId, newId },
           ],
-    });
+    };
+    if (!ready) {
+      pendingOrdersByWorkspaceRef.current.set(currentWorkspaceId, nextLoadedOrder);
+    }
+    commitLoadedOrder(nextLoadedOrder);
 
     if (ready) {
       persistPaneOrder(currentWorkspaceId, nextOrder);
