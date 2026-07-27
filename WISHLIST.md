@@ -6,10 +6,8 @@
 > Buckets: **Deferred by design** (consciously out of scope) and **Future enhancements**
 > (planned-later upgrades). **New ideas** is the untriaged inbox.
 >
-> **Cleared 2026-07-17** after the v3.0.0 cycle closed out (#238 merged). The previous inbox
-> (PR #238 review minors, the claude account-switch deep-review findings) is preserved verbatim in
-> [docs/03-plan/archive/WISHLIST-v3.0.0-cycle-2026-07-17.md](docs/03-plan/archive/WISHLIST-v3.0.0-cycle-2026-07-17.md)
-> — still-alive items get re-promoted from there when they come up.
+> **Cleared 2026-07-27 at the operator's request.** The previous tracked contents remain
+> recoverable from Git history. This file now starts with the pane-reordering review below.
 
 ---
 
@@ -21,7 +19,10 @@ _(consciously NOT built — each is a separate track or a non-goal, not a gap)_
 
 ## ✨ Future enhancements (planned-later upgrades)
 
-_(real upgrades to build once the current system is production-grade)_
+- **[command-room] drag panes to exchange visual positions** — let the operator group related
+  sessions (for example, Claude panes on the top row) without restarting panes or changing the
+  fill-grid shape. Build after the reviewed invariants and regression matrix below are promoted
+  into an implementation phase.
 
 ---
 
@@ -29,256 +30,244 @@ _(real upgrades to build once the current system is production-grade)_
 
 _(raw ideas land here; promote to ROADMAP.md once scoped into a phase)_
 
-### Parked from the pane stale-render fix (2026-07-18, branch `fix/pane-stale-render-esc-focus`)
-
-Four causes were fixed and shipped on that branch (reveal repaint · `window:restored` wiring ·
-DECSET 1004 focus reporting · engine notify-loop isolation). These are the **unproven** suspects
-that were investigated and deliberately NOT acted on — do not re-derive them from scratch:
-
-- **`content-visibility: auto` steady-state raster (UNPROVEN, low confidence).** FlowView sets
-  `content-visibility: auto` + `contain-intrinsic-size` on every row. Theory was that Chromium
-  skips re-rastering a row it considers offscreen while the engine keeps rewriting it, stranding
-  a stale frame. **Repro attempt failed to reproduce**: a testbed (`electron@30.5.1`, same
-  Chromium as the app) replicating FlowView's exact CSS + 50ms live-region repaints + row
-  churn + 700↔520px width oscillation for 38s produced clean frames at every capture. So this
-  is NOT a steady-state raster bug — which is what pushed the root cause toward the
-  reveal/restore path instead. Re-open only if the garbling survives the shipped fixes.
-- **Electron 30 → newer bump.** App is pinned at `electron@30.5.1` (May 2024 Chromium). Several
-  compositor/`content-visibility` fixes landed upstream since. Not attempted — a major-version
-  Electron bump is a release-scale change with native-module (better-sqlite3, node-pty, whisper)
-  rebuild blast radius, not a bug-fix-branch move. Worth scoping as its own phase.
-- **Live operator verification still owed.** The four fixes are proven by unit tests + a green
-  gate, NOT by watching the bug fail to happen. jsdom cannot prove a repaint. Needs: run a
-  claude pane, reproduce the garble (resize / minimise-restore / cmd+H), confirm it self-heals
-  or never appears. If it STILL garbles, the next suspect is the `LineRow` memo comparator —
-  a style-only change outside the 64-row live tail does not re-render (a documented P1b
-  limitation, `FlowView.tsx:12-15`), which would strand recolored scrollback specifically.
-
 ---
 
-## 🔬 Deep review findings (2026-07-17) — codex pane shows "Pane crashed (exit unknown)" over a LIVE terminal
+## 🔬 Deep review findings (2026-07-27) — safe Command Room pane reordering
 
-_Operator report + screenshot: a codex pane (`Lyra · high` / "ruflo superpower bug", `gpt-5.6-sol xhigh`,
-cwd `~/projects/SigmaDevelopment`) renders the red **"Pane crashed (exit unknown) — Scrollback preserved
-below."** banner + Relaunch button, while the terminal underneath is visibly alive and streaming
-(`Working (3m 20s • esc to interrupt) · 1 background terminal running`, live prompt, live status line)._
+_Status: reviewed and feasible; not implemented. Review performed on clean branch
+`fix/pane-stale-render-esc-focus` at `80065c3`, using the supplied 11-pane screenshot, three
+independent read-only audits, code/history tracing, and focused baseline tests. Promote this
+section to ROADMAP before implementation._
 
-### Root cause (CONFIRMED — hard receipt, not inference)
+### Outcome
 
-**A content scanner reports through the process-death channel. The PTY is never touched.**
+Pane reordering can be added safely as a **workspace-scoped presentation-order overlay**. It must
+not modify session identity, PTY ownership, database `pane_index`, grid-shape math, or persisted
+resize fractions.
 
-`onCodexAuthError` (`app/src/main/rpc-router.ts:1169-1184`) reacts to a **regex match on pane output** by:
+The recommended first release is **drop-on-pane swap**:
 
-1. `getDb().update(agentSessions).set({ status: 'error' })` — status only; **no `exit_code`, no `exited_at`**;
-2. `broadcast('pty:error', { sessionId, exitCode: null, signal: null })` — **hardcoded `exitCode: null`**.
+- Drag pane A's dedicated reorder grip over pane B.
+- On drop, A and B exchange visual slots exactly once.
+- The row/column geometry stays fixed; each moved pane inherits its destination slot's size.
+- The active/focused/attention session IDs stay unchanged.
+- No PTY spawn, kill, close, resize storm, or lifecycle RPC is part of reordering.
 
-…and never kills, stops, or signals the PTY. The renderer's `pty:error` contract is explicitly *"the PTY
-started then died"* (`app/src/renderer/features/command-room/PaneShell.tsx:254-264`), so:
+For heterogeneous layouts, swap is safer than insertion. With five panes (`[a,b,c] / [d,e]`),
+swapping `e` with `b` moves only those two identities. Inserting `e` before `b` also shifts `b`,
+`c`, and `d`, sending more panes across row parents and increasing remount risk. Explicit
+before/after insertion can be a later enhancement after swap is dogfooded.
 
-- `use-live-events.ts:387` coerces the non-number `exitCode` → `null` → `MARK_SESSION_ERROR`;
-- `state.reducer.ts:519` coerces `null` → `undefined` → `CrashBanner` prints **`exit unknown`**
-  (`PaneShell.tsx:775`);
-- `crashed = errored && !session.error` (`PaneShell.tsx:264`) is true (no launch-error string on this path);
-- the banner is designed to **float OVER a still-mounted `SessionTerminal`** (`PaneShell.tsx:763-765`) —
-  which is precisely why the live process keeps streaming underneath it.
+### Root cause — why panes cannot move today
 
-**Receipt — live DB row (`~/Library/Application Support/SigmaLink/sigmalink.db`, app running, `codex --yolo`
-pid 43569 alive at the time of capture):**
+- **No presentation-order model exists.** `CommandRoom` describes sessions as authoritative and
+  the grid as their pure projection; it passes `sessions.map((s) => s.id)` directly to `PaneGrid`.
+  `app/src/renderer/features/command-room/CommandRoom.tsx:30-34,441-456`.
+- **The shape helper deliberately preserves incoming order.** `paneRows()` only slices the ordered
+  list into deterministic rows, and its invariant test requires every ID exactly once in the same
+  order. `app/src/shared/pane-grid-shape.ts:12-30`;
+  `app/src/shared/pane-grid-shape.test.ts:41-46`.
+- **PaneGrid has resize drag only.** Its API has no order state/callback, and the only drag lifecycle
+  changes CSS grid fractions through `PaneDivider`.
+  `app/src/renderer/features/command-room/PaneGrid.tsx:38-45,223-261,275-351`.
+- **The apparent title “grip” is already a different feature.** It performs copy-style pane-context
+  injection using `PANE_DRAG_MIME`; it is not a move handle.
+  `app/src/renderer/features/command-room/PaneHeader.tsx:213-226,247-262`.
+- **Runtime order is incidental.** `ADD_SESSIONS` upserts through a `Map`; existing IDs retain their
+  insertion position and new IDs append. Cold hydration instead returns database rows ordered by
+  `pane_index ASC`. `app/src/renderer/app/state.reducer.ts:455-465`;
+  `app/src/main/rpc-router.ts:1863-1871,1900-1923`.
 
-| id | provider | status | exit_code | exited_at |
-|---|---|---|---|---|
-| `1b5582e4-8a4c-4caf-b062-76a35fcb21a9` | **codex** | **error** | **NULL** | **NULL** |
-| every other `status='error'` row | shell / claude | error | `0` | `1784…` (set) |
+### Safety boundary — `pane_index` is not visual order
 
-`status='error'` **with both `exit_code` and `exited_at` NULL** is a signature only this path can produce:
-grep-verified, the *only* other writers of `status:'error'` to `agent_sessions` are the three
-**launch-failure INSERTs** in `core/workspaces/launcher.ts:205,593,759` (each carries an `error:` string →
-routes to the *"Failed to launch"* surface, not this one), and `swarms/factory-add-agent.ts:190` writes the
-`swarm_agents` table. Every real crash goes through `pty.onExit` and writes exit metadata.
+- `agent_sessions.pane_index` is a durable launcher/resume slot, not a cosmetic position.
+  `app/src/main/core/db/schema.ts:62-67`.
+- It participates in the status-aware unique index for live panes.
+  `app/src/main/core/db/schema.ts:111-120`.
+- Rank-then-filter hydration partitions historical rows by this slot to select one owner; changing
+  it can unshadow stale rows or resume the wrong conversation.
+  `app/src/main/rpc-router.ts:1905-1921`.
+- New panes allocate the lowest free live slot, including gaps.
+  `app/src/main/core/workspaces/pane-slots.ts:8-41`.
 
-### This is broken even when it is RIGHT
+**Required rule:** never rewrite or swap database `pane_index` values for UI reordering. The domain
+`sessions` array also remains untouched; only its Command Room projection changes.
 
-A codex auth error **does not kill the codex process** — codex prints the error and keeps running. So the
-"crash" report is a lie *by construction*, 100% reproducible, not a race: **every** firing of this path —
-true positive or false — paints "Pane crashed" over a healthy pane and offers a Relaunch button that would
-restart a working process. The feature has no correct outcome as wired.
+### Known-good grid invariants to preserve
 
-### The trigger (false positive — HIGH confidence)
+- **Shape:** approximately `round(sqrt(n))` rows, earlier rows fuller, short rows widened edge to
+  edge; examples include 3 → `[2,1]`, 5 → `[3,2]`, 7 → `[3,2,2]`, 12 → `[4,4,4]`.
+  `app/src/shared/pane-grid-shape.ts:12-30`;
+  `app/src/shared/pane-grid-shape.test.ts:4-16`.
+- **Geometry:** each row is an independent grid. Vertical dividers resize adjacent panes in that
+  row only; horizontal dividers resize adjacent rows.
+  `app/src/renderer/features/command-room/PaneGrid.tsx:1-9,275-352`.
+- **Hot resize path:** CSS variables are mutated imperatively without React state per pointer frame;
+  this prevents active-session rerenders from stomping a live resize.
+  `app/src/renderer/features/command-room/PaneGrid.tsx:11-27,235-261`.
+- **Persistence:** resize fractions live under `panegrid.<workspaceId>` and are keyed only by the
+  row-count signature. A same-count reorder must retain these values unchanged.
+  `app/src/renderer/features/command-room/PaneGrid.tsx:63-99,122-128,154-179,215-221`;
+  `app/src/shared/pane-grid-shape.ts:33-37`.
+- **Responsiveness:** tracks remain `minmax(0,Nfr)` and resize with the window without restoring
+  intrinsic terminal widths. `app/src/renderer/features/command-room/PaneGrid.tsx:67-72`.
+- **Focus and attention:** active, fullscreen, and attention state are keyed by session ID, not
+  position. Reorder must not dispatch focus/attention changes.
+  `app/src/renderer/app/state.types.ts:96-105,157-162`;
+  `app/src/renderer/features/command-room/PaneGrid.tsx:295-345`.
+- **Raster stability:** every pane keeps a non-auto stacking context and no focus transition.
+  `app/src/renderer/features/command-room/PaneGrid.tsx:316-335`.
+- **Fullscreen:** siblings remain mounted but hidden; entering/exiting fullscreen triggers one
+  same-frame terminal refit. Reorder is disabled while fullscreen is active.
+  `app/src/renderer/features/command-room/PaneGrid.tsx:195-210,296-345`.
+- **Divider cleanup:** resize start/end pairing and mid-drag unmount cleanup remain independent of
+  reorder. `app/src/renderer/features/command-room/PaneDivider.tsx:28-42,52-96`.
 
-`scanCodexAuthError` (`app/src/main/core/pty/auth-error-scan.ts`) regex-tests **every codex PTY data chunk**
-(`registry.ts:382`). But a codex pane's stream is **the agent's own rendered output** — its reasoning, files
-it prints, code and docs it writes — not a clean protocol channel. The patterns are generic enough to appear
-in ordinary agent work:
+### Recommended V1 architecture
 
-- `/\btoken_expired\b/` — a bare JSON key; appears in any auth code/fixture the agent reads or writes.
-- `/HTTP 401|could not be refreshed|sign in again/i` — **`sign in again` is plain English.**
+1. **Pure order helpers.** Add a small `app/src/shared/pane-order.ts` module with:
+   `swapPaneIds`, `reconcilePaneOrder`, `replacePaneOrderId`, and `parsePaneOrder`. Keep ordering
+   separate from `pane-grid-shape.ts`, whose only concern is row shape.
+2. **Presentation state at the Command Room boundary.** A dedicated hook derives
+   `orderedSessions` from canonical live sessions plus the saved ID order. Both PaneGrid IDs and
+   displayed pane ordinals must use this same projection. Do not add a global reducer action that
+   reorders domain sessions.
+3. **Versioned, separate persistence.** Store a versioned ID list under
+   `ui.<workspaceId>.commandRoom.paneOrder`, using the existing best-effort workspace UI helpers.
+   Keep it separate from `panegrid.<workspaceId>` so resize and order writers cannot clobber one
+   another. `app/src/renderer/lib/workspace-ui-kv.ts:10-46`.
+4. **Lossless reconciliation.** Validate string IDs, de-duplicate, retain saved IDs that are still
+   live, then append missing/new live IDs in canonical backend order. A stale or malformed record
+   must never create, hide, duplicate, or resurrect a pane.
+5. **Async-load guard.** Ignore stale workspace reads and do not persist until the current
+   workspace's order load completes, mirroring the resize persistence guards.
+   `app/src/renderer/features/command-room/PaneGrid.tsx:151-179,215-220`.
+6. **Lifecycle replacement.** Normal boot resume reuses the same session row/ID.
+   `app/src/main/core/pty/resume-launcher.ts:779-814`. The explicit crash-relaunch path creates a
+   new ID and then removes the old one, so it must call `replacePaneOrderId(oldId, newId)` before
+   removal to preserve the visual slot.
+   `app/src/renderer/features/command-room/CommandRoom.tsx:281-311`.
+7. **Commit once.** Do not live-reorder the React tree while hovering. Keep panes stationary, show
+   a lightweight target overlay, and swap once on drop. Cross-row moves can remount PaneShell
+   because session keys are scoped inside row parents; terminal instances and scrollback survive
+   through the session-keyed cache, but PaneShell-local state can reset.
+   `app/src/renderer/features/command-room/PaneGrid.tsx:7-9,275-300`;
+   `app/src/renderer/lib/terminal-cache.ts:14-33`;
+   `app/src/renderer/features/command-room/PaneShell.tsx:170-183`.
+8. **Final refit only.** After a successful cross-row swap, emit one unpaired
+   `sigma:pane-resize-end` after layout commit, matching the existing fullscreen refit precedent.
+   Never emit resize-start or resize continuously for reorder.
+   `app/src/renderer/features/command-room/PaneGrid.tsx:195-210`.
 
-The file header asserts these patterns *"only appear in the process's own error output"* — that assertion is
-**false by construction**: `registry.ts:382` feeds the scanner `data`, the whole PTY stream, which conflates
-the codex CLI's own stderr with the model's output. The same header records that a `\b401\b` catch-all was
-*already* removed for false-positiving on user text — same bug class, incomplete fix. The observed pane was
-doing "ruflo superpower bug" + *"Improve documentation in @filename"* — i.e. reading and writing prose.
-Introduced in **#207** (`01c3d29`, "Task 5 — codex auth-error scan").
+### Interaction contract
 
-### Blast radius (beyond the cosmetic banner)
+Use a dedicated `GripVertical` button in `PaneHeader`; do not make the terminal, pane body, whole
+header, or existing title pill the reorder activator.
 
-- 🐞 **[high] the false `status='error'` write orphans a LIVE pane from boot-resume** —
-  `resume-launcher.ts:342-366` `listEligibleRows` resumes only `status='running'` OR
-  (`status='exited'` AND `exit_code=-1`). An auth-scanner-flagged row is **neither** → on next boot the pane
-  is silently never resumed. Effort: S (fold into the root fix).
-- ⚠️ **[medium][UNVERIFIED] pane-slot collision via the partial unique index** — `agent_sessions_ws_pane_uq`
-  is `ON (workspace_id, pane_index) WHERE pane_index IS NOT NULL AND status IN ('running','starting')`.
-  Flipping a live pane to `'error'` **drops it out of the index**, freeing its `pane_index` slot while the
-  PTY still runs → a new pane may be spawnable into the occupied slot. Follows from the index definition;
-  **not reproduced**. Verify before scoping. Effort: S to test.
-- 🧹 **[low] the flag is sticky with no recovery path** — `registry.ts:212,382,386` sets `authErrors` once per
-  session and only clears it in `forget(id)` (`registry.ts:616`, i.e. on PTY death). A re-auth mid-session
-  never clears the pane's error state; only a Relaunch does. Effort: S.
-- ℹ️ **[low] the 'error' row is GC-immune** — `state.reducer.ts:505-509` deliberately exempts `'error'` from
-  the exited-session GC (correct for real crashes), so a falsely-flagged pane lingers in the error state for
-  the life of the window.
+| Interaction | Existing/required transport | Must remain isolated from |
+|---|---|---|
+| Pane context copy | Existing title pill + native `PANE_DRAG_MIME` + copy | Reorder |
+| Pane reorder | New grip + installed `@dnd-kit/core` pointer/keyboard sensors | Context/file/skill DnD |
+| Files/images/skills | Existing native HTML5 `DataTransfer` handlers | Reorder |
+| Pane resize | Existing divider pointer capture | Reorder |
+| Window movement | Electron titlebar drag regions | Pane headers |
 
-### Fix direction (not yet scoped — needs a call)
+- `@dnd-kit/core` is already installed and used by Tasks; `@dnd-kit/sortable` is not installed and
+  is unnecessary for target-slot swaps. `app/package.json:35`;
+  `app/src/renderer/features/tasks/TasksRoom.tsx:87-89,187-225`.
+- The grip is a real `type="button"`, always discoverable at low opacity, fully visible on
+  hover/focus, and labelled “Reorder <name>, position X of N”. Use a 4–6 px pointer activation
+  threshold, `touch-action: none`, focus ring, and `noDragStyle()` defensively.
+- PaneGrid currently activates a session on every captured mousedown. Exempt
+  `[data-pane-reorder-handle]` so starting a reorder does not change active session or clear
+  attention. `app/src/renderer/features/command-room/PaneGrid.tsx:310-315`.
+- Temporarily suppress pointer hit-testing on terminal surfaces only for the active reorder, so
+  crossing a TUI cannot emit mouse-tracking bytes. Always restore on drop, Escape, pointer cancel,
+  workspace/route change, lost capture, and unmount.
+- The source stays in layout and dims; the drag overlay is a lightweight header label, never a
+  cloned live terminal. The target gets a clear 2 px ring. Reduced motion disables settle
+  animation.
+- Disable reordering with one pane or during fullscreen. A minimised pane remains reorderable from
+  its visible header.
+- Keyboard: Tab focuses the grip; Space/Enter picks up, arrow keys select a target slot,
+  Space/Enter drops, and Escape cancels. Announce position changes via a polite live region and
+  restore focus to the moved grip by session ID after a cross-row remount.
 
-The structural fix is to **stop reporting a content detection on the process-death channel**. Options:
+### Confirmed bugs and follow-ups discovered during review
 
-1. **Own channel (recommended)** — emit a distinct `pty:auth-error` → a *warning* chip/toast on a pane that
-   stays `running`. Never writes `status`, never offers Relaunch. Kills the whole class: an advisory can't
-   masquerade as a death.
-2. **Narrow the scanner** — anchor patterns to codex's own error framing and/or only scan when the CLI is
-   not mid-turn. Reduces false positives but does **not** fix "true positive still paints a crash".
-3. **Drop the scan** — #207's Task 5 as wired has no correct outcome; deleting it is strictly better than
-   today's behavior.
+- 🐞 **[low, S] resize persistence accepts invalid finite fractions** — `parseFracs` validates only
+  types and array lengths, so negative/zero/non-normalized numeric values can reach CSS tracks.
+  Harden with finite, positive, minimum, and normalized-sum checks before adding another persisted
+  layout dimension. `app/src/renderer/features/command-room/PaneGrid.tsx:74-99`.
+- 🐞 **[low, S] Command Room advertises a pane-focus shortcut with no implementation** — the header
+  displays `⌘⌥<N>` and PaneHeader tooltips mention it, but no matching key handler exists in the
+  renderer. Either implement it against visual order or remove the claim; pane reordering must not
+  make this stale affordance more misleading.
+  `app/src/renderer/features/command-room/CommandRoom.tsx:1-8,434-436`;
+  `app/src/renderer/features/command-room/PaneHeader.tsx:416-435`.
+- 🧹 **[low, S] stale CommandRoom layout comment says “no layout state, no persistence”** — resize
+  fractions are already persisted by PaneGrid. Update the comment when introducing order state.
+  `app/src/renderer/features/command-room/CommandRoom.tsx:30-34`;
+  `app/src/renderer/features/command-room/PaneGrid.tsx:154-179,215-221`.
+- ⚠️ **[medium, M] visible order can diverge from control-plane order** — `get_app_state` publishes
+  database `pane_index` order as `orderedSessionIds`. If that field is meant to describe what the
+  human sees, reconcile the same UI-order record main-side; otherwise rename/document it as storage
+  slot order. `app/src/main/core/control/app-state.ts:105-120,303-306`.
+- ⚠️ **[medium, M] multi-window layout updates are not live-broadcast** — KV is shared, but two
+  windows showing the same workspace would not immediately observe each other's reorder. Define
+  last-writer-wins plus a layout-changed event, or explicitly scope V1 ordering per window/device.
+  The workspace UI helper is best-effort persistence only.
+  `app/src/renderer/lib/workspace-ui-kv.ts:18-46`.
 
-(1) is the standard-first fix; (2) alone is a symptom patch. Grep the sibling `pty:error` broadcast sites
-(`rpc-router.ts:1729,1739,1785,2213,2888,3044,3127`) when touching the channel — they are the legitimate
-crash-classifier callers and must keep their real payloads. Adding a channel = 4 mirror sites
-(`shared/rpc-channels.ts:420` allowlist included) or preload silently rejects it.
+### Required regression matrix
 
-### ✅ FIXED (2026-07-17, same branch) — option 1 built
+#### Pure helpers
 
-TDD'd on `fix/codex-false-crash`: dedicated **`pty:auth-error` advisory channel**
-(`{ sessionId, kind, atMs }`; EVENTS allowlist + SESSION_ROUTED_EVENTS + parity tests) →
-`MARK_SESSION_AUTH_ERROR` sets `session.authError` only — **status/exitCode/exitedAt untouched, pane stays
-`running`** → PaneShell renders a dismissible amber `AuthWarningBanner` (no Relaunch; a real crash wins the
-surface). `onCodexAuthError` no longer writes the DB or broadcasts `pty:error`; detection + the control-plane
-`authErrorSnapshot` surface are unchanged. Kills the false-crash banner AND the boot-resume orphan AND the
-slot-collision window structurally (no status flip ever happens on this path). Residual (parked, low):
-scanner patterns still generic (`sign in again` is plain English — advisory tier makes misfires cosmetic
-now); registry `authErrors` first-detection-only per session (chip is dismissible; clears on relaunch).
-Gate: tsc 0 · eslint 0 · vitest 4994/4996 (2 skipped) · build 0.
+- Same source/target or unknown IDs are no-ops and preserve the original reference.
+- 3-, 5-, 7-, and 12-pane same-row/cross-row swaps remain exact permutations.
+- Reconciliation drops malformed, duplicate, stale, and foreign IDs; appends every missing live ID
+  exactly once in backend order.
+- Relaunch replacement substitutes the new ID at the old ID's visual index.
 
----
+#### Component behavior
 
-## 🔬 Deep review findings (2026-07-18) — DB session/workspace persistence audit (relaunch · force-quit · rename · perf)
+- DOM cell order and displayed pane ordinals follow the presentation order.
+- Same-shape reorder preserves `--pg-rows`, every `--pg-cols`, and the resize KV blob byte-for-byte.
+- Active/focused/attention IDs remain unchanged; dragging the grip does not focus the source.
+- Same-row and cross-row swaps commit once; same-target, outside-drop, Escape, cancel, and unmount
+  leave order unchanged and fully restore cursor/selection/pointer state.
+- Existing title-pill drag still emits only context-copy intent and works in PaneFooter, SideChat,
+  and Jorvis. Grip drag never injects context.
+- Terminal selection, TUI mouse tracking, Finder/image/file-tree/skill drops, rename, header actions,
+  divider resize, and Electron titlebar drag remain unchanged.
+- Fullscreen and one-pane grids disable reorder; minimised panes can still move.
+- Cross-row commit performs at most one final refit and produces no intermediate SIGWINCH storm.
 
-_Full trace of pane persistence for claude/codex panes (spawn INSERT → quit → boot resume → rename), verified
-against the LIVE operator DB read-only (291 `agent_sessions` rows, 17 workspaces). Headline: force-quit/crash
-is the RELIABLE lane (no writes land → janitor heals → resume); graceful quit is a per-pane race._
+#### Persistence and lifecycle
 
-### Confirmed bugs
+- Order is isolated per workspace, survives reopen/restart, rejects stale async reads, and remains
+  usable when a best-effort KV write fails.
+- Close prunes the ID without resurrection; add/split appends; crash-relaunch replaces in place;
+  redock/refetch does not reset visual order.
+- A moved terminal keeps the same session ID, PTY PID, scrollback/cache entry, provider metadata,
+  worktree, active state, and attention state.
 
-> **2026-07-18 (same day):** the operator's "relaunch resumes an OLD irrelevant session" report led to a
-> second investigation pass that found TWO MORE root causes stacked on the first one — (3) boot auto-resume
-> was SLOT-BLIND (`listEligibleRows` respawned EVERY open running/exited(-1) row, so stale siblings'
-> old conversations came back and out-ranked the operator's actual-latest stranded row; live-DB receipt:
-> SigmasDashboard slot 0 had FIVE open rows, boot-eligible 7→3 after the fix) and (4) `handleRelaunch`
-> (`CommandRoom.tsx:286`) never wrote `closed_at` on the crashed row (renderer-only REMOVE_SESSION) so
-> stale siblings kept accumulating. All four fixed + gate-green on `fix/session-persistence-correctness`:
-> quit-time `markAllExpectedExit`, slot-aware ranked eligibility (mirror of lastResumePlan), janitor
-> supersession sweep (`closeSupersededPaneRows` — live-DB dry-run: 17 rows healed, 0 running rows touched),
-> relaunch row-close, rename carry-forward. Plan:
-> `docs/superpowers/plans/2026-07-18-session-persistence-correctness.md`.
+#### Real Electron smoke
 
-- ~~🐞 **[high, S] quit-window race strands live panes as `status='error'`**~~ → **FIXED on
-  `fix/session-persistence-correctness`** (2026-07-18): `registry.markAllExpectedExit()` before `killAll()`
-  + SOURCE-ordering test (`rpc-router.shutdown-order.test.ts`). Original finding kept below for the record.
+- Exercise 3/5/7/12 panes at minimum and wide window sizes.
+- Resize first, swap within/across rows, type into the moved pane, restart, and verify order,
+  focus glow, scrollback, square corners, no overlap/dead space, and no duplicate/garbled terminal.
+- Preserve the existing ≥90% pane-grid fill assertion.
+  `app/tests/e2e/pane-split.spec.ts:89-115`.
 
-- 🐞 **[high, S] quit-window race strands live panes as `status='error'` — silently excluded from boot
-  auto-resume AND the "Respawn fresh" bucket** — `shutdownRouter` (`app/src/main/rpc-router.ts:3671-3724`)
-  flips `routerShuttingDown` (suppresses notifications only) then `killAll()`; `PtyRegistry.killAll`
-  (`app/src/main/core/pty/registry.ts:635`) never sets `expectedExit`, and the quit sequence deliberately
-  holds the DB open ≤2.5s (`waitForPidsExit`) for the win32 WAL checkpoint. Any pane whose process dies
-  inside that window fires onExit → `isPtyCrash(false, code 0, signal 15)` → crash → `status='error'` LANDS
-  (`app/src/main/core/workspaces/launcher.ts:678-702`; twin `resume-launcher.ts:296-339`). Boot auto-resume
-  eligibility is `status='running' OR (exited AND exit_code=-1)` (`resume-launcher.ts:342-368`); the
-  respawn-fresh bucket is `exited/-1` only (`resume-launcher.ts:474-502`) — `'error'` rows are in NEITHER,
-  so the pane simply never comes back (no toast either — it's filtered out of the SQL, not "failed").
-  Slow-dying panes escape (write lands after `closeDatabase` → swallowed → row stays `running` → boot
-  janitor heals to exited/-1 → resumes fine). **Live-DB receipts: 128 open `exited/-1` rows (janitor lane,
-  works) vs 3 open stranded `error/0` rows (race fired); 118 `error/0` rows with `closed_at` set are
-  deliberate closes — harmless, the PR #221 shield working.** Fix (structural — one lane for ALL quits):
-  mark every live record expectedExit before `killAll()` (e.g. `registry.markAllExpectedExit()`, mirroring
-  `markExpectedExit` `registry.ts:528`) so quit-time exits skip the status write entirely and every pane
-  rides janitor→exited/-1→resume. All three exit-writer twins already honor `rec.expectedExit`
-  (`launcher.ts:684`, `resume-launcher.ts:308`, `swarms/factory-spawn.ts`). Win32 likely strands MORE
-  (taskkill is faster than SIGTERM-drain).
+### Verification receipt
 
-- ~~🐞 **[medium, S-M] operator pane rename lost on the workspace-picker resume lane**~~ → **FIXED on
-  `fix/session-persistence-correctness`** (2026-07-18): `name` + `display_provider_id` carry-forward inside
-  the insert txn (`workspaces/launcher.ts`), keyed on `(workspace_id, external_session_id)`. Original
-  finding kept below for the record.
+Focused baseline before documentation edit:
 
-- 🐞 **[medium, S-M] operator pane rename (`agent_sessions.name`) lost on the workspace-picker resume
-  lane** — rename persists via `panes.rename` (`rpc-router.ts:1985-2007`, immediate DB write → crash-safe)
-  and survives boot auto-resume because `resumeWorkspacePanes` reuses the SAME row in place
-  (`markResumeRunning`, `resume-launcher.ts:284-294`). But reopening a workspace through the launcher
-  picker (SessionStep → `panes.lastResumePlan` → `executeLaunchPlan`) INSERTs a brand-new row with
-  `name: null` (`workspaces/launcher.ts:532-557`, explicit at `:664-666`); `lastResumePlan` doesn't even
-  return `name` (`rpc-router.ts:1820-1858`). The new row wins rank-then-filter (`rn=1`: running + newest
-  first) in `listForWorkspace` (`rpc-router.ts:1900-1923`), shadowing the old named row forever →
-  "Wren → Frontend-Agent" reverts to the alias. Fix: inside the insert transaction, carry `name`
-  (+ `display_provider_id`) forward from the newest open row with the same `external_session_id`
-  (fallback key: same `workspace_id`+`pane_index`). NOTE: auto-label can NOT clobber names — NAME and
-  SIGMA::LABEL are separate slots; the label is renderer-ephemeral (`PaneHeader.tsx:205-211`).
+```text
+Test Files  5 passed (5)
+Tests       117 passed (117)
+```
 
-- 🐞 **[low, M] codex/kimi/opencode external-session-id capture window loses resume-by-id on an early
-  crash** — claude's id is pre-assigned at spawn and lands in the INSERT itself (`launcher.ts:527,548`) →
-  crash-safe from t=0. codex/kimi/opencode rely on the disk-scan retries at +2/+5/+15s
-  (`rpc-router.ts:578-628`); a crash inside that window leaves `external_session_id` NULL → next boot
-  deliberately spawns FRESH (session-collapse policy, `resume-launcher.ts:69-89`) → the conversation is
-  orphaned (recoverable only via the CLI's own resume picker). Deterministic codex capture via its stdout
-  banner is the already-noted follow-up (`resume-launcher.ts:735-738` comment).
-
-### Verified-good (receipts, no action)
-
-- **Force-quit/crash correctness** — deliberate closes write `closed_at` synchronously BEFORE the kill
-  (`pty/mark-pane-closed.ts:14-22`); a crash never resurrects a closed pane, and the late `'error'` write
-  can't un-close it. Boot janitor heals zombies (`db/janitor.ts:26-50`); PR #221 rank-then-filter
-  ghost-resurrection fix intact at both mirror sites.
-- **Workspace/room restore** — kv `app.lastSession`; 2s trailing-edge flush caps crash loss at ~2s
-  (`session-restore.ts:53-98`); before-quit final flush correctly ordered BEFORE `closeDatabase`
-  (`electron/main.ts:1104-1117`).
-- **Renames are crash-safe in-session** — written synchronously at rename time; 17 named rows live, all
-  currently-running named panes intact (Backend-Agent, Frontend-Agent, SAT-Agent, …).
-
-### PR #240 review minors (parked 2026-07-18 — reviewer verdict GREEN 91/100, merged 255207d)
-
-- 🐞 **[low, S] rename carry-forward misses a janitor-closed row** — `app/src/main/core/workspaces/launcher.ts`
-  carry-forward SELECT filters `closed_at IS NULL`; if the boot janitor's `closeSupersededPaneRows` already
-  soft-closed the row holding the operator's rename (non-winner sibling) and the operator later picks that
-  OLD session from the disk picker, the SELECT matches nothing → name reverts to the alias. NOT a
-  regression (this lane always lost the name pre-#240; the common live-winner case IS fixed). Fix: drop the
-  `closed_at IS NULL` filter, or order open-first with a newest-closed fallback, so the name follows the
-  session id regardless of the sweep — and add a test that actually exercises the WHERE (the current fake
-  `get` ignores it).
-- **[test, S] slot-rank CTE never runs on real SQLite** — validated via JS mirror + SQL-shape tripwires
-  only (better-sqlite3 can't load under vitest); NULL-partition/collation semantics unverified by unit
-  tests. Mitigated: byte-for-byte mirror of the shipped PR #221 queries + live-DB dry-runs during the
-  audit. Build when a real-SQLite test harness lands.
-- **[intended] `markAllExpectedExit` swallows a natural crash inside the ≤2.5s quit window** — the pane is
-  auto-resumed next boot instead of surfacing a crash banner. Deliberate tradeoff (resume > stranded
-  error at shutdown); recorded so nobody "fixes" it back.
-
-### Optimizations (all LOW — the DB is healthy: 1.4MB, 342 pages, freelist 0, largest table 291 rows)
-
-- **[db] `PRAGMA optimize` on close** — SQLite-recommended one-liner in `closeDatabase()`
-  (`db/client.ts:368`). Effort: S.
-- **[db] janitor row GC** — purge soft-deleted (`closed_at`) + ancient exited rows older than ~N days;
-  keep-set must stay ⊇ resume/rehydrate reads (reaper rule). 291 rows in ~2 months — cosmetic today.
-  Build when `agent_sessions` > ~5k rows. Effort: S.
-- **[db] periodic `wal_checkpoint(PASSIVE)`** — the only checkpoint today is at quit, and the app now runs
-  24/7 (Jorvis). WAL is 523KB — fine. Build when a WAL is observed >16MB mid-run. Effort: S.
-- **[ram] non-finding** — main-process scrollback is bounded 256KiB/pane (`pty/ring-buffer.ts:4`, ≈4MB at
-  15 panes); SQLite page cache is default (~2MB). DB layer is NOT where SigmaLink's RAM goes — renderer/
-  xterm + child CLI processes are. No DB-side action.
+Suites: pane-grid shape, PaneGrid, PaneDivider, PaneHeader, and the existing workspace
+drag-to-reorder precedent. No production code was changed during this review.
