@@ -21,14 +21,17 @@ export function parsePaneOrder(raw: string | null): string[] {
     typeof parsed !== 'object'
     || parsed === null
     || Array.isArray(parsed)
-    || parsed.version !== PANE_ORDER_VERSION
-    || !Array.isArray(parsed.sessionIds)
   ) {
     return [];
   }
 
+  const record = parsed as Record<string, unknown>;
+  if (record.version !== PANE_ORDER_VERSION || !Array.isArray(record.sessionIds)) {
+    return [];
+  }
+
   const ids = new Set<string>();
-  for (const id of parsed.sessionIds) {
+  for (const id of record.sessionIds) {
     if (typeof id === 'string' && id !== '') {
       ids.add(id);
     }
