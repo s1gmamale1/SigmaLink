@@ -212,14 +212,16 @@ export function usePaneOrder({
     newId: string,
   ): boolean => {
     const isActiveWorkspace = latestWorkspaceIdRef.current === targetWorkspaceId;
-    const currentLoadedOrder = isActiveWorkspace
+    const loadedOrderMatchesTarget =
+      loadedOrderRef.current.workspaceId === targetWorkspaceId;
+    const currentLoadedOrder = loadedOrderMatchesTarget
       ? loadedOrderRef.current
       : ordersByWorkspaceRef.current.get(targetWorkspaceId);
     if (!currentLoadedOrder || currentLoadedOrder.workspaceId !== targetWorkspaceId) {
       return false;
     }
 
-    const currentOrder = isActiveWorkspace
+    const currentOrder = isActiveWorkspace && loadedOrderMatchesTarget
       ? latestOrderedSessionIdsRef.current
       : currentLoadedOrder.preferredIds;
     const nextOrder = replacePaneOrderId(currentOrder, oldId, newId);

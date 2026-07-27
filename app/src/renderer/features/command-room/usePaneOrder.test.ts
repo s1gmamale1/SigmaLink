@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { useLayoutEffect } from 'react';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -527,6 +528,105 @@ describe('usePaneOrder races and passive canonical changes', () => {
     rerender({
       workspaceId: 'ws-b',
       canonicalSessionIds: ['b1', 'b2'],
+    });
+    await waitFor(() => {
+      expect(result.current.orderedSessionIds).toEqual(['b2', 'b1']);
+    });
+    expect(writeWorkspaceUiMock).not.toHaveBeenCalledWith(
+      'ws-b',
+      'commandRoom.paneOrder',
+      expect.any(String),
+    );
+  });
+
+  it('retains a layout-phase replacement while active workspace state still belongs to the previous workspace', async () => {
+    const secondWorkspaceARead = deferred<string | null>();
+    let workspaceAReadCount = 0;
+    readWorkspaceUiMock.mockImplementation((workspaceId) => {
+      if (workspaceId === 'ws-b') {
+        return Promise.resolve('{"version":1,"sessionIds":["b2","b1"]}');
+      }
+      workspaceAReadCount += 1;
+      return workspaceAReadCount === 1
+        ? Promise.resolve('{"version":1,"sessionIds":["a3","old","a1"]}')
+        : secondWorkspaceARead.promise;
+    });
+    const replacementResults: boolean[] = [];
+    const { result, rerender } = renderHook(
+      ({ workspaceId, canonicalSessionIds, replaceDuringLayout }: {
+        workspaceId: string;
+        canonicalSessionIds: string[];
+        replaceDuringLayout: boolean;
+      }) => {
+        const paneOrder = usePaneOrder({ workspaceId, canonicalSessionIds });
+        const { replaceSessionId } = paneOrder;
+        useLayoutEffect(() => {
+          if (replaceDuringLayout) {
+            replacementResults.push(
+              replaceSessionId('ws-a', 'old', 'new'),
+            );
+          }
+        }, [replaceDuringLayout, replaceSessionId]);
+        return paneOrder;
+      },
+      {
+        initialProps: {
+          workspaceId: 'ws-a',
+          canonicalSessionIds: ['a1', 'old', 'a3'],
+          replaceDuringLayout: false,
+        },
+      },
+    );
+    await waitFor(() => {
+      expect(result.current.reorderReady).toBe(true);
+    });
+
+    rerender({
+      workspaceId: 'ws-b',
+      canonicalSessionIds: ['b1', 'b2'],
+      replaceDuringLayout: false,
+    });
+    await waitFor(() => {
+      expect(result.current.orderedSessionIds).toEqual(['b2', 'b1']);
+      expect(result.current.reorderReady).toBe(true);
+    });
+    writeWorkspaceUiMock.mockClear();
+
+    rerender({
+      workspaceId: 'ws-a',
+      canonicalSessionIds: ['a1', 'old', 'a3'],
+      replaceDuringLayout: true,
+    });
+
+    expect(replacementResults).toEqual([true]);
+    expect(result.current.reorderReady).toBe(false);
+    expect(writeWorkspaceUiMock).not.toHaveBeenCalled();
+
+    rerender({
+      workspaceId: 'ws-a',
+      canonicalSessionIds: ['a1', 'a3', 'new'],
+      replaceDuringLayout: false,
+    });
+    expect(result.current.orderedSessionIds).toEqual(['a3', 'new', 'a1']);
+    act(() => {
+      secondWorkspaceARead.resolve('{"version":1,"sessionIds":["a3","old","a1"]}');
+    });
+    await waitFor(() => {
+      expect(result.current.reorderReady).toBe(true);
+    });
+
+    expect(result.current.orderedSessionIds).toEqual(['a3', 'new', 'a1']);
+    expect(writeWorkspaceUiMock).toHaveBeenCalledTimes(1);
+    expect(writeWorkspaceUiMock).toHaveBeenCalledWith(
+      'ws-a',
+      'commandRoom.paneOrder',
+      '{"version":1,"sessionIds":["a3","new","a1"]}',
+    );
+
+    rerender({
+      workspaceId: 'ws-b',
+      canonicalSessionIds: ['b1', 'b2'],
+      replaceDuringLayout: false,
     });
     await waitFor(() => {
       expect(result.current.orderedSessionIds).toEqual(['b2', 'b1']);
