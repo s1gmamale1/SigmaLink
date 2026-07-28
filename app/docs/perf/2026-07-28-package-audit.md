@@ -115,3 +115,65 @@ is not a production dependency and is absent from the installed v3.0.0 app.
 The existing fallback to renderer Web Speech is therefore unchanged by this
 prune; adding native voice-mac packaging would be separate product work, not a
 module removed by this change.
+
+## After sizes
+
+`pnpm run electron:pack:mac` completed successfully and produced both macOS
+architectures.
+
+| Surface | Before | After | Change |
+|---|---:|---:|---:|
+| Installed x64 `SigmaLink.app` / packaged x64 app | 380 MB | 274 MB | -106 MB (-28%) |
+| Installed x64 `SigmaLink.app` / packaged arm64 app | 380 MB | 266 MB | -114 MB (-30%) |
+| Packaged arm64 `app.asar` | n/a | 16 MB | n/a |
+| Packaged arm64 `app.asar.unpacked` | n/a | 24 MB | n/a |
+
+The arm64 comparison is directional rather than architecture-for-architecture:
+the installed baseline is the x64-only v3.0.0 build. The new x64 package is the
+direct comparison. The unpacked arm64 runtime trees are 22 MB of
+`better-sqlite3`, 2.8 MB of `node-pty`, and 48 KB of
+`@sigmalink/voice-whisper`; the small loader dependencies remain packed in
+`app.asar`.
+
+## Package verification
+
+- `lipo -archs` reports `arm64` for the arm64 application's main executable.
+- `codesign --verify --deep --strict` accepts the ad-hoc signed arm64 app.
+- The unpacked module set is exactly `better-sqlite3`, `node-pty`, and
+  `@sigmalink/voice-whisper`.
+- The rebuilt `better_sqlite3.node` and active darwin-arm64 `node-pty` binaries
+  are Mach-O arm64 bundles.
+
+The local voice-whisper checkout has neither an initialized `whisper.cpp`
+submodule nor a prebuilt native binary, so its install hook produced the
+repository's supported JavaScript fallback. The package tree is present and
+unpacked as required, but this local artifact cannot prove native whisper
+loading. A release/CI builder with the prebuild must verify that surface.
+
+## Packaged macOS smoke
+
+The arm64 artifact was launched against the isolated
+`/tmp/sigmalink-pack-smoke` profile. A second launch of the same artifact and
+profile enabled a local DevTools protocol port solely to inspect the packaged
+renderer without touching the operator's live profile.
+
+- **PASS — launch:** the window reached `readyState: complete`; no diagnostic,
+  database, or native-module startup error appeared.
+- **PASS — database/sidebar:** a temporary plain-folder workspace was opened,
+  persisted, and listed in the sidebar.
+- **PASS — pane/input:** a real local pane spawned and rendered the shell round
+  trip `SIGMALINK_PACK_SMOKE_OK`.
+- **PASS — update request:** Settings → Check for updates reached the GitHub
+  feed. The packaged RPC returned `{ ok: true, version: "3.0.0" }`, and
+  electron-updater reported that 3.0.0 is already latest with no error.
+- **PASS — shutdown:** the packaged main process exited with status 0 and left
+  no isolated-profile helper or PTY process behind.
+
+The Updates tab remained visually on `Checking for updates…` after the
+successful same-version response. The backend returns the current version in
+that case, while the renderer waits for an `update-available` broadcast that
+electron-updater correctly does not emit. This is a state-handling defect, not
+evidence of a pruned runtime module, and is outside the two Task 5-owned files.
+
+Windows and Linux native resolution remains unverified locally and must pass
+the `e2e-matrix.yml` packaging smoke before merge.
