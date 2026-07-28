@@ -65,7 +65,11 @@ import { ctrlWheelShouldBubble } from './wheel-zoom';
 import { attachXtermLabelReader, detachLabelReader } from './label-reader';
 import { onAgentLabel } from './pane-title-orchestrator';
 import { shouldFollowTitle } from './pane-title-follow';
-import { DEFAULT_SCROLLBACK_ROWS, TERMINAL_CACHE_LIMIT } from './terminal-limits';
+import {
+  DEFAULT_SCROLLBACK_ROWS,
+  PARKED_SCROLLBACK_ROWS,
+  TERMINAL_CACHE_LIMIT,
+} from './terminal-limits';
 
 /** Maximum number of cached xterm instances before LRU eviction. */
 export { TERMINAL_CACHE_LIMIT } from './terminal-limits';
@@ -558,6 +562,7 @@ export function attachToHost(entry: CacheEntry, host: HTMLElement): void {
   const root = entry.terminal.element;
   if (!root) return;
   if (root.parentNode !== host) host.appendChild(root);
+  entry.terminal.options.scrollback = DEFAULT_SCROLLBACK_ROWS;
   entry.lastAccessed = Date.now();
   loadWebglAddon(entry);
 }
@@ -582,6 +587,11 @@ export function detachFromHost(entry: CacheEntry): void {
     }
     entry.webglAddon = null;
   }
+  // Trim-on-park: a parked pane is offscreen, so deep history costs memory
+  // nobody is reading. The attached path keeps DEFAULT_SCROLLBACK_ROWS.
+  // Does NOT dispose the instance or drop the PTY subscription — the parking
+  // contract at the top of this file still holds.
+  entry.terminal.options.scrollback = PARKED_SCROLLBACK_ROWS;
 }
 
 /**

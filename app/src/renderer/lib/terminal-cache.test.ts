@@ -38,6 +38,7 @@ interface MockTerm {
   getSelection: ReturnType<typeof vi.fn>;
   cols: number;
   rows: number;
+  options: Record<string, unknown>;
   focus: ReturnType<typeof vi.fn>;
   attachCustomWheelEventHandler: ReturnType<typeof vi.fn>;
   __ctorArg: unknown;
@@ -53,6 +54,7 @@ vi.mock('@xterm/xterm', () => {
     element: HTMLElement | undefined = undefined;
     cols = 80;
     rows = 24;
+    options: Record<string, unknown> = {};
     __ctorArg: unknown;
     open = vi.fn((parent: HTMLElement) => {
       // Mimic xterm's behaviour: append a child to the provided parent
@@ -82,6 +84,7 @@ vi.mock('@xterm/xterm', () => {
     attachCustomWheelEventHandler = vi.fn();
     constructor(opts: unknown) {
       this.__ctorArg = opts;
+      this.options = { ...(opts as Record<string, unknown>) };
       this.__id = `t${++nextTermId}`;
       createdTerms.push(this as unknown as MockTerm);
     }

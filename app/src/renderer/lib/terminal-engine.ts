@@ -305,6 +305,23 @@ export class TerminalEngine {
     return this.term.buffer.active.length;
   }
 
+  /**
+   * Bound the retained scrollback to `maxRows`, discarding the OLDEST rows.
+   *
+   * Used to shrink parked (offscreen) panes. xterm has no public row-eviction
+   * API; assigning a smaller `scrollback` makes it drop the oldest rows
+   * immediately, and restoring the option afterwards lets the pane keep
+   * growing from the trimmed base. The listener, the PTY subscription, and
+   * the visible viewport are all untouched.
+   */
+  trimScrollback(maxRows: number): void {
+    if (maxRows <= 0) return;
+    if (this.bufferLength <= maxRows) return;
+    const previous = this.term.options.scrollback ?? DEFAULT_SCROLLBACK_ROWS;
+    this.term.options.scrollback = maxRows;
+    this.term.options.scrollback = previous;
+  }
+
   /** Absolute cursor position in the active buffer (row = baseY + cursorY). */
   get cursor(): { row: number; col: number } {
     const buf = this.term.buffer.active;
