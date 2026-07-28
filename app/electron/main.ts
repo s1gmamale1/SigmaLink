@@ -21,6 +21,7 @@ import { isSpeech as energyIsSpeech } from '../src/shared/audio-energy';
 import { matchesWakeWord as wakeMatch } from '../src/shared/wake-word';
 import { getModelById as getVoiceModelById, getDownloadedModelPath as getDownloadedVoiceModelPath } from '../src/main/core/voice/model-registry';
 import { maybeCheckOnBoot } from './auto-update';
+import { resolveMacArch } from './update-asset';
 import { isAllowedEvent } from '../src/shared/rpc-channels';
 import { appendDiagnostic, attachRendererLogCapture, formatError, isCrashGoneReason } from '../src/main/diagnostics-log';
 import {
@@ -583,7 +584,18 @@ function buildDiagnosticHtml(checks: NativeModuleCheck[]): string {
     node: process.versions.node,
     chrome: process.versions.chrome ?? 'unknown',
     platform: process.platform,
-    arch: process.arch,
+    arch:
+      process.platform === 'darwin'
+        ? (() => {
+            const effective = resolveMacArch({
+              processArch: process.arch,
+              runningUnderARM64Translation: app.runningUnderARM64Translation === true,
+            });
+            return app.runningUnderARM64Translation === true
+              ? `${process.arch} (translated — native ${effective})`
+              : process.arch;
+          })()
+        : process.arch,
   };
   const failureRows = failures
     .map(
