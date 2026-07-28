@@ -114,6 +114,26 @@ describe('DomTerminalView', () => {
     expect(getCachedEngine('d1')).toBeTruthy(); // engine survives unmount (cache-owned)
   });
 
+  it('parks the production DOM engine on unmount and retains its newest rows', async () => {
+    const sessionId = 'd-park';
+    const { unmount } = render(<DomTerminalView sessionId={sessionId} />);
+    await settle();
+    const entry = getCachedEngine(sessionId)!;
+    await new Promise<void>((resolve) => {
+      entry.engine.term.write(
+        Array.from({ length: 2200 }, (_, i) => `line-${i}\r\n`).join(''),
+        resolve,
+      );
+    });
+    expect(entry.engine.bufferLength).toBeGreaterThan(2032);
+
+    unmount();
+
+    expect(entry.engine.bufferLength).toBeLessThanOrEqual(2032);
+    expect(entry.engine.logicalLines().map((line) => line.text).join('\n')).toContain('line-2199');
+    expect(getCachedEngine(sessionId)).toBe(entry);
+  });
+
   it('keydown encodes through the InputEncoder to pty.write', async () => {
     const { container } = render(<DomTerminalView sessionId="d2" />);
     await settle();

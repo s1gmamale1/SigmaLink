@@ -43,7 +43,13 @@ vi.mock('@/renderer/lib/pty-exit-bus', () => ({
   },
 }));
 
-import { __resetEngineCache, destroyEngine, getCachedEngine, getOrCreateEngine } from './engine-cache';
+import {
+  __resetEngineCache,
+  destroyEngine,
+  getCachedEngine,
+  getOrCreateEngine,
+  setEngineMounted,
+} from './engine-cache';
 import { __resetTitleFollow, setTitleFollow } from './pane-title-follow';
 
 function engineText(entry: ReturnType<typeof getOrCreateEngine>): string {
@@ -71,6 +77,30 @@ describe('engine-cache', () => {
     await Promise.resolve();
     const entry = getOrCreateEngine('scrollback-setting');
     expect(entry.engine.term.options.scrollback).toBe(2500);
+  });
+
+  it('trims the oldest DOM-engine rows when parked without dropping the cache or PTY subscription', async () => {
+    const sessionId = 'parked-dom';
+    const entry = getOrCreateEngine(sessionId);
+    setEngineMounted(sessionId, true);
+    await settle();
+
+    await new Promise<void>((resolve) => {
+      dataSubs.get(sessionId)!({
+        sessionId,
+        data: Array.from({ length: 2400 }, (_, i) => `line-${i}\r\n`).join(''),
+      });
+      entry.engine.term.write('', resolve);
+    });
+    expect(entry.engine.bufferLength).toBeGreaterThan(2032);
+
+    setEngineMounted(sessionId, false);
+
+    expect(entry.mounted).toBe(false);
+    expect(entry.engine.bufferLength).toBeLessThanOrEqual(2032);
+    expect(engineText(entry)).toContain('line-2399');
+    expect(getCachedEngine(sessionId)).toBe(entry);
+    expect(dataSubs.has(sessionId)).toBe(true);
   });
 
   it('seeds from snapshot then drains pending without duplicating the overlap', async () => {

@@ -21,6 +21,7 @@ import { shouldFollowTitle } from './pane-title-follow';
 import {
   DEFAULT_SCROLLBACK_ROWS,
   ENGINE_CACHE_LIMIT,
+  PARKED_SCROLLBACK_ROWS,
   resolveScrollbackRows,
 } from './terminal-limits';
 
@@ -191,6 +192,16 @@ export function getCachedEngine(sessionId: string): EngineCacheEntry | undefined
 
 export function getEngineCacheSize(): number {
   return cache.size;
+}
+
+/** Update the DOM presenter's mounted state. Parking trims only the oldest
+ * rows; the cache entry and its PTY subscription remain alive. */
+export function setEngineMounted(sessionId: string, mounted: boolean): void {
+  const entry = cache.get(sessionId);
+  if (!entry) return;
+  entry.mounted = mounted;
+  entry.lastAccessed = Date.now();
+  if (!mounted) entry.engine.trimScrollback(PARKED_SCROLLBACK_ROWS);
 }
 
 /** Test-only: wipe every cached engine. */
