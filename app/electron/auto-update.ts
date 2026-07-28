@@ -7,6 +7,7 @@ import path from 'node:path';
 import type { UpdateInfo } from 'electron-updater';
 import { getRawDb } from '../src/main/core/db/client';
 import { download as httpDownload } from '../src/main/lib/http-download';
+import { pickLinuxAppImage, pickMacDmg, resolveMacArch } from './update-asset';
 
 const KV_OPT_IN = 'updates.optIn';
 const KV_LAST_CHECK = 'updates.lastCheckTimestamp';
@@ -65,7 +66,7 @@ function resolveMacDmgUrl(info: UpdateInfo, fileUrl: string): string {
 }
 
 function resolveLinuxAppImageUrl(info: UpdateInfo): { url: string; name: string } | null {
-  const file = info.files.find((f) => f.url.endsWith('.AppImage'));
+  const file = pickLinuxAppImage(info.files, process.arch);
   if (!file) return null;
   return { url: resolveMacDmgUrl(info, file.url), name: file.url };
 }
@@ -84,9 +85,15 @@ function configureUpdater(): void {
 
     if (process.platform === 'darwin') {
       // macOS: extract DMG URL and download manually to bypass Squirrel.Mac signature wall
-      const dmgFile = info.files.find(f => f.url.endsWith('.dmg'));
+      const arch = resolveMacArch({
+        processArch: process.arch,
+        runningUnderARM64Translation: app.runningUnderARM64Translation === true,
+      });
+      const dmgFile = pickMacDmg(info.files, arch);
       if (!dmgFile) {
-        broadcast('app:update-error', { error: 'No DMG found in release manifest' });
+        broadcast('app:update-error', {
+          error: `No ${arch} DMG found in release manifest`,
+        });
         return;
       }
       const dest = path.join(app.getPath('downloads'), `SigmaLink-${info.version}.dmg`);
