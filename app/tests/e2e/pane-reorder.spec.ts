@@ -13,9 +13,12 @@ import {
   type Page,
 } from '@playwright/test';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  createElectronTestProfile,
+  type ElectronTestProfile,
+} from '../../src/test-utils/electron-test-profile';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -124,7 +127,7 @@ async function activateCommandRoom(win: Page, workspace: WorkspaceRow): Promise<
 
 async function cleanupRun(
   app: ElectronApplication | null,
-  tmpRoot: string,
+  profile: ElectronTestProfile,
   bodyFailed: boolean,
 ): Promise<void> {
   const cleanupErrors: unknown[] = [];
@@ -134,7 +137,7 @@ async function cleanupRun(
     cleanupErrors.push(error);
   }
   try {
-    await fs.promises.rm(tmpRoot, { recursive: true, force: true });
+    await profile.close();
   } catch (error) {
     cleanupErrors.push(error);
   }
@@ -142,7 +145,7 @@ async function cleanupRun(
   if (cleanupErrors.length === 0) return;
   const cleanupFailure = new AggregateError(
     cleanupErrors,
-    `pane reorder cleanup failed for ${tmpRoot}`,
+    `pane reorder cleanup failed for ${profile.rootDir}`,
   );
   if (bodyFailed) {
     console.error('[pane-reorder] cleanup failed after test failure', cleanupFailure);
@@ -289,25 +292,20 @@ for (const paneCount of paneCounts) {
     `persisted pointer and keyboard pane swap — ${paneCount} panes`,
     async () => {
       test.setTimeout(180_000);
-      const tmpRoot = fs.mkdtempSync(
-        path.join(os.tmpdir(), `sigmalink-e2e-pane-reorder-${paneCount}-`),
+      const profile = createElectronTestProfile(
+        `sigmalink-e2e-pane-reorder-${paneCount}-`,
       );
-      const userDataDir = path.join(tmpRoot, 'user-data');
-      const workspaceRoot = path.join(tmpRoot, 'workspace');
+      const workspaceRoot = profile.workspaceDir;
 
       let app: ElectronApplication | null = null;
       let bodyFailed = false;
       try {
-        fs.mkdirSync(userDataDir);
-        fs.mkdirSync(workspaceRoot);
         expect(fs.existsSync(mainEntry), 'electron-dist/main.js is built').toBe(true);
         app = await electron.launch({
-          args: [mainEntry, `--user-data-dir=${userDataDir}`],
+          args: [mainEntry, ...profile.args],
           env: {
-            ...process.env,
+            ...profile.env,
             ELECTRON_DISABLE_SECURITY_WARNINGS: '1',
-            NODE_ENV: 'test',
-            SIGMA_TEST: '1',
           },
           timeout: 60_000,
         });
@@ -372,7 +370,7 @@ for (const paneCount of paneCounts) {
         const terminalInput = movedCell.locator('textarea[aria-label="terminal input"]');
         await expect(terminalInput).toHaveCount(1);
         await terminalInput.evaluate((input: HTMLTextAreaElement) => input.focus());
-        await win.keyboard.type(`printf '${marker}\\n'`);
+        await win.keyboard.type(`echo ${marker}`);
         await win.keyboard.press('Enter');
         await expect(movedCell).toContainText(marker, { timeout: 10_000 });
 
@@ -443,7 +441,7 @@ for (const paneCount of paneCounts) {
         bodyFailed = true;
         throw error;
       } finally {
-        await cleanupRun(app, tmpRoot, bodyFailed);
+        await cleanupRun(app, profile, bodyFailed);
       }
     },
   );

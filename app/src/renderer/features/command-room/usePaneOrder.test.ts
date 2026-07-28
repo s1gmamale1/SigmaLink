@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { useLayoutEffect } from 'react';
+import { createElement, StrictMode, useLayoutEffect, type ReactNode } from 'react';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -176,6 +176,56 @@ describe('usePaneOrder mutations', () => {
       'ws-1',
       'commandRoom.paneOrder',
       '{"version":1,"sessionIds":["b","new","a"]}',
+    );
+  });
+
+  it('composes batched pre-hydration replacements before resolving a partial saved order', async () => {
+    const read = deferred<string | null>();
+    readWorkspaceUiMock.mockReturnValue(read.promise);
+    const { result, rerender } = renderHook(
+      ({ canonicalSessionIds }: { canonicalSessionIds: string[] }) => usePaneOrder({
+        workspaceId: 'ws-1',
+        canonicalSessionIds,
+      }),
+      {
+        initialProps: {
+          canonicalSessionIds: ['a', 'old-a', 'b', 'old-b', 'c'],
+        },
+        wrapper: ({ children }: { children: ReactNode }) =>
+          createElement(StrictMode, null, children),
+      },
+    );
+
+    act(() => {
+      expect(result.current.replaceSessionId('ws-1', 'old-a', 'new-a')).toBe(true);
+      expect(result.current.replaceSessionId('ws-1', 'old-b', 'new-b')).toBe(true);
+    });
+    rerender({ canonicalSessionIds: ['a', 'b', 'c', 'new-a', 'new-b'] });
+    expect(result.current.orderedSessionIds).toEqual([
+      'a',
+      'new-a',
+      'b',
+      'new-b',
+      'c',
+    ]);
+    expect(writeWorkspaceUiMock).not.toHaveBeenCalled();
+
+    act(() => {
+      read.resolve('{"version":1,"sessionIds":["c","old-a","a"]}');
+    });
+    await waitFor(() => {
+      expect(result.current.reorderReady).toBe(true);
+    });
+
+    const expectedOrder = ['c', 'new-a', 'a', 'b', 'new-b'];
+    expect(result.current.orderedSessionIds).toEqual(expectedOrder);
+    expect(result.current.orderedSessionIds).not.toContain('old-a');
+    expect(result.current.orderedSessionIds).not.toContain('old-b');
+    expect(writeWorkspaceUiMock).toHaveBeenCalledTimes(1);
+    expect(writeWorkspaceUiMock).toHaveBeenCalledWith(
+      'ws-1',
+      'commandRoom.paneOrder',
+      JSON.stringify({ version: 1, sessionIds: expectedOrder }),
     );
   });
 
