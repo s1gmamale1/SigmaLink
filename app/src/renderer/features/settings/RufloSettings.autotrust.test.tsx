@@ -84,4 +84,18 @@ describe('RufloSettings — auto-trust toggle (SF-7)', () => {
     const label = await screen.findByText(/Pre-approves only/i);
     expect(label.textContent ?? '').toMatch(/third-party MCP servers .* still prompt/i);
   });
+
+  it('round-trips the visible-pane scrollback depth through KV', async () => {
+    kvStore.set('pty.scrollbackRows', '2500');
+    const RufloSettings = await loadComponent();
+    render(<RufloSettings />);
+
+    const input = await screen.findByLabelText('Scrollback rows (visible pane)');
+    await waitFor(() => expect((input as HTMLInputElement).value).toBe('2500'));
+
+    fireEvent.change(input, { target: { value: '4096' } });
+    await waitFor(() =>
+      expect(kvSet).toHaveBeenCalledWith('pty.scrollbackRows', '4096'),
+    );
+  });
 });

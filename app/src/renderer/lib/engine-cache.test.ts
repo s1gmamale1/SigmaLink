@@ -17,6 +17,9 @@ const orchestratorMock = vi.hoisted(() => ({
 vi.mock('@/renderer/lib/pane-title-orchestrator', () => orchestratorMock);
 
 const rpcMock = vi.hoisted(() => ({
+  kv: {
+    get: vi.fn(async () => '2500'),
+  },
   pty: {
     snapshot: vi.fn(async () => ({ buffer: '' })),
     write: vi.fn(async () => undefined),
@@ -64,6 +67,12 @@ afterEach(() => {
 });
 
 describe('engine-cache', () => {
+  it('creates engines with the persisted visible scrollback depth', async () => {
+    await Promise.resolve();
+    const entry = getOrCreateEngine('scrollback-setting');
+    expect(entry.engine.term.options.scrollback).toBe(2500);
+  });
+
   it('seeds from snapshot then drains pending without duplicating the overlap', async () => {
     let release!: (v: { buffer: string }) => void;
     rpcMock.pty.snapshot.mockImplementation(

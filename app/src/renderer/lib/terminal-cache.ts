@@ -69,6 +69,7 @@ import {
   DEFAULT_SCROLLBACK_ROWS,
   PARKED_SCROLLBACK_ROWS,
   TERMINAL_CACHE_LIMIT,
+  resolveScrollbackRows,
 } from './terminal-limits';
 
 /** Maximum number of cached xterm instances before LRU eviction. */
@@ -166,6 +167,19 @@ export interface CacheEntry {
 
 const cache = new Map<string, CacheEntry>();
 let parkingLot: HTMLDivElement | null = null;
+const KV_PTY_SCROLLBACK_ROWS = 'pty.scrollbackRows';
+let configuredScrollbackRows = DEFAULT_SCROLLBACK_ROWS;
+
+try {
+  void rpc.kv
+    .get(KV_PTY_SCROLLBACK_ROWS)
+    .then((raw) => {
+      configuredScrollbackRows = resolveScrollbackRows(raw);
+    })
+    .catch(() => undefined);
+} catch {
+  /* optional startup setting unavailable — keep the shipped default */
+}
 
 function ensureParkingLot(): HTMLDivElement {
   if (parkingLot && parkingLot.isConnected) return parkingLot;
@@ -258,7 +272,7 @@ function buildTerminalOptions(
     cursorBlink: true,
     cursorStyle: 'bar',
     allowTransparency: false,
-    scrollback: DEFAULT_SCROLLBACK_ROWS,
+    scrollback: configuredScrollbackRows,
     theme: xtermThemeFrom(activeTerminalPalette()),
     convertEol: true,
     // Required for the Unicode 11 width tables activated in getOrCreateTerminal
@@ -562,7 +576,7 @@ export function attachToHost(entry: CacheEntry, host: HTMLElement): void {
   const root = entry.terminal.element;
   if (!root) return;
   if (root.parentNode !== host) host.appendChild(root);
-  entry.terminal.options.scrollback = DEFAULT_SCROLLBACK_ROWS;
+  entry.terminal.options.scrollback = configuredScrollbackRows;
   entry.lastAccessed = Date.now();
   loadWebglAddon(entry);
 }

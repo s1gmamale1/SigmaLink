@@ -18,7 +18,11 @@ import { computeSnapshotOverlap } from './snapshot-overlap';
 import { attachEngineLabelReader, detachLabelReader } from './label-reader';
 import { onAgentLabel } from './pane-title-orchestrator';
 import { shouldFollowTitle } from './pane-title-follow';
-import { ENGINE_CACHE_LIMIT } from './terminal-limits';
+import {
+  DEFAULT_SCROLLBACK_ROWS,
+  ENGINE_CACHE_LIMIT,
+  resolveScrollbackRows,
+} from './terminal-limits';
 
 export { ENGINE_CACHE_LIMIT } from './terminal-limits';
 
@@ -39,6 +43,19 @@ export interface EngineCacheEntry {
 }
 
 const cache = new Map<string, EngineCacheEntry>();
+const KV_PTY_SCROLLBACK_ROWS = 'pty.scrollbackRows';
+let configuredScrollbackRows = DEFAULT_SCROLLBACK_ROWS;
+
+try {
+  void rpc.kv
+    .get(KV_PTY_SCROLLBACK_ROWS)
+    .then((raw) => {
+      configuredScrollbackRows = resolveScrollbackRows(raw);
+    })
+    .catch(() => undefined);
+} catch {
+  /* optional startup setting unavailable — keep the shipped default */
+}
 
 function evictOldestIfFull(): void {
   if (cache.size < ENGINE_CACHE_LIMIT) return;
@@ -72,7 +89,7 @@ export function getOrCreateEngine(sessionId: string): EngineCacheEntry {
       if (clean === '') return;
       void rpc.pty.write(sessionId, clean).catch(() => undefined);
     },
-  });
+  }, { scrollback: configuredScrollbackRows });
 
   const pending: string[] = [];
   let snapshotDone = false;
