@@ -29,6 +29,11 @@ Deferred items (FlowView scroll-pin churn, `logicalLines()` windowing, DECSET-25
 
 ## Confirmed bugs to fix first (hotlist)
 
+> **Status 2026-07-28 — all three FIXED on `perf/hardware-load-optimization`,
+> gate-verified, NOT yet merged.** B-1/B-3 in `b89d6f6` + `6760bee`, B-2 in
+> `e86d17c`. Shipping the fix does not rescue already-trapped installs; every
+> Apple Silicon user still needs one manual arm64 install.
+
 | # | Sev | Bug | Where | Effort |
 |---|-----|-----|-------|--------|
 | B-1 | **Critical** | macOS auto-update serves the **x64** DMG to every Mac, including Apple Silicon. `.find()` takes the first `.dmg` in `latest-mac.yml`, which electron-builder orders x64-first. Every ARM user is silently moved onto a Rosetta-translated build and can never escape via the in-app updater. | `electron/auto-update.ts:87` | S |
@@ -42,7 +47,12 @@ SigmaLink's own footprint, plus a large CPU/battery tax (renderer observed at
 
 ---
 
-## Phase 2 — Establish the arm64 baseline
+## Phase 2 — Establish the arm64 baseline — ⏳ OPERATOR-BLOCKED
+
+> `app/docs/perf/2026-07-28-arm64-baseline.md` does not exist. This is the only
+> phase no agent can execute. Until it lands, every RAM figure in Phases 3–5 is
+> **modeled, not measured** — the Phase 5 tuning constants were chosen against
+> the x64-under-Rosetta workload.
 
 **Goal.** Every later optimization is measured against a native-arm64 build
 rather than a Rosetta-translated one, so no effort is spent chasing translation
@@ -90,7 +100,11 @@ zero Rosetta regions on the native build.
 
 ---
 
-## Phase 3 — Arch-correct macOS updates
+## Phase 3 — Arch-correct macOS updates — ✅ IMPLEMENTED, awaiting merge
+
+> `6760bee` · `b89d6f6` · `e86d17c`. Gate green (`tsc` 0 · vitest 489 files /
+> 5106 passed · `eslint` 0), independently re-run. 11/11 arch-routing tests
+> pass including the asymmetric-fallback pair. Ships as PR 1.
 
 **Goal.** An Apple Silicon Mac that auto-updates lands on the arm64 build, and
 an Intel Mac never lands on an arm64 build it cannot execute.
@@ -146,7 +160,16 @@ with an arm64-only manifest → `null`. `pnpm tsc -b` and `pnpm eslint .` green.
 
 ---
 
-## Phase 4 — Stop shipping unused node_modules
+## Phase 4 — Stop shipping unused node_modules — ✅ IMPLEMENTED, blocked on CI
+
+> `4be7c96` (audit) · `75113d2` (prune + asar) · `1364f05` (restored v1.0.1
+> rationale). Verified on disk: **380 MB → 274 MB x64 / 266 MB arm64**, asar
+> restored with natives in `app.asar.unpacked`. Packaged-app macOS smoke passed
+> (launch · DB · pane round-trip · update check · clean shutdown). Audit:
+> `app/docs/perf/2026-07-28-package-audit.md`.
+>
+> **Merge blocker:** `e2e-matrix.yml` must be green on Windows + Linux. macOS
+> proves nothing about win32 native resolution. Ships as PR 2.
 
 **Goal.** The packaged app contains only the modules something actually resolves
 at runtime, cutting install size and cold-start file I/O without changing
@@ -203,7 +226,23 @@ three platforms.
 
 ---
 
-## Phase 5 — Renderer memory tuning
+## Phase 5 — Renderer memory tuning — ✅ IMPLEMENTED, savings UNMEASURED
+
+> `69edfb9` (limits centralized) · `7baeb93` (trim-on-park) · `5230f7a`
+> (`pty.scrollbackRows` setting) · `f968998` (DOM-path trim).
+>
+> **Review caught a production no-op:** `7baeb93` wired trim only to the xterm
+> presenter, but `renderer-mode.ts:14` sets `DEFAULT_RENDERER_MODE = 'dom'` and
+> no `panes.renderer%` KV override exists — so `trimScrollback()` had zero
+> production callers and saved nothing. `f968998` fixed it with
+> `setEngineMounted()`, called from `DomTerminalView`'s real mount/cleanup
+> effect (`:189` / `:400`), making `.mounted` a single choke point.
+>
+> **Built:** shared 8000-visible / 2000-parked limits · caches 32 → 20 ·
+> park/reattach trim on both presenters · `pty.scrollbackRows` KV round-trip.
+> **Spec-only:** the actual RAM saving — no native-arm64 before/after exists.
+> Constants were chosen against the x64-under-Rosetta 17-pane workload.
+> Ships as PR 3, but Phase 2 must land before any saving is claimed.
 
 **Goal.** A 17-pane session holds materially less renderer memory with no
 user-visible loss of scrollback on the panes the operator is actually looking
@@ -320,9 +359,13 @@ WKWebView equivalent.
 
 ## Effort / impact table
 
-| Item | Phase | Effort | Impact | Notes |
-|------|-------|--------|--------|-------|
-| arm64 baseline measurement | 2 | S | **High** | Zero code; gates Phase 5 |
-| Arch-correct macOS updates (B-1/B-2/B-3) | 3 | S | **High** | P0 bug; −468 MB + CPU for every ARM user |
-| Prune packaged `node_modules` + restore asar | 4 | M | Medium | ~110 MB install; cold-start I/O |
-| Renderer scrollback + LRU tuning | 5 | M | **High** | Largest single RAM lever; sizing depends on Phase 2 |
+| Item | Phase | Effort | Impact | Status |
+|------|-------|--------|--------|--------|
+| arm64 baseline measurement | 2 | S | **High** | ⏳ **operator-only, not done** — gates every RAM claim |
+| Arch-correct macOS updates (B-1/B-2/B-3) | 3 | S | **High** | ✅ implemented — PR 1, ready |
+| Prune packaged `node_modules` + restore asar | 4 | M | Medium | ✅ implemented — PR 2, needs win/linux CI |
+| Renderer scrollback + LRU tuning | 5 | M | **High** | ✅ implemented — PR 3; saving unmeasured until Phase 2 |
+
+**Rejected:** Electron → Tauri/Rust migration. ~630 dev-days (10–15 months
+operator-led) for 40–55 %, versus days for 30–40 % via Phases 2–5, and it would
+cost the CDP-based browser pane. See ADR-002.
