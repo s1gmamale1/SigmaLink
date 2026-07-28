@@ -15,6 +15,24 @@ files:
   - 'node_modules/node-pty/**/*'
   - 'node_modules/@sigmalink/voice-whisper/**/*'
   - 'node_modules/node-gyp-build/**/*'
+# v1.0.1 — native-module packaging fix.
+# v1.0.0 shipped with asar packing enabled but no asarUnpack patterns, so
+# better-sqlite3's .node file was packed inside the asar archive. Electron
+# cannot dlopen .node from inside an asar, and the `bindings` resolver walks
+# the filesystem looking for siblings, so the app crashed at first
+# `new Database(...)` with `Cannot find module 'bindings'`.
+#
+# Multiple asarUnpack glob patterns were tried in v1.0.1 development
+# (**/*.node, node_modules/<pkg>/**, node_modules/.pnpm/**/<pkg>/**) — all
+# successfully unpacked node-pty (which has its own postinstall heuristic in
+# electron-builder) but not better-sqlite3 / bindings / file-uri-to-path.
+# Root cause appears to be how pnpm content-addressed paths interact with
+# electron-builder's pattern matcher.
+#
+# v1.0.1 shipped with asar disabled entirely. The cost was ~50 MB of extra DMG
+# size + slightly slower cold-start (more file I/O). The benefit was a 100%
+# guarantee that the native modules load. The audited keep-list and verified
+# unpack patterns below are the tested replacement for that workaround.
 # Native modules cannot be dlopened from inside asar. Keep the application
 # packed, but leave every native runtime tree from the package audit as real
 # files on disk.
