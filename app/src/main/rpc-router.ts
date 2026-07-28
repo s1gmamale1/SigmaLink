@@ -3233,10 +3233,8 @@ async function buildRouter() {
     emit: (event, payload) => broadcast(event, payload),
   });
 
-  // v1.4.9 #07 — Notifications controller. Channels: notifications.list,
-  // notifications.unreadCount, notifications.markRead, notifications.markAllRead,
-  // notifications.markUnread, notifications.dismiss, notifications.clearRead,
-  // notifications.osTest (2026-07-03 — delivery self-check).
+  // Notifications controller. Versioned hydration uses the authoritative
+  // notifications.snapshot + notifications.page pair.
   const notificationsCtl = buildNotificationsController(notificationsManager, {
     osTest: () => osNotifier.notifyTest(),
   });
@@ -3765,7 +3763,7 @@ export async function shutdownRouter(): Promise<void> {
     /* ignore */
   }
   // v1.6.0-A — stop ALL per-workspace HTTP daemons (one per open workspace).
-  // SIGTERM → 5s drain → SIGKILL idiom mirrors MemoryMcpSupervisor.stopAll().
+  // Each daemon owns a bounded SIGTERM → 5s drain → SIGKILL escalation.
   // H-13 — AWAIT the drain (was fire-and-forget): the supervisor self-bounds at
   // ~5s (SIGTERM→drain→SIGKILL), so awaiting can't hang quit but DOES ensure the
   // daemons are reaped before the process exits (no orphaned HTTP servers).

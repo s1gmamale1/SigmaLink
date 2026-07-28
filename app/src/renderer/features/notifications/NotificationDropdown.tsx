@@ -13,6 +13,9 @@
 // scrollable list of items. Mark-all-read and Clear-read controls live in
 // the header. Per D4, opening the dropdown does NOT auto-mark-read — the
 // operator must click items or hit "Mark all read".
+// Older retained rows are reachable through explicit cursor paging. Filters
+// remain local to the pages loaded so far until filtered snapshot/page RPC is
+// introduced; changing a chip resets any transient paging error.
 //
 // P3 / NTF-2 — the filtered list is now bucketed by source (`groupBySource`)
 // into collapsible sections rendered in the canonical NOTIFICATION_SOURCES
@@ -29,8 +32,9 @@
 //   fallback  → current filtered notifications view (source gone)
 
 import { CheckCheck, ChevronRight, Trash2, X } from 'lucide-react';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, useSyncExternalStore } from 'react';
 import { cn } from '@/lib/utils';
+import { parseNotificationPage } from '@/renderer/app/notification-parsers';
 import { useAppDispatch, useAppStateSelector } from '@/renderer/app/state';
 import { rpc } from '@/renderer/lib/rpc';
 import type { NotificationSource } from '@/shared/notification-prefs';
@@ -42,6 +46,43 @@ interface DropdownProps {
   onClose: () => void;
 }
 
+type PageState = 'idle' | 'loading' | 'error';
+
+// A notification can still have an RPC in flight after the dropdown closes.
+// Keep the lock outside the component so reopening the popover cannot start a
+// conflicting mutation for the same row before that request settles.
+let pendingNotificationMutationIds = new Set<string>();
+const pendingNotificationMutationListeners = new Set<() => void>();
+
+function getPendingNotificationMutationIds(): Set<string> {
+  return pendingNotificationMutationIds;
+}
+
+function subscribePendingNotificationMutations(listener: () => void): () => void {
+  pendingNotificationMutationListeners.add(listener);
+  return () => pendingNotificationMutationListeners.delete(listener);
+}
+
+function publishPendingNotificationMutations(next: Set<string>): void {
+  pendingNotificationMutationIds = next;
+  for (const listener of pendingNotificationMutationListeners) listener();
+}
+
+function beginNotificationMutation(id: string): boolean {
+  if (pendingNotificationMutationIds.has(id)) return false;
+  const next = new Set(pendingNotificationMutationIds);
+  next.add(id);
+  publishPendingNotificationMutations(next);
+  return true;
+}
+
+function finishNotificationMutation(id: string): void {
+  if (!pendingNotificationMutationIds.has(id)) return;
+  const next = new Set(pendingNotificationMutationIds);
+  next.delete(id);
+  publishPendingNotificationMutations(next);
+}
+
 export function NotificationDropdown({ onClose }: DropdownProps) {
   // PERF-3 — granular selectors + stable dispatch. `s.notifications` is a
   // referentially-stable slice; `s.activeWorkspace?.id` is a primitive — both
@@ -49,8 +90,17 @@ export function NotificationDropdown({ onClose }: DropdownProps) {
   // re-renders.
   const dispatch = useAppDispatch();
   const notifications = useAppStateSelector((s) => s.notifications);
+  const notificationRevision = useAppStateSelector((s) => s.notificationRevision);
+  const notificationNextCursor = useAppStateSelector((s) => s.notificationNextCursor);
+  const notificationHydration = useAppStateSelector((s) => s.notificationHydration);
   const activeWorkspaceId = useAppStateSelector((s) => s.activeWorkspace?.id ?? null);
   const [chip, setChip] = useState<FilterChip>('all');
+  const [pageState, setPageState] = useState<PageState>('idle');
+  const pendingMutationIds = useSyncExternalStore(
+    subscribePendingNotificationMutations,
+    getPendingNotificationMutationIds,
+    getPendingNotificationMutationIds,
+  );
   // NTF-2 — sections collapsed by the operator. Default: empty = all expanded.
   const [collapsed, setCollapsed] = useState<Set<NotificationSource>>(new Set());
 
@@ -99,21 +149,32 @@ export function NotificationDropdown({ onClose }: DropdownProps) {
    */
   const handleItemClick = useCallback(
     async (notification: Notification) => {
+      if (!beginNotificationMutation(notification.id)) {
+        navigateToNotification(notification, dispatch);
+        return;
+      }
       // Optimistic local update; the main process delta echo reconciles.
       // `Date.now()` here is inside an event-handler callback, NOT during
       // render — wrapping in useCallback satisfies the react-hooks/purity
       // lint rule which flags any impure call reachable from a render path.
       const readAt = Date.now();
       dispatch({ type: 'MARK_NOTIFICATION_READ', id: notification.id, readAt });
+      // Navigation is local and does not depend on the persistence round trip.
+      // Keeping it immediate also lets a second click navigate while the
+      // per-row write lock blocks duplicate mutation RPCs.
+      navigateToNotification(notification, dispatch);
       try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await (rpc as any).notifications.markRead(notification.id);
       } catch {
-        /* swallow */
+        dispatch({
+          type: 'ROLLBACK_NOTIFICATION_OPTIMISTIC',
+          notification,
+          expected: { kind: 'mark-read', readAt },
+        });
+      } finally {
+        finishNotificationMutation(notification.id);
       }
-
-      // D5 — deep-link to the source context (shared with the toast handoff).
-      navigateToNotification(notification, dispatch);
 
       // We do NOT close the dropdown on click — operator may want to triage
       // multiple items in sequence.
@@ -122,12 +183,19 @@ export function NotificationDropdown({ onClose }: DropdownProps) {
   );
 
   const handleDismiss = async (notification: Notification) => {
+    if (!beginNotificationMutation(notification.id)) return;
     dispatch({ type: 'DISMISS_NOTIFICATION', id: notification.id });
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (rpc as any).notifications.dismiss(notification.id);
     } catch {
-      /* swallow */
+      dispatch({
+        type: 'ROLLBACK_NOTIFICATION_OPTIMISTIC',
+        notification,
+        expected: { kind: 'dismiss' },
+      });
+    } finally {
+      finishNotificationMutation(notification.id);
     }
   };
 
@@ -137,6 +205,40 @@ export function NotificationDropdown({ onClose }: DropdownProps) {
       await (rpc as any).notifications.markUnread(notification.id);
     } catch {
       /* swallow */
+    }
+  };
+
+  const handleLoadOlder = async () => {
+    if (
+      notificationHydration !== 'ready' ||
+      notificationRevision === null ||
+      notificationNextCursor === null ||
+      pageState === 'loading'
+    ) {
+      return;
+    }
+
+    const sourceCursor = notificationNextCursor;
+    const sourceRevision = notificationRevision;
+    setPageState('loading');
+    try {
+      const rawPage = await rpc.notifications.page({
+        cursor: sourceCursor,
+        limit: 100,
+      });
+      const page = parseNotificationPage(rawPage);
+      if (!page) throw new Error('Malformed notification page response');
+      dispatch({
+        type: 'APPEND_NOTIFICATION_PAGE',
+        page,
+        sourceCursor,
+        sourceRevision,
+      });
+      setPageState('idle');
+    } catch {
+      // Transport errors are already reported by the shared RPC client; the
+      // same inline retry also covers a malformed response rejected above.
+      setPageState('error');
     }
   };
 
@@ -192,7 +294,10 @@ export function NotificationDropdown({ onClose }: DropdownProps) {
             key={id}
             type="button"
             data-testid={`notification-filter-${id}`}
-            onClick={() => setChip(id)}
+            onClick={() => {
+              setChip(id);
+              setPageState((previous) => (previous === 'error' ? 'idle' : previous));
+            }}
             className={cn(
               'rounded px-2 py-0.5 text-xs',
               chip === id
@@ -257,6 +362,7 @@ export function NotificationDropdown({ onClose }: DropdownProps) {
                       <li key={n.id} className="sl-fade-in">
                         <NotificationItem
                           notification={n}
+                          disabled={pendingMutationIds.has(n.id)}
                           onClick={() => handleItemClick(n)}
                           onDismiss={() => handleDismiss(n)}
                           onMarkUnread={() => handleMarkUnread(n)}
@@ -269,6 +375,33 @@ export function NotificationDropdown({ onClose }: DropdownProps) {
             );
           })
         )}
+        {notificationNextCursor !== null ? (
+          <div className="border-t border-border px-3 py-2 text-center">
+            <button
+              type="button"
+              onClick={handleLoadOlder}
+              disabled={pageState === 'loading'}
+              aria-label={
+                pageState === 'error'
+                  ? 'Retry loading older notifications'
+                  : pageState === 'loading'
+                    ? 'Loading older notifications'
+                    : 'Load older notifications'
+              }
+              className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted/40 hover:text-foreground disabled:cursor-wait disabled:opacity-60"
+            >
+              {pageState === 'error'
+                ? 'Retry loading older notifications'
+                : pageState === 'loading'
+                  ? 'Loading older notifications…'
+                  : 'Load older notifications'}
+            </button>
+          </div>
+        ) : notifications.length > 0 ? (
+          <p className="border-t border-border px-3 py-2 text-center text-xs text-muted-foreground">
+            End of notification history
+          </p>
+        ) : null}
       </div>
     </div>
   );

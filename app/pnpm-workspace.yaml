@@ -16,3 +16,13 @@ packages:
   - native/voice-win
   - native/voice-whisper
   - packages/voice-core
+
+# pnpm v10+ blocks dependency build scripts by default. These four are
+# required native/toolchain builds — without them a fresh install leaves
+# electron without its binary, node-pty/better-sqlite3 unbuilt, and esbuild
+# without its platform binary (tests fail with load errors / pid:-1 spawns).
+allowBuilds:
+  better-sqlite3: true
+  electron: true
+  esbuild: true
+  node-pty: true

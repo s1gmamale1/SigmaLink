@@ -33,6 +33,7 @@ interface MockTerm {
   loadAddon: ReturnType<typeof vi.fn>;
   onData: ReturnType<typeof vi.fn>;
   onSelectionChange: ReturnType<typeof vi.fn>;
+  onTitleChange: ReturnType<typeof vi.fn>;
   hasSelection: ReturnType<typeof vi.fn>;
   getSelection: ReturnType<typeof vi.fn>;
   cols: number;
@@ -73,6 +74,7 @@ vi.mock('@xterm/xterm', () => {
     loadAddon = vi.fn();
     onData = vi.fn(() => ({ dispose: vi.fn() }));
     onSelectionChange = vi.fn(() => ({ dispose: vi.fn() }));
+    onTitleChange = vi.fn(() => ({ dispose: vi.fn() }));
     onWriteParsed = vi.fn(() => ({ dispose: vi.fn() }));
     hasSelection = vi.fn(() => false);
     getSelection = vi.fn(() => '');

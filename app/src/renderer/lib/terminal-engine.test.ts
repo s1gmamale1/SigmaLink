@@ -62,6 +62,31 @@ describe('TerminalEngine — buffer + logical lines', () => {
     expect(fromMid[0]!.text).toBe('abcdefghijklmnopqrstuvwxy');
   });
 
+  it('extracts a bounded logical tail without reading older scrollback', async () => {
+    const { engine } = makeEngine({ cols: 6, rows: 3 });
+    track(engine);
+    await flushWrite(
+      engine,
+      Array.from({ length: 20 }, (_, index) => `line-${index.toString().padStart(2, '0')}`).join('\r\n'),
+    );
+    const expected = engine.logicalLines().slice(-2);
+    const oldestTailRow = expected[0]!.startRow;
+    expect(oldestTailRow).toBeGreaterThan(0);
+
+    const buffer = engine.term.buffer.active;
+    const getLine = buffer.getLine.bind(buffer);
+    const olderReads: number[] = [];
+    vi.spyOn(buffer, 'getLine').mockImplementation((row) => {
+      if (row < oldestTailRow) olderReads.push(row);
+      return getLine(row);
+    });
+
+    const tailLogicalLines = Reflect.get(engine, 'tailLogicalLines');
+    expect(tailLogicalLines).toBeTypeOf('function');
+    expect(Reflect.apply(tailLogicalLines, engine, [2])).toEqual(expected);
+    expect(olderReads).toEqual([]);
+  });
+
   it('SGR styling does not corrupt extracted text', async () => {
     const { engine } = makeEngine({ cols: 40, rows: 5 });
     track(engine);
@@ -337,5 +362,68 @@ describe('TerminalEngine — OSC-133 prompt marks (P2)', () => {
     track(engine);
     for (let i = 0; i < 30; i++) await flushWrite(engine, '\x1b]133;A\x07x\r\n');
     expect(engine.promptMarks.length).toBeLessThanOrEqual(2048);
+  });
+});
+
+describe('TerminalEngine — synchronized output (DECSET 2026)', () => {
+  it('holds buffer-change notify between BSU and ESU, then fires once', async () => {
+    const { engine } = makeEngine({ cols: 40, rows: 10 });
+    track(engine);
+    let notifies = 0;
+    engine.onBufferChanged(() => notifies++);
+
+    await flushWrite(engine, '\x1b[?2026h'); // BSU — frame opens
+    await flushWrite(engine, '\r\x1b[2Kpartial'); // erased intermediate state
+    await new Promise((r) => setTimeout(r, 20)); // let any scheduled notify fire
+    expect(notifies).toBe(0); // nothing painted mid-frame
+
+    await flushWrite(engine, 'complete frame\x1b[?2026l'); // ESU — frame closes
+    await new Promise((r) => setTimeout(r, 20));
+    expect(notifies).toBe(1); // exactly one coalesced paint
+  });
+
+  it('paints anyway via watchdog when the app dies mid-frame (no ESU)', async () => {
+    const { engine } = makeEngine({ cols: 40, rows: 10 });
+    track(engine);
+    let notifies = 0;
+    engine.onBufferChanged(() => notifies++);
+    await flushWrite(engine, '\x1b[?2026h');
+    await flushWrite(engine, 'orphaned frame');
+    await new Promise((r) => setTimeout(r, 1200)); // > 1000ms watchdog, real timers
+    expect(notifies).toBeGreaterThan(0);
+    // NOTE: do NOT use vi.useFakeTimers() here — xterm's write queue is
+    // timer-driven, so fake timers can hang flushWrite before the watchdog
+    // is even armed. The 1.2s real-time wait stays under vitest's 5s default.
+  });
+});
+
+describe('TerminalEngine — OSC title sink', () => {
+  it('emits OSC 2 titles to subscribers', async () => {
+    const { engine } = makeEngine();
+    track(engine);
+    const titles: string[] = [];
+    engine.onTitleChange((t) => titles.push(t));
+    await flushWrite(engine, '\x1b]2;School Account Fix-Agent\x07');
+    expect(titles).toEqual(['School Account Fix-Agent']);
+  });
+
+  it('emits OSC 0 titles and ignores empty ones', async () => {
+    const { engine } = makeEngine();
+    track(engine);
+    const titles: string[] = [];
+    engine.onTitleChange((t) => titles.push(t));
+    await flushWrite(engine, '\x1b]0;\x07'); // empty — dropped
+    await flushWrite(engine, '\x1b]0;renamed session\x07');
+    expect(titles).toEqual(['renamed session']);
+  });
+
+  it('unsubscribe stops delivery', async () => {
+    const { engine } = makeEngine();
+    track(engine);
+    const titles: string[] = [];
+    const off = engine.onTitleChange((t) => titles.push(t));
+    off();
+    await flushWrite(engine, '\x1b]2;never seen\x07');
+    expect(titles).toEqual([]);
   });
 });

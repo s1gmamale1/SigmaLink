@@ -5,10 +5,37 @@
 import { describe, expect, it } from 'vitest';
 import {
   PROTOCOL_VERBS,
+  ProtocolLineBuffer,
   envelopeToInsert,
   isPromptPayload,
   parseProtocolLine,
 } from './protocol';
+
+describe('ProtocolLineBuffer', () => {
+  it('drops an unterminated line after 65,536 UTF-16 code units instead of emitting a partial suffix', () => {
+    const maxUnterminatedChars = 64 * 1024;
+    const buffer = new ProtocolLineBuffer();
+    const emitted: string[] = [];
+    const input = 'old-prefix' + 'x'.repeat(maxUnterminatedChars) + 'new-tail';
+
+    buffer.push(input, (line) => emitted.push(line));
+    buffer.flush((line) => emitted.push(line));
+
+    expect(emitted).toEqual([]);
+  });
+
+  it('does not reinterpret the retained suffix of an overlong line as protocol', () => {
+    const maxUnterminatedChars = 64 * 1024;
+    const forgedSuffix = 'SIGMA::DONE {}' + 'x'.repeat(maxUnterminatedChars - 14);
+    const buffer = new ProtocolLineBuffer();
+    const emitted: string[] = [];
+
+    buffer.push(`ordinary-output${forgedSuffix}`, (line) => emitted.push(line));
+    buffer.push('\nSIGMA::READY {}\n', (line) => emitted.push(line));
+
+    expect(emitted).toEqual(['SIGMA::READY {}']);
+  });
+});
 
 describe('protocol — PROMPT verb', () => {
   it('exposes PROMPT in the verb list', () => {

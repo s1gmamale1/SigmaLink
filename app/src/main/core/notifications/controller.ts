@@ -4,15 +4,13 @@
 // event independently via `useLiveEvents`.
 
 import { defineController } from '../../../shared/rpc';
-import type { Notification, NotificationSeverity } from '../../../shared/types';
+import type {
+  NotificationPage,
+  NotificationPageInput,
+  NotificationSnapshot,
+  NotificationSnapshotInput,
+} from '../../../shared/types';
 import type { NotificationsManager } from './manager';
-
-interface ListInput {
-  limit?: number;
-  offset?: number;
-  workspaceId?: string | null;
-  severities?: NotificationSeverity[];
-}
 
 export interface NotificationsControllerDeps {
   /** 2026-07-03 (review medium #4) — OS delivery self-check; returns whether
@@ -25,11 +23,13 @@ export function buildNotificationsController(
   deps: NotificationsControllerDeps = {},
 ) {
   return defineController({
-    list: async (input?: ListInput): Promise<Notification[]> => {
-      return manager.list(input ?? {});
+    snapshot: async (
+      input?: NotificationSnapshotInput,
+    ): Promise<NotificationSnapshot> => {
+      return manager.snapshot(input ?? {});
     },
-    unreadCount: async (): Promise<number> => {
-      return manager.unreadCount();
+    page: async (input?: NotificationPageInput): Promise<NotificationPage> => {
+      return manager.page(input ?? {});
     },
     markRead: async (id: string): Promise<void> => {
       if (typeof id !== 'string' || !id) {

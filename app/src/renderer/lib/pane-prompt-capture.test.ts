@@ -111,6 +111,12 @@ describe('pane-prompt-capture', () => {
     expect(onPrompt).toHaveBeenCalledWith('ack', 'fix the auth bug');
   });
 
+  it('skips slash-command lines — CLI commands are not tasks', () => {
+    type('s1', '/rename School Account Fix-Agent');
+    expect(feedPromptKey('s1', K('Enter'))).toBeNull();
+    expect(onPrompt).not.toHaveBeenCalled(); // titler never ran
+  });
+
   it('clearPromptDraft drops an in-progress draft', () => {
     type('s8', 'half typed');
     clearPromptDraft('s8');

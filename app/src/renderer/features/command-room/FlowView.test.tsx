@@ -148,6 +148,17 @@ describe('FlowView', () => {
     expect(row0.style.borderLeft).toBe('');
   });
 
+  it('requests a bounded logical tail instead of scanning full scrollback', () => {
+    const engine = makeEngine();
+    const boundedTail = vi.spyOn(engine, 'tailLogicalLines');
+    const fullScan = vi.spyOn(engine, 'logicalLines');
+
+    render(<FlowView engine={engine} />);
+
+    expect(boundedTail).toHaveBeenCalledWith(MAX_RENDER_LINES);
+    expect(fullScan).not.toHaveBeenCalled();
+  });
+
   it('caps rendered rows at MAX_RENDER_LINES', async () => {
     const engine = makeEngine(80, 10);
     const { getByTestId } = render(<FlowView engine={engine} />);

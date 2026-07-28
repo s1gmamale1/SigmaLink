@@ -12,12 +12,13 @@
 // shell next to it must too).
 //
 // Teardown choke point: closeScratchTab() removes the tab, destroys the
-// cached xterm (so the terminal-cache entry + bus subscription + renderer
-// resources go with it — finding 1c), and kills the PTY in main. Parent-level
+// cached terminal renderers (so their cache entries + bus subscriptions +
+// renderer resources go with them — finding 1c), and kills the PTY in main. Parent-level
 // cleanup (pane close / relaunch / exited-grace GC — all three REMOVE_SESSION
 // dispatch sites) funnels through use-terminal-cache-gc → closeScratchForParent.
 
 import { rpc } from '@/renderer/lib/rpc';
+import { destroyEngine } from '@/renderer/lib/engine-cache';
 import { destroy as destroyCachedTerminal } from '@/renderer/lib/terminal-cache';
 
 export interface ScratchTab {
@@ -65,8 +66,8 @@ export function addScratchTab(parentId: string, scratchId: string): void {
 }
 
 /**
- * Close one scratch tab: remove from the store, destroy the cached xterm
- * (terminal-cache entry + pty-bus subscription), kill the PTY in main.
+ * Close one scratch tab: remove from the store, destroy both cached terminal
+ * renderers (including their pty-bus subscriptions), kill the PTY in main.
  * Idempotent — unknown ids are a no-op.
  */
 export function closeScratchTab(parentId: string, scratchId: string): void {
@@ -76,6 +77,7 @@ export function closeScratchTab(parentId: string, scratchId: string): void {
   if (next.length === 0) tabsByParent.delete(parentId);
   else tabsByParent.set(parentId, next);
   destroyCachedTerminal(scratchId);
+  destroyEngine(scratchId);
   void rpc.pty.killScratch({ scratchId }).catch(() => undefined);
   notify(parentId);
 }

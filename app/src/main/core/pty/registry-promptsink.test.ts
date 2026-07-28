@@ -14,9 +14,7 @@ vi.mock('./local-pty', () => ({
     spawnMode: 'direct' | 'shell-first' | undefined,
     command: string,
   ): 'direct' | 'shell-first' =>
-    spawnMode === 'shell-first' && command !== '' && process.platform !== 'win32'
-      ? 'shell-first'
-      : 'direct',
+    spawnMode === 'shell-first' && command !== '' ? 'shell-first' : 'direct',
 }));
 
 const processTreeMock = vi.hoisted(() => ({

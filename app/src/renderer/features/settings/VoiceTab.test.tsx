@@ -118,10 +118,9 @@ describe('VoiceTab — native diagnostics dot is gated by platform', () => {
     const VoiceTab = await loadVoiceTab();
     render(<VoiceTab />);
 
-    // The diagnostics hydrate runs in a useEffect → wait one microtask tick.
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(screen.queryByTestId('voice-diagnostics-dot-native-unavailable')).toBeTruthy();
+    // The hydrate awaits both persisted mode and diagnostics before rendering.
+    // Wait for the observable UI instead of guessing how many turns that takes.
+    expect(await screen.findByTestId('voice-diagnostics-dot-native-unavailable')).toBeTruthy();
     // The red "Native" dot must NOT be present on Windows.
     expect(screen.queryByTestId('voice-diagnostics-dot-native')).toBeNull();
   });
@@ -144,9 +143,7 @@ describe('VoiceTab — native diagnostics dot is gated by platform', () => {
     const VoiceTab = await loadVoiceTab();
     render(<VoiceTab />);
 
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(screen.queryByTestId('voice-diagnostics-dot-native')).toBeTruthy();
+    expect(await screen.findByTestId('voice-diagnostics-dot-native')).toBeTruthy();
     expect(screen.queryByTestId('voice-diagnostics-dot-native-unavailable')).toBeNull();
   });
 });

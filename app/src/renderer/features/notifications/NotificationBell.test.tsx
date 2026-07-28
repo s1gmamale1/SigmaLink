@@ -27,7 +27,7 @@ vi.mock('./NotificationDropdown', () => ({
 
 // Mutable state holder so each test customises the AppState the granular
 // `useAppStateSelector` mock reads from without re-importing. PERF-3 — the
-// component now selects `s.notifications` + `s.notificationsUnreadCount` via
+// component now selects authoritative `s.notificationCounts` via
 // useAppStateSelector and never reads dispatch.
 let mockState: AppState = { ...initialAppState };
 vi.mock('@/renderer/app/state', () => ({
@@ -105,6 +105,10 @@ describe('NotificationBell', () => {
       ...initialAppState,
       notifications: [makeNotification({ id: 'a', severity: 'info' })],
       notificationsUnreadCount: 3,
+      notificationCounts: {
+        unread: 3,
+        unreadBySeverity: { info: 3, warn: 0, error: 0, critical: 0 },
+      },
     };
     render(<NotificationBell />);
     expect(screen.getByTestId('notification-bell-badge').textContent).toBe('3');
@@ -115,6 +119,10 @@ describe('NotificationBell', () => {
       ...initialAppState,
       notifications: [makeNotification({ id: 'a', severity: 'info' })],
       notificationsUnreadCount: 25,
+      notificationCounts: {
+        unread: 25,
+        unreadBySeverity: { info: 25, warn: 0, error: 0, critical: 0 },
+      },
     };
     render(<NotificationBell />);
     expect(screen.getByTestId('notification-bell-badge').textContent).toBe('9+');
@@ -125,6 +133,10 @@ describe('NotificationBell', () => {
       ...initialAppState,
       notifications: [makeNotification({ id: 'a', severity: 'critical' })],
       notificationsUnreadCount: 1,
+      notificationCounts: {
+        unread: 1,
+        unreadBySeverity: { info: 0, warn: 0, error: 0, critical: 1 },
+      },
     };
     render(<NotificationBell />);
     const btn = screen.getByTestId('notification-bell');
@@ -146,6 +158,26 @@ describe('NotificationBell', () => {
     const btn = screen.getByTestId('notification-bell');
     expect(btn.className).not.toContain('sl-bell-pulse');
     expect(btn.className).not.toContain('sl-bell-critical-static');
+  });
+
+  it('uses authoritative severity counts when the unread critical is off-page', () => {
+    mockState = {
+      ...initialAppState,
+      notifications: [makeNotification({ id: 'loaded-info', severity: 'info' })],
+      notificationsUnreadCount: 2,
+      notificationCounts: {
+        unread: 2,
+        unreadBySeverity: { info: 1, warn: 0, error: 0, critical: 1 },
+      },
+    };
+
+    render(<NotificationBell />);
+
+    const button = screen.getByTestId('notification-bell');
+    const badge = screen.getByTestId('notification-bell-badge');
+    expect(button.className).toContain('sl-bell-pulse');
+    expect(button.className).toContain('sl-bell-critical-static');
+    expect(badge.className).toContain('red');
   });
 
   it('UX-2 — the bell is the Popover trigger; dropdown is closed until clicked', async () => {

@@ -126,6 +126,26 @@ describe('NotificationItem', () => {
     expect(onClick).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps navigation available while mutation controls are disabled', () => {
+    const onClick = vi.fn();
+    const onDismiss = vi.fn();
+    render(
+      <NotificationItem
+        notification={makeN({ id: 'pending', severity: 'info' })}
+        disabled
+        onClick={onClick}
+        onDismiss={onDismiss}
+        onMarkUnread={() => undefined}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText(/title-pending/));
+    fireEvent.click(screen.getByTestId('notification-dismiss-pending'));
+
+    expect(onClick).toHaveBeenCalledTimes(1);
+    expect(onDismiss).not.toHaveBeenCalled();
+  });
+
   it('RC3 — a critical row has no sl-bell-pulse element', () => {
     render(
       <NotificationItem

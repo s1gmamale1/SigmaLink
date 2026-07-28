@@ -200,9 +200,11 @@ async function findCodexSession(
 }
 
 /**
- * Kimi stores sessions at `~/.kimi/sessions/<project>/<uuid>/...`. The plan
+ * Kimi stores sessions at `~/.kimi/sessions/<project>/<uuid>/...`; the
+ * 2026-07 kimi-code migration moved them to
+ * `~/.kimi-code/sessions/wd_<name>_<hash>/session_<uuid>/`. The plan
  * notes the project hash convention is not deterministic for us, so we walk
- * `~/.kimi/sessions/` two levels deep and pick the newest UUID-shaped leaf
+ * both roots two levels deep and pick the newest UUID-shaped leaf
  * directory whose mtime falls inside the scan window.
  */
 async function findKimiSession(
@@ -211,42 +213,47 @@ async function findKimiSession(
   now: number,
   windowMs: number,
 ): Promise<CandidateFile | null> {
-  const root = path.join(homeDir, '.kimi', 'sessions');
-  if (!(await safeStat(root))) return null;
+  const roots = [
+    path.join(homeDir, '.kimi', 'sessions'),
+    path.join(homeDir, '.kimi-code', 'sessions'),
+  ];
   void cwd; // future: SHA1(cwd) cross-check if upstream stabilises
   let best: CandidateFile | null = null;
   // Two-level walk: top entry is the project bucket; second-level entries are
   // the session UUID dirs. We tolerate sessions stored directly under
-  // `~/.kimi/sessions/<uuid>/` too (some installs flatten the project hash).
-  const projectEntries = (await safeReadDir(root)).slice(0, MAX_ENTRIES_PER_DIR);
-  const sessionDirs: string[] = [];
-  for (const entry of projectEntries) {
-    if (!entry.isDirectory()) continue;
-    const full = path.join(root, entry.name);
-    // If the directory name itself looks like a UUID, treat it as a session.
-    if (UUID_RE.test(entry.name)) {
-      sessionDirs.push(full);
-      continue;
+  // `<root>/<uuid>/` too (some installs flatten the project hash).
+  for (const root of roots) {
+    if (!(await safeStat(root))) continue;
+    const projectEntries = (await safeReadDir(root)).slice(0, MAX_ENTRIES_PER_DIR);
+    const sessionDirs: string[] = [];
+    for (const entry of projectEntries) {
+      if (!entry.isDirectory()) continue;
+      const full = path.join(root, entry.name);
+      // If the directory name itself looks like a UUID, treat it as a session.
+      if (UUID_RE.test(entry.name)) {
+        sessionDirs.push(full);
+        continue;
+      }
+      // Otherwise treat it as a project bucket and list its UUID children.
+      for (const child of (await safeReadDir(full)).slice(0, MAX_ENTRIES_PER_DIR)) {
+        if (!child.isDirectory()) continue;
+        if (!UUID_RE.test(child.name)) continue;
+        sessionDirs.push(path.join(full, child.name));
+      }
     }
-    // Otherwise treat it as a project bucket and list its UUID children.
-    for (const child of (await safeReadDir(full)).slice(0, MAX_ENTRIES_PER_DIR)) {
-      if (!child.isDirectory()) continue;
-      if (!UUID_RE.test(child.name)) continue;
-      sessionDirs.push(path.join(full, child.name));
+    for (const dir of sessionDirs) {
+      const stat = await safeStat(dir);
+      if (!stat) continue;
+      if (!isWithinWindow(stat.mtimeMs, now, windowMs)) continue;
+      const match = path.basename(dir).match(UUID_RE);
+      if (!match) continue;
+      const candidate: CandidateFile = {
+        fullPath: dir,
+        sessionId: match[0],
+        mtimeMs: stat.mtimeMs,
+      };
+      if (!best || candidate.mtimeMs > best.mtimeMs) best = candidate;
     }
-  }
-  for (const dir of sessionDirs) {
-    const stat = await safeStat(dir);
-    if (!stat) continue;
-    if (!isWithinWindow(stat.mtimeMs, now, windowMs)) continue;
-    const match = path.basename(dir).match(UUID_RE);
-    if (!match) continue;
-    const candidate: CandidateFile = {
-      fullPath: dir,
-      sessionId: match[0],
-      mtimeMs: stat.mtimeMs,
-    };
-    if (!best || candidate.mtimeMs > best.mtimeMs) best = candidate;
   }
   return best;
 }
@@ -557,8 +564,11 @@ async function listCodexSessions(
 }
 
 /**
- * Kimi: list session UUID directories under `~/.kimi/sessions/<sha1(cwd)>/<uuid>/`
- * and attempt to read `state.json` for metadata.
+ * Kimi: list session UUID directories under both session roots —
+ * legacy `~/.kimi/sessions/<bucket>/<uuid>/` and modern
+ * `~/.kimi-code/sessions/wd_<name>_<hash>/session_<uuid>/` — and attempt to
+ * read `state.json` for metadata (legacy numeric `timestamp`/`model`, or
+ * modern ISO `createdAt`/`updatedAt`/`title`).
  * Falls back to mtime if `state.json` is missing or unparseable.
  *
  * B2 — the project bucket (`<sha1(cwd)>`) is not deterministic for us, so the
@@ -575,22 +585,32 @@ async function listKimiSessions(
   sinceMs: number | undefined,
   opts: ListSessionsOptions,
 ): Promise<SessionListItem[]> {
-  const root = path.join(homeDir, '.kimi', 'sessions');
-  if (!(await safeStat(root))) return [];
+  // 2026-07 kimi-code migration: sessions moved from
+  //   ~/.kimi/sessions/<bucket>/<uuid>/
+  // to
+  //   ~/.kimi-code/sessions/wd_<name>_<hash>/session_<uuid>/
+  // (state.json now carries ISO createdAt/updatedAt, title, isCustomTitle).
+  // Scan both roots; dedupe by uuid below.
+  const roots = [
+    path.join(homeDir, '.kimi', 'sessions'),
+    path.join(homeDir, '.kimi-code', 'sessions'),
+  ];
   const allowedIds = await workspaceAllowedIds(opts);
-  // Collect all UUID-shaped session directories (two-level or flat).
   const sessionDirs: string[] = [];
-  const projectEntries = (await safeReadDir(root)).slice(0, MAX_ENTRIES_PER_DIR);
-  for (const entry of projectEntries) {
-    if (!entry.isDirectory()) continue;
-    const full = path.join(root, entry.name);
-    if (UUID_RE.test(entry.name)) {
-      sessionDirs.push(full);
-    } else {
-      for (const child of (await safeReadDir(full)).slice(0, MAX_ENTRIES_PER_DIR)) {
-        if (!child.isDirectory()) continue;
-        if (!UUID_RE.test(child.name)) continue;
-        sessionDirs.push(path.join(full, child.name));
+  for (const root of roots) {
+    if (!(await safeStat(root))) continue;
+    const projectEntries = (await safeReadDir(root)).slice(0, MAX_ENTRIES_PER_DIR);
+    for (const entry of projectEntries) {
+      if (!entry.isDirectory()) continue;
+      const full = path.join(root, entry.name);
+      if (UUID_RE.test(entry.name)) {
+        sessionDirs.push(full);
+      } else {
+        for (const child of (await safeReadDir(full)).slice(0, MAX_ENTRIES_PER_DIR)) {
+          if (!child.isDirectory()) continue;
+          if (!UUID_RE.test(child.name)) continue;
+          sessionDirs.push(path.join(full, child.name));
+        }
       }
     }
   }
@@ -598,7 +618,7 @@ async function listKimiSessions(
   for (const dir of sessionDirs) {
     const stat = await safeStat(dir);
     if (!stat) continue;
-    const updatedAt = stat.mtimeMs;
+    let updatedAt = stat.mtimeMs;
     if (sinceMs !== undefined && sinceMs > 0 && Date.now() - updatedAt > sinceMs) continue;
     const uuid = path.basename(dir).match(UUID_RE)?.[0];
     if (!uuid) continue;
@@ -614,7 +634,17 @@ async function listKimiSessions(
         const raw = await fs.promises.readFile(stateFile, 'utf8');
         const data = JSON.parse(raw) as Record<string, unknown>;
         if (typeof data.timestamp === 'number') createdAt = data.timestamp;
-        if (typeof data.model === 'string') title = data.model;
+        // Modern kimi-code shape: ISO strings + a real title.
+        if (typeof data.createdAt === 'string') {
+          const t = Date.parse(data.createdAt);
+          if (Number.isFinite(t)) createdAt = t;
+        }
+        if (typeof data.updatedAt === 'string') {
+          const t = Date.parse(data.updatedAt);
+          if (Number.isFinite(t)) updatedAt = t;
+        }
+        if (typeof data.title === 'string' && data.title.trim()) title = data.title.trim();
+        else if (typeof data.model === 'string') title = data.model;
         if (typeof data.first_user_message === 'string' && data.first_user_message.trim()) {
           firstMessagePreview = trunc(data.first_user_message.trim());
         }
@@ -624,7 +654,9 @@ async function listKimiSessions(
     }
     items.push({ id: uuid, providerId: 'kimi', cwd, createdAt, updatedAt, title, firstMessagePreview });
   }
-  return items.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, maxCount);
+  const byId = new Map<string, SessionListItem>();
+  for (const item of items) if (!byId.has(item.id)) byId.set(item.id, item);
+  return [...byId.values()].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, maxCount);
 }
 
 /**

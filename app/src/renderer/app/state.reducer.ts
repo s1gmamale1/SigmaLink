@@ -8,7 +8,13 @@
 // (Exception: isGlobalRoom is imported from state.types — it is shared with the
 // session-snapshot writer.)
 
-import type { AgentSession, Notification, Swarm, Workspace } from '../../shared/types';
+import type {
+  AgentSession,
+  Notification,
+  NotificationChangeSet,
+  Swarm,
+  Workspace,
+} from '../../shared/types';
 import {
   isGlobalRoom,
   selectActiveWorkspace,
@@ -55,6 +61,70 @@ function clearAttention(
     attentionSessions: nextSessions,
     attentionWorkspaces: stillGlowing ? attentionWorkspaces : omitKey(attentionWorkspaces, ws),
   };
+}
+
+function reconcileNotificationRows(
+  current: Notification[],
+  changeSet: NotificationChangeSet,
+): Notification[] {
+  const byId = new Map(current.map((notification) => [notification.id, notification]));
+  for (const notification of changeSet.updated) {
+    byId.set(notification.id, notification);
+  }
+  for (const notification of changeSet.added) {
+    byId.set(notification.id, notification);
+  }
+  for (const id of changeSet.removed) byId.delete(id);
+  return Array.from(byId.values()).sort(compareNotificationsNewestFirst);
+}
+
+function clearOptimisticNotificationMutations(
+  current: AppState['notificationOptimisticMutations'],
+  ids: Iterable<string>,
+): AppState['notificationOptimisticMutations'] {
+  let next = current;
+  for (const id of ids) next = omitKey(next, id);
+  return next;
+}
+
+function sameOptimisticNotificationMutation(
+  current: AppState['notificationOptimisticMutations'][string] | undefined,
+  expected: AppState['notificationOptimisticMutations'][string],
+): boolean {
+  return (
+    current?.kind === expected.kind &&
+    (expected.kind === 'dismiss' ||
+      (current.kind === 'mark-read' && current.readAt === expected.readAt))
+  );
+}
+
+function compareNotificationsNewestFirst(a: Notification, b: Notification): number {
+  if (a.createdAt !== b.createdAt) return b.createdAt - a.createdAt;
+  if (a.id === b.id) return 0;
+  return a.id > b.id ? -1 : 1;
+}
+
+/**
+ * Replace the authoritative first-page window while retaining pages the
+ * operator already loaded below that window. Same-revision snapshots can
+ * still differ from renderer state after a failed optimistic mutation.
+ */
+function reconcileSameRevisionSnapshot(
+  current: Notification[],
+  firstPage: Notification[],
+  hasMore: boolean,
+): Notification[] {
+  if (!hasMore) return firstPage;
+  const boundary = firstPage.at(-1);
+  if (!boundary) return firstPage;
+  const firstPageIds = new Set(firstPage.map((notification) => notification.id));
+  const retainedTail = current.filter(
+    (notification) =>
+      !firstPageIds.has(notification.id) &&
+      (notification.createdAt < boundary.createdAt ||
+        (notification.createdAt === boundary.createdAt && notification.id < boundary.id)),
+  );
+  return [...firstPage, ...retainedTail];
 }
 
 // Perf audit 2026-06-10 #4 — per-swarm message thread cap. Hydrate tails 200
@@ -831,60 +901,135 @@ export function appStateReducer(state: AppState, action: Action): AppState {
         sessionsByWorkspace: regroupSessionsByWorkspace(state.sessionsByWorkspace, sessions),
       };
     }
-    case 'SET_NOTIFICATIONS':
-      // v1.4.9 #07 — initial mount sets the paginated list + unreadCount.
+    case 'INSTALL_NOTIFICATION_SNAPSHOT': {
+      const { snapshot } = action;
+      if (state.notificationRevision !== null) {
+        if (snapshot.revision < state.notificationRevision) return state;
+        if (snapshot.revision === state.notificationRevision) {
+          const notificationOptimisticMutations = clearOptimisticNotificationMutations(
+            state.notificationOptimisticMutations,
+            snapshot.items.map((notification) => notification.id),
+          );
+          return {
+            ...state,
+            notifications: reconcileSameRevisionSnapshot(
+              state.notifications,
+              snapshot.items,
+              snapshot.nextCursor !== null,
+            ),
+            notificationsUnreadCount: snapshot.counts.unread,
+            notificationCounts: snapshot.counts,
+            notificationNextCursor:
+              snapshot.nextCursor === null ? null : state.notificationNextCursor,
+            notificationHydration: 'ready',
+            notificationOptimisticMutations,
+          };
+        }
+      }
       return {
         ...state,
-        notifications: action.notifications,
-        notificationsUnreadCount: action.unreadCount,
+        notifications: snapshot.items,
+        notificationsUnreadCount: snapshot.counts.unread,
+        notificationRevision: snapshot.revision,
+        notificationCounts: snapshot.counts,
+        notificationNextCursor: snapshot.nextCursor,
+        notificationHydration: 'ready',
+        notificationOptimisticMutations: {},
       };
-    case 'NOTIFICATIONS_DELTA': {
-      // v1.4.9 #07 — main process owns the delta. Upsert by id (added rows
-      // may overwrite an absorbing dedup row — same id, updated dup_count /
-      // severity / body), then drop any ids in `removed`.
-      //
-      // PERF-10 — `state.notifications` is already sorted newest-first by
-      // createdAt. The overwhelmingly common delta is a SINGLE added row and no
-      // removals; that collapses to one remove-by-id + one binary insert
-      // (O(log n)) instead of rebuilding + full-sorting the whole list. The
-      // 'after' tie policy reproduces the prior `Array.from(map.values())
-      // .sort()` output exactly: the added/re-inserted row sat at the END of the
-      // pre-sort array, so a stable sort left it behind equal-createdAt rows.
-      const updated = action.updated ?? [];
-      if (action.removed.length === 0 && action.added.length === 1 && updated.length === 0) {
-        const added = action.added[0]!;
-        const base =
-          state.notifications.some((n) => n.id === added.id)
-            ? state.notifications.filter((n) => n.id !== added.id)
-            : state.notifications;
-        const merged = insertSortedDesc(base, added, (n) => n.createdAt, 'after');
-        return {
-          ...state,
-          notifications: merged,
-          notificationsUnreadCount: action.unreadCount,
-        };
+    }
+    case 'APPLY_NOTIFICATION_CHANGE_SET': {
+      const { changeSet } = action;
+      const revision = state.notificationRevision;
+      if (revision !== null && changeSet.revision <= revision) return state;
+      if (revision === null || changeSet.revision !== revision + 1) {
+        return state.notificationHydration === 'retrying'
+          ? state
+          : { ...state, notificationHydration: 'retrying' };
       }
-      // Fallback for batched / mixed deltas (multiple adds, removals, read-state
-      // reconciles, or dedup-absorbing re-inserts) — keep the authoritative Map
-      // + full sort. `updated` rows (2026-07-02 fix A) apply first so a
-      // co-delivered `added` for the same id stays authoritative.
-      const byId = new Map(state.notifications.map((n) => [n.id, n]));
-      for (const n of updated) byId.set(n.id, n);
-      for (const n of action.added) byId.set(n.id, n);
-      for (const id of action.removed) byId.delete(id);
-      // Sort newest-first by createdAt so the dropdown render stays stable.
-      const merged: Notification[] = Array.from(byId.values()).sort(
-        (a, b) => b.createdAt - a.createdAt,
+      const notificationOptimisticMutations = clearOptimisticNotificationMutations(
+        state.notificationOptimisticMutations,
+        [
+          ...changeSet.added.map((notification) => notification.id),
+          ...changeSet.updated.map((notification) => notification.id),
+          ...changeSet.removed,
+        ],
       );
       return {
         ...state,
-        notifications: merged,
-        notificationsUnreadCount: action.unreadCount,
+        notifications: reconcileNotificationRows(state.notifications, changeSet),
+        notificationsUnreadCount: changeSet.counts.unread,
+        notificationRevision: changeSet.revision,
+        notificationCounts: changeSet.counts,
+        notificationHydration: 'ready',
+        notificationOptimisticMutations,
+      };
+    }
+    case 'APPEND_NOTIFICATION_PAGE': {
+      // A recovery snapshot or live mutation may replace/remove rows while an
+      // older-page RPC is in flight. Only append when this response still
+      // belongs to the exact authoritative projection that requested it.
+      if (
+        state.notificationHydration !== 'ready' ||
+        state.notificationRevision !== action.sourceRevision ||
+        state.notificationNextCursor !== action.sourceCursor
+      ) {
+        return state;
+      }
+      const byId = new Map(
+        state.notifications.map((notification) => [notification.id, notification]),
+      );
+      for (const notification of action.page.items) {
+        if (!byId.has(notification.id)) byId.set(notification.id, notification);
+      }
+      const notifications = Array.from(byId.values()).sort((a, b) => {
+        if (a.createdAt !== b.createdAt) return b.createdAt - a.createdAt;
+        if (a.id === b.id) return 0;
+        return a.id > b.id ? -1 : 1;
+      });
+      return {
+        ...state,
+        notifications,
+        notificationNextCursor: action.page.nextCursor,
+      };
+    }
+    case 'SET_NOTIFICATION_HYDRATION':
+      return state.notificationHydration === action.status
+        ? state
+        : { ...state, notificationHydration: action.status };
+    case 'ROLLBACK_NOTIFICATION_OPTIMISTIC': {
+      const pending = state.notificationOptimisticMutations[action.notification.id];
+      if (!sameOptimisticNotificationMutation(pending, action.expected)) return state;
+      const current = state.notifications.find(
+        (notification) => notification.id === action.notification.id,
+      );
+      if (
+        action.expected.kind === 'mark-read'
+          ? current?.readAt !== action.expected.readAt
+          : current !== undefined
+      ) {
+        return state;
+      }
+      const notifications = [
+        ...state.notifications.filter(
+          (notification) => notification.id !== action.notification.id,
+        ),
+        action.notification,
+      ].sort(compareNotificationsNewestFirst);
+      return {
+        ...state,
+        notifications,
+        // Counts are deliberately not changed by compensation, so they remain
+        // the authoritative value from the latest accepted revision.
+        notificationsUnreadCount: state.notificationCounts.unread,
+        notificationOptimisticMutations: omitKey(
+          state.notificationOptimisticMutations,
+          action.notification.id,
+        ),
       };
     }
     case 'MARK_NOTIFICATION_READ': {
-      // Optimistic local update; the NOTIFICATIONS_DELTA echo reconciles
-      // unreadCount authoritatively.
+      // Optimistic local update; the versioned change-set echo reconciles the
+      // row and counts authoritatively.
       let transitioned = false;
       const next = state.notifications.map((n) => {
         if (n.id === action.id && n.readAt === null) {
@@ -899,11 +1044,24 @@ export function appStateReducer(state: AppState, action: Action): AppState {
         notificationsUnreadCount: transitioned
           ? Math.max(0, state.notificationsUnreadCount - 1)
           : state.notificationsUnreadCount,
+        notificationOptimisticMutations: transitioned
+          ? {
+              ...state.notificationOptimisticMutations,
+              [action.id]: { kind: 'mark-read', readAt: action.readAt },
+            }
+          : state.notificationOptimisticMutations,
       };
     }
     case 'DISMISS_NOTIFICATION': {
+      const transitioned = state.notifications.some((n) => n.id === action.id);
       const next = state.notifications.filter((n) => n.id !== action.id);
-      return { ...state, notifications: next };
+      return {
+        ...state,
+        notifications: next,
+        notificationOptimisticMutations: transitioned
+          ? { ...state.notificationOptimisticMutations, [action.id]: { kind: 'dismiss' } }
+          : state.notificationOptimisticMutations,
+      };
     }
     default:
       return state;

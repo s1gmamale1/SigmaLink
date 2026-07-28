@@ -8,11 +8,15 @@
 //
 // `spawnLocalPty` now resolves the command against PATH up-front and throws a
 // real ENOENT before invoking node-pty, restoring the fallback contract.
+// (2026-07 kimi migration: POSIX shell-first is the exception — a pre-flight
+// miss defers to the pane's login shell; see "shell-first POSIX soft-miss".)
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import * as nodePty from 'node-pty';
 
 // We DON'T mock node-pty here: the ENOENT check fires before node-pty is
 // touched, so the native module is never loaded during these tests.
@@ -25,16 +29,30 @@ import {
   resolveEffectiveSpawnMode,
   KV_PTY_SPAWN_MODE,
   buildShellCommandLine,
-  win32QuotePwshArg,
-  win32QuoteCmdArg,
-  buildWin32PwshCommandLine,
-  buildWin32CmdCommandLine,
   defaultShell,
 } from './local-pty';
-import { SENTINEL_PREFIX, SENTINEL_SUFFIX } from './sentinel';
+import { extractSentinel, SENTINEL_PREFIX, SENTINEL_SUFFIX } from './sentinel';
 
 const originalPath = process.env.PATH;
 const originalPlatform = process.platform;
+
+// CI installs with --ignore-scripts (no node-pty native build): a real fork
+// fails there and spawnShellFirstPty returns the synthetic pid:-1 handle.
+// Probe once; assert the live-fork pid only when a fork can work.
+const ptyForkWorks: boolean = (() => {
+  if (process.platform === 'win32') return false;
+  try {
+    const p = nodePty.spawn('/bin/true', [], { name: 'xterm-256color', cols: 80, rows: 24 });
+    try {
+      p.kill();
+    } catch {
+      // Already exited — the fork itself worked, which is all we probed.
+    }
+    return true;
+  } catch {
+    return false;
+  }
+})();
 
 afterEach(() => {
   process.env.PATH = originalPath;
@@ -111,42 +129,42 @@ describe('spawnLocalPty ENOENT pre-flight', () => {
     expect(e.message).toMatch(/ENOENT/);
   });
 
-  it('does not throw for an empty command (default shell path)', () => {
+  it('does not throw for an empty command (default shell path)', async () => {
     // Empty command means "open the user's default shell" — that path takes
     // over inside `platformAwareSpawnArgs` and we should not pre-flight it
     // against PATH (the resolved shell is always real, by construction).
-    // We can't actually invoke node-pty here without a TTY, so spy on
-    // `spawnLocalPty`'s exit path: assert no synchronous throw happens.
-    //
-    // The native node-pty spawn IS attempted; on a CI runner it succeeds.
-    // If it doesn't (e.g. no /bin/sh), we still verify the ENOENT path
-    // didn't fire by inspecting the thrown error's code.
-    let handle: ReturnType<typeof spawnLocalPty> | null = null;
-    let caught: unknown = null;
+    // Isolate the native binding: spawning a real ConPTY here leaves
+    // node-pty's AttachConsole helper racing Vitest teardown on Windows.
+    const mockProc = {
+      pid: 12345,
+      write: vi.fn(),
+      resize: vi.fn(),
+      kill: vi.fn(),
+      onData: vi.fn(),
+      onExit: vi.fn(),
+    };
+    vi.resetModules();
+    vi.doMock('node-pty', () => ({
+      spawn: vi.fn(() => mockProc),
+    }));
+
     try {
-      handle = spawnLocalPty({
+      const { spawnLocalPty: freshSpawn } = await import('./local-pty');
+      const nodePty = await import('node-pty');
+      const handle = freshSpawn({
         command: '',
         args: [],
         cwd: process.cwd(),
         cols: 80,
         rows: 24,
       });
-    } catch (err) {
-      caught = err;
-    }
-    // Either a handle was produced, OR a non-ENOENT failure occurred (the
-    // pre-flight was correctly skipped). We never want the pre-flight ENOENT
-    // to fire for an empty command.
-    if (caught) {
-      expect((caught as NodeJS.ErrnoException).code).not.toBe('ENOENT');
-    } else {
+
       expect(handle).toBeTruthy();
-      // Clean up the live PTY so the test process exits cleanly.
-      try {
-        handle?.kill();
-      } catch {
-        /* ignore */
-      }
+      expect(vi.mocked(nodePty.spawn)).toHaveBeenCalledOnce();
+      handle.kill();
+      expect(mockProc.kill).toHaveBeenCalledOnce();
+    } finally {
+      vi.doUnmock('node-pty');
     }
   });
 });
@@ -269,7 +287,7 @@ describe('spawnLocalPty: direct mode (regression guard)', () => {
 
   it('treats omitted spawnMode as direct in spawnLocalPty (field-level default)', () => {
     // Phase 7 note: the KV-layer default is now 'shell-first' (parseSpawnMode).
-    // However, spawnLocalPty's 3-condition guard treats a missing/undefined
+    // However, spawnLocalPty's mode guard treats a missing/undefined
     // spawnMode field as NOT matching 'shell-first', so it falls through to
     // direct mode. In practice the KV layer always supplies an explicit mode
     // after Phase 7, so this code path is not exercised in production.
@@ -348,7 +366,7 @@ describe('spawnLocalPty: shell-first mode', () => {
   }
 
   it('spawns the default shell instead of the input command', async () => {
-    if (process.platform === 'win32') return; // win32 falls back to direct
+    if (process.platform === 'win32') return; // covered by the Windows suite below
     vi.useFakeTimers();
 
     const { freshSpawn, written, nodePty } = await setup();
@@ -481,7 +499,7 @@ describe('spawnLocalPty: shell-first mode', () => {
     expect(written.length).toBe(1);
   });
 
-  it('win32: shell-first falls back to direct mode (ENOENT for missing command)', () => {
+  it('win32: shell-first still throws ENOENT for a missing command', () => {
     if (process.platform !== 'win32') return;
 
     process.env.PATH = '/does/not/exist';
@@ -498,22 +516,24 @@ describe('spawnLocalPty: shell-first mode', () => {
     } catch (err) {
       caught = err;
     }
-    // On win32, shell-first silently degrades to direct, which then hits ENOENT
+    // Shell-first preserves the synchronous pre-flight contract so provider
+    // launchers can still walk their alternate-command list.
     const e = caught as NodeJS.ErrnoException;
     expect(e).toBeInstanceOf(Error);
     expect(e.code).toBe('ENOENT');
   });
 
-  it('H-9: shell-first throws synchronous ENOENT for a missing binary (drives the launcher alt-command walk)', () => {
+  it('H-9 (revised 2026-07): POSIX shell-first does NOT throw synchronously for a missing binary (login shell resolves it)', () => {
     if (process.platform === 'win32') return; // POSIX path (win32 degrades to direct)
-    // Empty PATH so no binary resolves. Previously shell-first injected the
-    // command into a live shell, so a missing binary produced only "command
-    // not found" output + sentinel — never a synchronous throw — and the
-    // launcher's [command, ...altCommands] walk was dead in this mode.
+    // Behavior change: Electron's PATH is the wrong oracle on POSIX shell-first
+    // (dev: no login-shell PATH bootstrap; packaged: stale warm-boot cache).
+    // A pre-flight miss now degrades to injecting the bare command; a genuine
+    // not-found surfaces via the shell's "command not found" + exit-127
+    // sentinel. Empty PATH so Electron-side resolution must miss.
     process.env.PATH = '/does/not/exist';
-    let caught: unknown = null;
-    try {
-      spawnLocalPty({
+    let handle: ReturnType<typeof spawnLocalPty> | undefined;
+    expect(() => {
+      handle = spawnLocalPty({
         command: 'definitely-not-a-real-binary-xyz',
         args: [],
         cwd: process.cwd(),
@@ -521,12 +541,15 @@ describe('spawnLocalPty: shell-first mode', () => {
         rows: 24,
         spawnMode: 'shell-first',
       });
-    } catch (err) {
-      caught = err;
+    }).not.toThrow();
+    try {
+      // Without a node-pty native build (CI --ignore-scripts) the spawn
+      // degrades to the synthetic pid:-1 handle; only assert a live fork
+      // pid when the probe showed a fork can work here.
+      if (ptyForkWorks) expect(handle?.pid).toBeGreaterThan(0);
+    } finally {
+      handle?.kill();
     }
-    const e = caught as NodeJS.ErrnoException;
-    expect(e).toBeInstanceOf(Error);
-    expect(e.code).toBe('ENOENT');
   });
 });
 
@@ -535,7 +558,7 @@ describe('spawnLocalPty: shell-first mode', () => {
 //
 // resolveEffectiveSpawnMode is the SINGLE source of truth shared by spawnLocalPty
 // (shell-wrap decision) and PtyRegistry.create (sentinel-watch decision). These
-// tests pin the win32 coercion so the two can never disagree again.
+// tests pin cross-platform shell-first parity so the two can never disagree.
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('resolveEffectiveSpawnMode (H-6)', () => {
@@ -559,13 +582,58 @@ describe('resolveEffectiveSpawnMode (H-6)', () => {
     expect(resolveEffectiveSpawnMode(undefined, 'claude')).toBe('direct');
   });
 
-  it('win32: shell-first request is coerced to direct (un-dogfooded — kept consistent end-to-end)', () => {
+  it('win32: shell-first request remains shell-first when pwsh resolves from PATH', () => {
     Object.defineProperty(process, 'platform', { value: 'win32' });
-    // Even an explicit shell-first request must yield direct on win32 so the
-    // pane is NOT shell-wrapped (no sentinel emitted) AND the registry does not
-    // arm a sentinel watcher. The wrap-side (spawnLocalPty) and the watch-side
-    // (PtyRegistry.create) both read this helper, so they agree by construction.
-    expect(resolveEffectiveSpawnMode('shell-first', 'claude')).toBe('direct');
+    vi.spyOn(fs, 'existsSync').mockImplementation(
+      (candidate) => candidate === 'C:\\Program Files\\PowerShell\\7\\pwsh.exe',
+    );
+
+    expect(resolveEffectiveSpawnMode('shell-first', 'claude', {
+      PATH: 'C:\\Program Files\\PowerShell\\7',
+      PATHEXT: '.EXE',
+    })).toBe('shell-first');
+  });
+
+  it('win32: cmd-only environments downgrade shell-first to direct', () => {
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    vi.spyOn(fs, 'existsSync').mockImplementation(
+      (candidate) => candidate === 'C:\\cmd-only\\cmd.exe',
+    );
+
+    expect(resolveEffectiveSpawnMode('shell-first', 'claude', {
+      PATH: 'C:\\cmd-only',
+      PATHEXT: '.EXE',
+    })).toBe('direct');
+  });
+
+  it('win32: resolved .cmd without a same-basename .ps1 downgrades to direct', () => {
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sigmalink-mode-no-ps1-'));
+    fs.writeFileSync(path.join(tempDir, 'pwsh.exe'), '');
+    fs.writeFileSync(path.join(tempDir, 'claude.cmd'), '');
+
+    try {
+      expect(resolveEffectiveSpawnMode('shell-first', 'claude', {
+        PATH: tempDir,
+        PATHEXT: '.CMD;.EXE',
+      })).toBe('direct');
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('win32: legacy PowerShell downgrades npm shims to direct', () => {
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    vi.spyOn(fs, 'existsSync').mockImplementation((candidate) =>
+      [
+        'C:\\tools\\powershell.EXE',
+        'C:\\tools\\claude.CMD',
+        'C:\\tools\\claude.ps1',
+      ].includes(String(candidate)),
+    );
+    const env = { PATH: 'C:\\tools', PATHEXT: '.CMD;.EXE' };
+
+    expect(resolveEffectiveSpawnMode('shell-first', 'claude', env)).toBe('direct');
   });
 });
 
@@ -575,14 +643,7 @@ describe('spawnLocalPty: win32 shell-first consistency (H-6)', () => {
     Object.defineProperty(process, 'platform', { value: originalPlatform });
   });
 
-  it('simulated win32 + shell-first request does NOT spawn shell-first (no sentinel watcher armed for a non-wrapped pane)', () => {
-    // Simulate win32 and an empty PATH so the would-be command cannot resolve.
-    // If win32 took the shell-first path, spawnShellFirstPty would resolve the
-    // SHELL (which the win32 resolver may still find) and inject a sentinel —
-    // no synchronous throw. Because win32 is coerced to DIRECT, the direct-mode
-    // pre-flight runs instead and throws ENOENT for the missing command,
-    // proving we took the direct path (consistent with the registry, which also
-    // coerces win32 to direct and therefore arms NO sentinel watcher).
+  it('simulated win32 + shell-first preserves synchronous ENOENT pre-flight', () => {
     Object.defineProperty(process, 'platform', { value: 'win32' });
     process.env.PATH = '';
     let caught: unknown = null;
@@ -651,187 +712,11 @@ describe('buildShellCommandLine (Phase 2)', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// v1.6.0 Phase 5 — win32QuotePwshArg (PowerShell argument quoting)
-//
-// Pure logic tests — runnable on any platform (macOS CI included).
-// pending-Windows-dogfood: PTY e2e verification requires a Windows host.
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('win32QuotePwshArg (Phase 5)', () => {
-  it('wraps a simple arg in double quotes', () => {
-    expect(win32QuotePwshArg('hello')).toBe('"hello"');
-  });
-
-  it('handles args with spaces', () => {
-    expect(win32QuotePwshArg('say hello')).toBe('"say hello"');
-  });
-
-  it('escapes backtick (PowerShell escape character)', () => {
-    expect(win32QuotePwshArg('a`b')).toBe('"a``b"');
-  });
-
-  it('escapes double quotes with backtick', () => {
-    expect(win32QuotePwshArg('he said "hi"')).toBe('"he said `"hi`""');
-  });
-
-  it('escapes dollar sign to prevent variable expansion', () => {
-    expect(win32QuotePwshArg('--key=$FOO')).toBe('"--key=`$FOO"');
-  });
-
-  it('escapes parentheses (subexpression delimiters)', () => {
-    // ( → `(  and  ) → `)  so (value) → `(value`) wrapped in "..."
-    expect(win32QuotePwshArg('(value)')).toBe('"`(value`)"');
-  });
-
-  it('escapes braces', () => {
-    // { → `{  and  } → `}  so {block} → `{block`} wrapped in "..."
-    expect(win32QuotePwshArg('{block}')).toBe('"`{block`}"');
-  });
-
-  it('handles an empty arg', () => {
-    expect(win32QuotePwshArg('')).toBe('""');
-  });
-
-  it('handles backslashes (no escaping needed in double-quoted strings)', () => {
-    expect(win32QuotePwshArg('C:\\Users\\foo')).toBe('"C:\\Users\\foo"');
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// v1.6.0 Phase 5 — win32QuoteCmdArg (cmd.exe argument quoting)
-//
-// Pure logic tests — runnable on any platform.
-// pending-Windows-dogfood: PTY e2e verification requires a Windows host.
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('win32QuoteCmdArg (Phase 5)', () => {
-  it('wraps a simple arg in double quotes', () => {
-    expect(win32QuoteCmdArg('hello')).toBe('"hello"');
-  });
-
-  it('handles args with spaces', () => {
-    expect(win32QuoteCmdArg('say hello')).toBe('"say hello"');
-  });
-
-  it('escapes percent signs to prevent variable expansion', () => {
-    expect(win32QuoteCmdArg('--key=%FOO%')).toBe('"--key=%%FOO%%"');
-  });
-
-  it('escapes double quotes with backslash', () => {
-    expect(win32QuoteCmdArg('he said "hi"')).toBe('"he said \\"hi\\""');
-  });
-
-  it('escapes exclamation marks (delayed expansion)', () => {
-    expect(win32QuoteCmdArg('hello!')).toBe('"hello^!"');
-  });
-
-  it('handles an empty arg', () => {
-    expect(win32QuoteCmdArg('')).toBe('""');
-  });
-
-  it('handles backslashes (no escaping needed inside double quotes for cmd)', () => {
-    expect(win32QuoteCmdArg('C:\\Users\\foo')).toBe('"C:\\Users\\foo"');
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// v1.6.0 Phase 5 — buildWin32PwshCommandLine (Phase 5)
-//
-// pending-Windows-dogfood: PTY e2e verification requires a Windows host.
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('buildWin32PwshCommandLine (Phase 5)', () => {
-  it('without sentinel: produces "command <quotedArgs>\\n"', () => {
-    const line = buildWin32PwshCommandLine('claude', ['--flag', 'value']);
-    expect(line).toBe('claude "--flag" "value"\n');
-  });
-
-  it('with sentinel: ends with newline', () => {
-    const line = buildWin32PwshCommandLine('claude', ['--flag'], true);
-    expect(line.endsWith('\n')).toBe(true);
-  });
-
-  it('with sentinel: contains the sentinel prefix and suffix', () => {
-    const line = buildWin32PwshCommandLine('claude', ['--resume', 'abc'], true);
-    expect(line).toContain(SENTINEL_PREFIX);
-    expect(line).toContain(SENTINEL_SUFFIX);
-  });
-
-  it('with sentinel: uses $LASTEXITCODE (PowerShell exit code variable)', () => {
-    const line = buildWin32PwshCommandLine('mybin', [], true);
-    expect(line).toContain('$LASTEXITCODE');
-  });
-
-  it('with sentinel: uses Write-Host to emit the marker', () => {
-    const line = buildWin32PwshCommandLine('mybin', [], true);
-    expect(line).toContain('Write-Host');
-  });
-
-  it('without sentinel: NO sentinel prefix in output', () => {
-    const line = buildWin32PwshCommandLine('claude', ['--flag']);
-    expect(line).not.toContain(SENTINEL_PREFIX);
-  });
-
-  it('no-args case: produces "command\\n"', () => {
-    const line = buildWin32PwshCommandLine('mybin', []);
-    expect(line).toBe('mybin\n');
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// v1.6.0 Phase 5 — buildWin32CmdCommandLine (Phase 5)
-//
-// pending-Windows-dogfood: PTY e2e verification requires a Windows host.
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('buildWin32CmdCommandLine (Phase 5)', () => {
-  it('without sentinel: produces "command <quotedArgs>\\n"', () => {
-    const line = buildWin32CmdCommandLine('claude', ['--flag', 'value']);
-    expect(line).toBe('claude "--flag" "value"\n');
-  });
-
-  it('with sentinel: ends with newline', () => {
-    const line = buildWin32CmdCommandLine('claude', ['--flag'], true);
-    expect(line.endsWith('\n')).toBe(true);
-  });
-
-  it('with sentinel: contains the sentinel prefix and suffix', () => {
-    const line = buildWin32CmdCommandLine('claude', ['--resume', 'abc'], true);
-    expect(line).toContain(SENTINEL_PREFIX);
-    expect(line).toContain(SENTINEL_SUFFIX);
-  });
-
-  it('with sentinel: uses %ERRORLEVEL% capture pattern', () => {
-    const line = buildWin32CmdCommandLine('mybin', [], true);
-    expect(line).toContain('%ERRORLEVEL%');
-  });
-
-  it('with sentinel: uses SET to save exit code before echo. resets it', () => {
-    const line = buildWin32CmdCommandLine('mybin', [], true);
-    expect(line).toContain('SET');
-    expect(line).toContain('__SL_EC');
-  });
-
-  it('without sentinel: NO sentinel prefix in output', () => {
-    const line = buildWin32CmdCommandLine('claude', ['--flag']);
-    expect(line).not.toContain(SENTINEL_PREFIX);
-  });
-
-  it('no-args case: produces "command\\n"', () => {
-    const line = buildWin32CmdCommandLine('mybin', []);
-    expect(line).toBe('mybin\n');
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// v1.6.0 Phase 5 / H-6 — win32 shell-first helpers exist, but runtime currently
-// coerces win32 shell-first requests back to direct mode until Windows dogfood
-// validates the wrapped-shell sentinel path.
+// v1.6.0 Phase 5 / H-6 — win32 shell-first runtime coverage.
 //
 // NOTE: This test uses vi.doMock + dynamic import to mock node-pty on win32.
-// On the macOS test host, we simulate the win32 platform via process.platform.
-//
-// pending-Windows-dogfood: full PTY integration requires a Windows host.
+// The wrapped-shell spawn assertions run on Windows because command resolution
+// intentionally follows Windows filesystem and PATH semantics.
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('spawnLocalPty: win32 shell-first mode (Phase 5)', () => {
@@ -869,48 +754,204 @@ describe('spawnLocalPty: win32 shell-first mode (Phase 5)', () => {
     };
   }
 
-  it('on simulated win32 with shell-first: stays direct until Windows dogfood clears shell-first', async () => {
-    if (process.platform !== 'win32') {
-      // Simulate win32 platform on macOS by temporarily overriding process.platform.
-      // H-6 restored direct mode on win32 so spawn/watch logic cannot drift.
-      vi.useFakeTimers();
+  it('win32 shell-first spawns PowerShell and injects the CLI with an exit sentinel', async () => {
+    if (process.platform !== 'win32') return;
+    vi.useFakeTimers();
 
-      const { freshSpawn, nodePty } = await setupWin32();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sigmalink-shell-first-'));
+    const shellPath = path.join(tempDir, 'pwsh.exe');
+    fs.writeFileSync(shellPath, '');
+    fs.writeFileSync(path.join(tempDir, 'claude.cmd'), '@echo must not be parsed\r\n');
+    fs.writeFileSync(path.join(tempDir, 'claude.ps1'), '');
 
-      // Override platform to 'win32' for this test.
-      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
-      // Ensure resolveWindowsCommand won't throw on missing PATH by giving it a real shell.
-      // We rely on spawnShellFirstPty not calling resolveWindowsCommand for the shell
-      // (it calls defaultShell() which already resolves).
+    try {
+      const { freshSpawn, nodePty, written, fireData } = await setupWin32();
+      freshSpawn({
+        command: 'claude',
+        args: ['--flag'],
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          PATH: tempDir,
+          PATHEXT: '.COM;.EXE;.BAT;.CMD',
+        },
+        cols: 80,
+        rows: 24,
+        spawnMode: 'shell-first',
+      });
 
-      try {
-        freshSpawn({
-          command: 'claude',
-          args: ['--flag'],
-          cwd: process.cwd(),
-          cols: 80,
-          rows: 24,
-          spawnMode: 'shell-first',
-        });
-      } catch {
-        // Spawn may fail in test env on a simulated win32 platform — that's expected.
-        // What we verify below is that shell-first wrapping did not happen.
-      } finally {
-        Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
-      }
+      const [spawnCommand, spawnArgs, spawnOptions] = vi.mocked(nodePty.spawn).mock.calls[0]!;
+      expect(path.normalize(String(spawnCommand))).toBe(path.normalize(shellPath));
+      expect(spawnArgs).toEqual(['-NoLogo']);
+      expect(written).toHaveLength(0);
+      const spawnEnv = spawnOptions.env as Record<string, string>;
+      expect(spawnEnv.SIGMALINK_SHELL_FIRST_COMMAND).toContain('/d /s /c');
+      expect(spawnEnv.SIGMALINK_SHELL_FIRST_COMMAND).toContain('-NoProfile');
+      expect(spawnEnv.SIGMALINK_SHELL_FIRST_COMMAND).toContain('-ExecutionPolicy');
+      expect(spawnEnv.SIGMALINK_SHELL_FIRST_COMMAND).toContain('-File');
+      expect(spawnEnv.SIGMALINK_SHELL_FIRST_COMMAND.toLowerCase()).toContain('claude.ps1');
+      expect(spawnEnv.SIGMALINK_SHELL_FIRST_COMMAND.toLowerCase()).not.toContain('claude.cmd');
 
-      // The spawn call, if it happened, should NOT be a shell-first wrapped
-      // PowerShell/cmd launch. In most simulated environments direct-mode
-      // preflight throws ENOENT before node-pty is reached.
-      const spawnCalls = vi.mocked(nodePty.spawn).mock.calls;
-      for (const call of spawnCalls) {
-        expect(String(call[0]).toLowerCase()).not.toMatch(/powershell|pwsh|cmd\.exe/);
-      }
+      fireData('PS> ');
+
+      expect(written).toHaveLength(1);
+      expect(written[0]).toMatch(
+        /^cmd\.exe --% %SIGMALINK_SHELL_FIRST_COMMAND%\r/,
+      );
+      expect(written[0]).not.toContain('\n');
+      expect(written[0]).toContain(SENTINEL_PREFIX);
+      expect(written[0]).toContain(SENTINEL_SUFFIX);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('round-trips adversarial arguments by safely downgrading a legacy-PS npm shim', async () => {
+    if (process.platform !== 'win32') return;
+    vi.useFakeTimers();
+
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sigmalink-argv-shim-'));
+    const commandName = 'sigmalink-argv-probe';
+    const probeScriptName = `${commandName}.cjs`;
+    fs.writeFileSync(
+      path.join(tempDir, probeScriptName),
+      "process.stdout.write(JSON.stringify(process.argv.slice(2)) + '\\n');\n",
+      'utf8',
+    );
+    const batchNodePath = process.execPath.replace(/%/g, '%%');
+    fs.writeFileSync(
+      path.join(tempDir, `${commandName}.cmd`),
+      `@ECHO off\r\n"${batchNodePath}" "%~dp0${probeScriptName}" %*\r\n`,
+      'utf8',
+    );
+    const powerShellLiteral = (value: string) => value.replace(/'/g, "''");
+    fs.writeFileSync(
+      path.join(tempDir, `${commandName}.ps1`),
+      [
+        '#!/usr/bin/env pwsh',
+        '$basedir=Split-Path $MyInvocation.MyCommand.Definition -Parent',
+        `$node='${powerShellLiteral(process.execPath)}'`,
+        `$probe=Join-Path $basedir '${powerShellLiteral(probeScriptName)}'`,
+        // Mirror a real npm PowerShell shim: launch its native Node child,
+        // wait for it to close stdout, then propagate the native exit code.
+        // Writing directly through [Console] in this nested harness emitted
+        // the right JSON but left Windows PowerShell's native collector open.
+        '& $node $probe @args',
+        '$ret=$LASTEXITCODE',
+        'exit $ret',
+        '',
+      ].join('\r\n'),
+      'utf8',
+    );
+
+    const payloads = [
+      'x" & echo SIGMA_INJECTED & rem "',
+      '100%',
+      'hello!',
+      '$env:PATH',
+      'a|b<c>d^e(f){g}',
+      'trailing\\',
+      'quote\\"after',
+      '',
+      'line1\r\nline2',
+    ];
+    const expectedPayloads = [...payloads.slice(0, -1), 'line1 line2'];
+    const systemRoot = process.env.SystemRoot;
+    if (!systemRoot) throw new Error('SystemRoot is required for this Windows test');
+    const controlledEnv: NodeJS.ProcessEnv = {
+      SystemRoot: systemRoot,
+      ComSpec: path.join(systemRoot, 'System32', 'cmd.exe'),
+      PATH: `${tempDir};${path.join(systemRoot, 'System32')}`,
+      PATHEXT: '.CMD;.EXE',
+      TEMP: process.env.TEMP,
+      TMP: process.env.TMP,
+    };
+
+    try {
+      const { freshSpawn, nodePty, written } = await setupWin32();
+      freshSpawn({
+        command: commandName,
+        args: payloads,
+        cwd: process.cwd(),
+        env: controlledEnv,
+        cols: 80,
+        rows: 24,
+        spawnMode: 'shell-first',
+      });
+
+      const [spawnCommand, spawnArgs, spawnOptions] = vi.mocked(nodePty.spawn).mock.calls[0]!;
+      const spawnEnv = spawnOptions.env as NodeJS.ProcessEnv;
+      expect(spawnCommand).toBe('cmd.exe');
+      expect(typeof spawnArgs).toBe('string');
+      expect(String(spawnArgs).toLowerCase()).toContain(`${commandName}.cmd`);
+      expect(spawnEnv.SIGMALINK_SHELL_FIRST_COMMAND).toBeUndefined();
+      expect(written).toHaveLength(0);
+
+      // node-pty receives this as one pre-escaped command line. Execute that
+      // same string verbatim through Node's Windows spawn layer to prove the
+      // direct fallback preserves every argv position and cannot inject.
+      const result = spawnSync(
+        String(spawnCommand),
+        [String(spawnArgs)],
+        {
+          encoding: 'utf8',
+          env: spawnEnv,
+          timeout: 10_000,
+          windowsVerbatimArguments: true,
+        },
+      );
+
+      expect(result.error).toBeUndefined();
+      expect(result.status).toBe(0);
+      expect(JSON.parse(result.stdout.trim())).toEqual(expectedPayloads);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  }, 90_000);
+
+  it('win32 .cmd without sibling .ps1 downgrades to direct even when PowerShell exists', async () => {
+    if (process.platform !== 'win32') return;
+    vi.useFakeTimers();
+
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sigmalink-shell-first-no-ps1-'));
+    fs.writeFileSync(path.join(tempDir, 'pwsh.exe'), '');
+    fs.writeFileSync(path.join(tempDir, 'claude.cmd'), '');
+    const injectionPayload = 'x" & echo SIGMA_INJECTED & rem "';
+
+    try {
+      const { freshSpawn, nodePty, written, fireData } = await setupWin32();
+      freshSpawn({
+        command: 'claude',
+        args: [injectionPayload],
+        cwd: process.cwd(),
+        env: {
+          PATH: tempDir,
+          PATHEXT: '.COM;.EXE;.BAT;.CMD',
+        },
+        cols: 80,
+        rows: 24,
+        spawnMode: 'shell-first',
+      });
+
+      const [spawnCommand, spawnArgs] = vi.mocked(nodePty.spawn).mock.calls[0]!;
+      expect(spawnCommand).toBe('cmd.exe');
+      expect(typeof spawnArgs).toBe('string');
+      expect(String(spawnArgs)).toContain('/d /s /c');
+      expect(String(spawnArgs)).not.toContain('/v:on');
+      expect(String(spawnArgs)).not.toContain(injectionPayload);
+
+      fireData('C:\\> ');
+      vi.advanceTimersByTime(251);
+
+      expect(written).toHaveLength(0);
+      expect(written.join('')).not.toContain('SIGMA_INJECTED');
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
 
   it('win32 direct mode: still throws ENOENT for missing commands', () => {
-    // The 3-condition guard: spawnMode !== 'shell-first' → direct mode → ENOENT.
+    // Explicit direct mode still takes the direct pre-flight path.
     // This verifies the invariant is preserved on win32 when spawnMode is 'direct'.
     process.env.PATH = '/does/not/exist';
     let caught: unknown = null;
@@ -956,6 +997,132 @@ describe('defaultShell', () => {
       args: ['-NoLogo'],
     });
   });
+
+  it('win32: resolves built-in Windows PowerShell from SystemRoot when PATH omits it', () => {
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+    const canonicalPowerShell =
+      'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
+    vi.spyOn(fs, 'existsSync').mockImplementation(
+      (candidate) => candidate === canonicalPowerShell,
+    );
+
+    expect(defaultShell({
+      SystemRoot: 'C:\\Windows',
+      PATH: 'C:\\cmd-only',
+      PATHEXT: '.EXE',
+    })).toEqual({
+      command: canonicalPowerShell,
+      args: ['-NoLogo'],
+    });
+  });
+});
+
+describe.skipIf(process.platform !== 'win32')('spawnLocalPty Windows ConPTY integration', () => {
+  it('returns to the persistent PowerShell after one Ctrl+C', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sigmalink-ctrl-c-'));
+    const commandName = 'sigmalink-ctrl-c-probe';
+    const readyMarker = '__SIGMALINK_PROBE_CHILD_READY__';
+    const shellMarker = '__SIGMALINK_PROBE_SHELL_READY__';
+    const escapeControl = String.fromCharCode(27);
+    const bellControl = String.fromCharCode(7);
+    const oscSequence = new RegExp(
+      `${escapeControl}\\][^${bellControl}]*(?:${bellControl}|${escapeControl}\\\\)`,
+      'g',
+    );
+    const csiSequence = new RegExp(`${escapeControl}\\[[0-?]*[ -/]*[@-~]`, 'g');
+    const nodePath = process.execPath.replace(/'/g, "''");
+    fs.writeFileSync(
+      path.join(tempDir, `${commandName}.cmd`),
+      '@echo this batch shim must not run\r\n',
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(tempDir, `${commandName}.ps1`),
+      [
+        `Write-Output '${readyMarker}'`,
+        `& '${nodePath}' -e 'setTimeout(() => {}, 30000)'`,
+        'exit $LASTEXITCODE',
+        '',
+      ].join('\r\n'),
+      'utf8',
+    );
+
+    const handle = spawnLocalPty({
+      command: commandName,
+      args: [],
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        PATH: `${tempDir}${path.delimiter}${process.env.PATH ?? ''}`,
+      },
+      cols: 120,
+      rows: 30,
+      spawnMode: 'shell-first',
+    });
+
+    let output = '';
+    let interruptSent = false;
+    let sentinelCode: number | null = null;
+    let shellMarkerSeen = false;
+    let explicitExitSent = false;
+    let exited = false;
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error(`Windows shell-first Ctrl+C probe timed out:\n${output}`));
+        }, 30_000);
+
+        handle.onData((chunk) => {
+          output += chunk;
+          const normalized = output
+            .replace(oscSequence, '')
+            .replace(csiSequence, '')
+            .replace(/\r/g, '');
+
+          if (!interruptSent && output.includes(readyMarker)) {
+            interruptSent = true;
+            setTimeout(() => handle.write('\x03'), 200);
+          }
+
+          const sentinel = extractSentinel(output);
+          if (sentinelCode === null && sentinel) {
+            sentinelCode = sentinel.exitCode;
+            setTimeout(() => handle.write(`Write-Output "${shellMarker}"\r`), 200);
+          }
+
+          if (
+            !shellMarkerSeen &&
+            new RegExp(`(?:^|\\n)${shellMarker}(?:\\n|$)`).test(normalized)
+          ) {
+            shellMarkerSeen = true;
+            setTimeout(() => {
+              explicitExitSent = true;
+              handle.write('exit\r');
+            }, 100);
+          }
+        });
+
+        handle.onExit(() => {
+          exited = true;
+          clearTimeout(timeout);
+          resolve();
+        });
+      });
+
+      expect(interruptSent).toBe(true);
+      // PowerShell can report Ctrl+C as POSIX-style 130 or preserve Windows'
+      // signed STATUS_CONTROL_C_EXIT (0xC000013A). Both are legitimate nonzero
+      // native statuses; production intentionally does not normalize them.
+      expect([130, -1073741510]).toContain(sentinelCode);
+      expect(shellMarkerSeen).toBe(true);
+      expect(explicitExitSent).toBe(true);
+      expect(output).not.toMatch(/Terminate batch job/i);
+    } finally {
+      if (!exited) handle.kill();
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  }, 35_000);
 });
 
 describe('defaultShell on linux', () => {
@@ -973,5 +1140,48 @@ describe('defaultShell on linux', () => {
   it('falls back to bash when SHELL is fish', () => {
     Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
     expect(defaultShell({ SHELL: '/usr/bin/fish' })).toEqual({ command: '/bin/bash', args: ['-l'] });
+  });
+});
+
+describe('spawnLocalPty shell-first POSIX soft-miss', () => {
+  it.skipIf(process.platform === 'win32')(
+    'does NOT throw synchronously when the command is missing from Electron PATH (login shell resolves it)',
+    () => {
+      // Kimi-after-migration regression: ~/.kimi-code/bin is only on the login
+      // shell's PATH (via ~/.zshrc), not Electron's. Shell-first must defer to
+      // the pane's own shell instead of hard-failing the launch.
+      let handle: ReturnType<typeof spawnLocalPty> | undefined;
+      expect(() => {
+        handle = spawnLocalPty({
+          command: 'sigmalink-definitely-not-a-real-command-xyz',
+          args: [],
+          cwd: os.homedir(),
+          cols: 80,
+          rows: 24,
+          spawnMode: 'shell-first',
+        });
+      }).not.toThrow();
+      try {
+        // Without a node-pty native build (CI --ignore-scripts) the spawn
+        // degrades to the synthetic pid:-1 handle; only assert a live fork
+        // pid when the probe showed a fork can work here.
+        if (ptyForkWorks) expect(handle?.pid).toBeGreaterThan(0);
+      } finally {
+        handle?.kill();
+      }
+    },
+  );
+
+  it('direct mode still throws ENOENT synchronously for a missing command', () => {
+    expect(() =>
+      spawnLocalPty({
+        command: 'sigmalink-definitely-not-a-real-command-xyz',
+        args: [],
+        cwd: os.homedir(),
+        cols: 80,
+        rows: 24,
+        spawnMode: 'direct',
+      }),
+    ).toThrowError(/ENOENT/);
   });
 });

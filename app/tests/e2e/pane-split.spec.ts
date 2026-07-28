@@ -14,6 +14,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { createElectronTestProfile } from '../../src/test-utils/electron-test-profile';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,11 +27,12 @@ const E2E_ENABLED = process.env.SIGMALINK_E2E_PANE_SPLIT === '1';
     test.setTimeout(120_000);
 
     const tmpWs = fs.mkdtempSync(path.join(os.tmpdir(), 'sigmalink-e2e-split-'));
+    const profile = createElectronTestProfile('sigmalink-e2e-split-profile-');
     let app: ElectronApplication | null = null;
     try {
       app = await electron.launch({
-        args: [path.resolve(__dirname, '../../electron-dist/main.js')],
-        env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1', NODE_ENV: 'test' },
+        args: [path.resolve(__dirname, '../../electron-dist/main.js'), ...profile.args],
+        env: { ...profile.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1' },
         timeout: 60_000,
       });
       const win: Page = await app.firstWindow();
@@ -129,7 +131,7 @@ const E2E_ENABLED = process.env.SIGMALINK_E2E_PANE_SPLIT === '1';
         return window.sigma.invoke('swarms.minimisePane', { paneId: childId, minimised: false });
       }, (splitResult as { id: string }).id);
     } finally {
-      if (app) await app.close();
+      await profile.close(app);
       try {
         fs.rmSync(tmpWs, { recursive: true, force: true });
       } catch {

@@ -156,19 +156,27 @@ export class RufloMcpSupervisor extends EventEmitter {
       this.transition('down');
       return;
     }
-    try {
-      c.kill('SIGTERM');
-    } catch {
-      /* ignore */
+    let exited = c.exitCode != null || c.signalCode != null;
+    const markExited = () => {
+      exited = true;
+    };
+    c.once('exit', markExited);
+    if (!exited) {
+      try {
+        c.kill('SIGTERM');
+      } catch {
+        /* ignore */
+      }
     }
     setTimeout(() => {
-      if (c && !c.killed) {
+      if (!exited) {
         try {
           c.kill('SIGKILL');
         } catch {
           /* ignore */
         }
       }
+      c.off('exit', markExited);
     }, KILL_ESCALATION_MS);
     this.child = null;
     this._startedAt = null;

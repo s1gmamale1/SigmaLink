@@ -65,6 +65,9 @@ function commit(sessionId: string): string | null {
     ? rawToLabel(raw)
     : null;
   if (!clean || isLikelyAck(clean)) return null;
+  // Slash-command lines (/rename, /model, …) are CLI commands, not tasks —
+  // they must never re-title the pane (and never reach the cloud titler).
+  if (clean.startsWith('/')) return null;
   // Hand the prompt to the title orchestrator: it summarizes via the Ollama-cloud
   // model and sets the resulting title (the pane keeps its name until then). Re-
   // titles every prompt (routine acks are filtered above so they don't re-title).

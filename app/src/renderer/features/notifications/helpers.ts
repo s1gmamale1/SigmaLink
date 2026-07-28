@@ -86,7 +86,7 @@ export function severityClass(severity: NotificationSeverity): string {
 }
 
 /** Coarse-grained relative-time formatter for the row timestamp. The dropdown
- *  re-renders cheaply on every NOTIFICATIONS_DELTA so a wall-clock now() in
+ *  re-renders cheaply on every notification change set so a wall-clock now() in
  *  here is fine; the result is interpolated into a string and never compared
  *  for equality. */
 export function relativeTime(ts: number, nowFn: () => number = Date.now): string {

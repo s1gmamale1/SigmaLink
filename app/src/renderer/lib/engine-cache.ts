@@ -16,6 +16,8 @@ import { subscribeExit } from './pty-exit-bus';
 import { stripDeviceAttributesResponses } from './terminal-cache';
 import { computeSnapshotOverlap } from './snapshot-overlap';
 import { attachEngineLabelReader, detachLabelReader } from './label-reader';
+import { onAgentLabel } from './pane-title-orchestrator';
+import { shouldFollowTitle } from './pane-title-follow';
 
 export const ENGINE_CACHE_LIMIT = 32;
 
@@ -32,6 +34,7 @@ export interface EngineCacheEntry {
   lastAccessed: number;
   unsubscribePty: () => void;
   offExit: () => void;
+  offTitle: () => void;
 }
 
 const cache = new Map<string, EngineCacheEntry>();
@@ -85,6 +88,14 @@ export function getOrCreateEngine(sessionId: string): EngineCacheEntry {
     engine.write(`\r\n\x1b[2;90m[session exited code=${payload.exitCode}]\x1b[0m\r\n`);
   });
 
+  // Agent-initiated renames (OSC 0/2) follow the same override sink as
+  // SIGMA::LABEL — supersedes any in-flight prompt summary. Gated at fire
+  // time (providerId resolves async): plain-shell panes must not forward
+  // shell auto-titles (oh-my-zsh precmd) into the label.
+  const offTitle = engine.onTitleChange((t) => {
+    if (shouldFollowTitle(sessionId)) onAgentLabel(sessionId, t);
+  });
+
   const entry: EngineCacheEntry = {
     sessionId,
     engine,
@@ -94,6 +105,7 @@ export function getOrCreateEngine(sessionId: string): EngineCacheEntry {
     lastAccessed: Date.now(),
     unsubscribePty,
     offExit,
+    offTitle,
   };
   cache.set(sessionId, entry);
   // Auto-label — read SIGMA::LABEL from this engine's parsed buffer.
@@ -140,6 +152,11 @@ export function destroyEngine(sessionId: string): void {
   }
   try {
     entry.offExit();
+  } catch {
+    /* same */
+  }
+  try {
+    entry.offTitle();
   } catch {
     /* same */
   }

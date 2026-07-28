@@ -2748,3 +2748,30 @@ Do not auto-run `0026` until operator explicitly signs off on the data repair. C
 ### Outcome — shipped v1.35.0 (2026-05-28)
 
 The cosmetic toast guard was applied in `257d99d fix(sf-12): guard paneIndex -1 sentinel in add-agent toasts` (`SwarmRoom.tsx:140` + `AddPaneButton.tsx:184` now render "Pane added" instead of "Pane 0"). A second Opus review round verified all four Important fixes landed (it even confirmed the db-fake SQL-fidelity gap is closed by deleting the `status IN (...)` clause and watching the test fail, then restoring). The branch `sf-12-pane-integrity` was fast-forward merged into `main` and **released as v1.35.0** (tag `v1.35.0`, pushed): version bump + CHANGELOG + `docs/09-release/release-notes-1.35.0.txt`, after a full re-gate in main (tsc -b · eslint 0/0 · vitest 189 files / 1917 pass / 1 skip · product:check · full `tests/e2e/` 9 pass / 3 skip). **Migration `0026` was NOT registered** — operator chose "ship the code now, 0026 dormant" because the Tier 1 read-path fix + Tier 2 allocator already stop the bleeding (no new bad rows; the migration only repairs *existing* corruption). Remaining to fully close SF-12: operator runs the diagnostic SQL on a real `agent_sessions` dump, signs off, then `0026` is registered (`.pending` dropped, imported into `migrate.ts` + `ALL_MIGRATIONS`) and shipped in a follow-up.
+
+## Phase 49 — Notification state consistency repair (2026-07-26)
+
+PR #244 was squash-merged to `main` as `28c2a9e` after a full notification-system audit and repeated independent review. The investigation and implementation receipts live in `WISHLIST.md`; the design and executed plan live under `docs/superpowers/{specs,plans}/2026-07-25-notification-*`.
+
+### Correctness model shipped
+
+- Migration 0043 introduces the singleton notification-state revision. Every manager operation that changes visible notification state performs its row writes, retention, revision increment, authoritative counts, and emitted change set in one synchronous SQLite transaction.
+- Renderer hydration subscribes before requesting a snapshot, strictly parses rows/counts/pages/change sets, buffers live changes by revision, applies only consecutive revisions, and refetches on gaps or malformed envelopes. The buffer is capped at 256 entries; overflow intentionally creates a detectable gap instead of growing without bound.
+- Older-page responses carry both their source cursor and source revision, so a concurrent live mutation or recovery snapshot cannot resurrect stale rows or skip history.
+- Optimistic mark-read and dismiss writes carry reducer-owned per-row mutation tokens. An unrelated revision no longer suppresses compensation after an RPC failure, while an authoritative change touching the same row clears ownership and prevents stale rollback. A module-level UI lock prevents overlapping same-row writes across dropdown close/reopen cycles.
+- Snapshot, live, and paged rows use one runtime parser. Unknown legacy severities normalize to `info` consistently in list filters, aggregate counts, and retention lanes; severity buckets must sum to unread totals.
+- Navigation is immediate and remains usable while mutation controls are disabled. Obsolete pre-versioning hydration RPCs, reducer actions, and envelope documentation were removed.
+
+### Windows process-launch lesson
+
+Windows PowerShell 5.1 corrupts adversarial npm-shim argv and delays nested output collection. Resolved `.cmd` npm shims therefore deliberately downgrade to the existing direct `cmd.exe` path with two-pass escaping under legacy PowerShell. PowerShell 7 (`pwsh`) retains shell-first mode. The hosted regression executes node-pty's exact command line with `windowsVerbatimArguments` and treats `.CMD` resolution case-insensitively.
+
+### Gate
+
+- Sigma check: 94/100; no Critical/Important findings.
+- CodeRabbit: 35 changed files, zero findings.
+- Snitch: zero Critical/High findings.
+- Hosted CI: 6/6, including dedicated Windows Win32 spawn/PTY lifecycle coverage.
+- Local: 487 test files, 5,082 passed, 3 skipped; coverage, full lint, TypeScript production build (2,131 modules), and diff check passed.
+
+One non-blocking hardening item remains: runtime parsers accept empty string identifiers/cursors, although current UUID-backed manager and RPC producers cannot emit them.

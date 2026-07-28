@@ -16,6 +16,17 @@ import path from 'node:path';
 /** Maximum bytes accepted by persist(); excess is tail-truncated. */
 export const SCROLLBACK_MAX_BYTES = 256 * 1024; // 256 KiB — matches RingBuffer default
 
+function utf8TailWithinBytes(text: string, maxBytes: number): string {
+  const encoded = Buffer.from(text, 'utf8');
+  if (encoded.length <= maxBytes) return text;
+
+  let start = encoded.length - maxBytes;
+  while (start < encoded.length && (encoded[start] & 0xc0) === 0x80) {
+    start += 1;
+  }
+  return encoded.subarray(start).toString('utf8');
+}
+
 function scrollbackDir(userDataDir: string): string {
   return path.join(userDataDir, 'scrollback');
 }
@@ -38,10 +49,7 @@ export function persistScrollback(userDataDir: string, sessionId: string, text: 
     const dir = scrollbackDir(userDataDir);
     fs.mkdirSync(dir, { recursive: true });
 
-    const capped =
-      Buffer.byteLength(text, 'utf8') > SCROLLBACK_MAX_BYTES
-        ? text.slice(-SCROLLBACK_MAX_BYTES) // rough char-level truncation (safe: ASCII terminal data)
-        : text;
+    const capped = utf8TailWithinBytes(text, SCROLLBACK_MAX_BYTES);
 
     const dest = scrollbackPath(userDataDir, sessionId);
     const tmp = dest + '.tmp';

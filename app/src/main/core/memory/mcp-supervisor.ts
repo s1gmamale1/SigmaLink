@@ -1,14 +1,7 @@
-// Per-workspace SigmaMemory MCP supervisor. Each entry tracks one Node child
-// process running `electron-dist/mcp-memory-server.cjs`. The child shares the
-// app's SQLite db file and the workspace's `<root>/.sigmamemory/` hub dir,
-// which means GUI changes are immediately visible to MCP clients (and vice
-// versa) — better-sqlite3 in WAL mode handles cross-process reads + a
-// single writer at a time, and our writes are short transactions.
-//
-// Lifecycle mirrors `playwright-supervisor.ts`:
-//   • restart up to 3x with linear backoff
-//   • SIGTERM on stop / shutdown
-//   • emits no IPC events; the GUI rescans on focus / `memory:changed`
+// Per-workspace SigmaMemory MCP command registry. MCP stdio is point-to-point:
+// each configured agent CLI launches and owns its own server process, so an
+// Electron-owned copy cannot serve those clients and would sit idle. Entries
+// therefore retain only the workspace identity needed to build launch config.
 //
 // `getCommandFor()` returns the `{command, args, env}` triple the
 // `mcp-config-writer.ts` needs so spawned agent CLIs can list us in their
@@ -17,19 +10,12 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import { app } from 'electron';
-import { spawn, type ChildProcess } from 'node:child_process';
 
-interface SupervisedEntry {
+interface RegisteredEntry {
   workspaceId: string;
   workspaceRoot: string;
-  child: ChildProcess | null;
-  restarts: number;
-  lastError: string | null;
-  shuttingDown: boolean;
 }
 
-const MAX_RESTARTS = 3;
-const RESPAWN_DELAY_MS = 1500;
 const SERVER_FILENAME = 'mcp-memory-server.cjs';
 
 export interface MemoryMcpSupervisorOpts {
@@ -40,7 +26,7 @@ export interface MemoryMcpSupervisorOpts {
 }
 
 export class MemoryMcpSupervisor {
-  private readonly entries = new Map<string, SupervisedEntry>();
+  private readonly entries = new Map<string, RegisteredEntry>();
   private readonly opts: Required<MemoryMcpSupervisorOpts>;
 
   constructor(opts: MemoryMcpSupervisorOpts = {}) {
@@ -50,48 +36,22 @@ export class MemoryMcpSupervisor {
     };
   }
 
-  /**
-   * Idempotent: returns the existing child for the workspace if it is still
-   * alive, otherwise spawns one. The promise resolves once the child has been
-   * spawned (does NOT wait for the JSON-RPC `initialize` round-trip — agents
-   * issue that themselves on first use).
-   */
+  /** Register or refresh the workspace used to generate a client launch command. */
   async start(workspaceId: string, workspaceRoot?: string): Promise<void> {
     const existing = this.entries.get(workspaceId);
-    if (existing && existing.child && !existing.child.killed) return;
     if (!workspaceRoot && existing) workspaceRoot = existing.workspaceRoot;
     if (!workspaceRoot) {
       throw new Error('memory MCP supervisor: workspaceRoot required for first start');
     }
-    const entry: SupervisedEntry = existing ?? {
-      workspaceId,
-      workspaceRoot,
-      child: null,
-      restarts: 0,
-      lastError: null,
-      shuttingDown: false,
-    };
-    if (workspaceRoot) entry.workspaceRoot = workspaceRoot;
-    this.entries.set(workspaceId, entry);
-    this.spawnChild(entry);
+    this.entries.set(workspaceId, { workspaceId, workspaceRoot });
   }
 
   stop(workspaceId: string): void {
-    const e = this.entries.get(workspaceId);
-    if (!e) return;
-    e.shuttingDown = true;
-    if (e.child) {
-      try {
-        e.child.kill('SIGTERM');
-      } catch {
-        /* ignore */
-      }
-    }
     this.entries.delete(workspaceId);
   }
 
   stopAll(): void {
-    for (const id of Array.from(this.entries.keys())) this.stop(id);
+    this.entries.clear();
   }
 
   /**
@@ -122,63 +82,6 @@ export class MemoryMcpSupervisor {
 
   hasEntry(workspaceId: string): boolean {
     return this.entries.has(workspaceId);
-  }
-
-  private spawnChild(entry: SupervisedEntry): void {
-    if (entry.shuttingDown) return;
-    if (!fs.existsSync(this.opts.serverEntry)) {
-      // Treat absent server as a non-fatal warning — the GUI still works,
-      // CLI agents simply won't see the tools until the next packaged build.
-      entry.lastError = `mcp-memory-server.cjs missing at ${this.opts.serverEntry}`;
-      return;
-    }
-    let child: ChildProcess;
-    try {
-      child = spawn(process.execPath, [this.opts.serverEntry], {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        windowsHide: true,
-        env: {
-          ...process.env,
-          ELECTRON_RUN_AS_NODE: '1', // run Electron's bundled node, not Electron itself
-          SIGMALINK_DB_PATH: this.opts.dbPath,
-          SIGMALINK_WORKSPACE_ID: entry.workspaceId,
-          SIGMALINK_WORKSPACE_ROOT: entry.workspaceRoot,
-        },
-      });
-    } catch (err) {
-      entry.lastError = err instanceof Error ? err.message : String(err);
-      this.scheduleRestart(entry);
-      return;
-    }
-    entry.child = child;
-    let stderrBuf = '';
-    child.stderr?.on('data', (chunk: Buffer) => {
-      stderrBuf += chunk.toString('utf8');
-      if (stderrBuf.length > 8000) stderrBuf = stderrBuf.slice(-4000);
-    });
-    child.stdout?.on('data', () => {
-      // We don't currently subscribe to the supervisor's child's responses —
-      // the GUI talks directly to MemoryManager via RPC. The child only
-      // serves spawned agent CLIs that pipe to our stdin/stdout in their own
-      // child process. Drain to avoid backpressure.
-    });
-    child.on('error', (err: Error) => {
-      entry.lastError = err.message;
-    });
-    child.on('exit', (code, signal) => {
-      entry.child = null;
-      if (entry.shuttingDown) return;
-      entry.lastError = `exit code=${code ?? 'null'} signal=${signal ?? 'null'} stderr=${stderrBuf.slice(-400)}`;
-      this.scheduleRestart(entry);
-    });
-  }
-
-  private scheduleRestart(entry: SupervisedEntry): void {
-    if (entry.shuttingDown) return;
-    if (entry.restarts >= MAX_RESTARTS) return;
-    entry.restarts += 1;
-    const delay = RESPAWN_DELAY_MS * entry.restarts;
-    setTimeout(() => this.spawnChild(entry), delay);
   }
 
   private defaultServerEntry(): string {

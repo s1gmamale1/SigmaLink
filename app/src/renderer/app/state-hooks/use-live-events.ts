@@ -21,7 +21,11 @@ import { useEffect, useRef, type Dispatch } from 'react';
 import { toast } from 'sonner';
 import { rpc, rpcSilent } from '../../lib/rpc';
 import type { Action, AppState } from '../state.types';
-import type { AgentSession, Notification } from '../../../shared/types';
+import type { AgentSession, NotificationChangeSet } from '../../../shared/types';
+import {
+  parseNotificationChangeSet,
+  parseNotificationSnapshot,
+} from '../notification-parsers';
 import { parseBrowserState, parseSwarmMessage, runRefreshOnEvent } from './parsers';
 import { playNotificationTone } from '../../lib/notifications';
 import { playCue } from '../../lib/sounds';
@@ -42,6 +46,9 @@ import { isMainWindow } from '../../lib/window-context';
 // together plays ONE sound, and the throttle survives hook remounts.
 const ATTENTION_SOUND_THROTTLE_MS = 2000;
 let lastAttentionSoundAt = 0;
+
+const NOTIFICATION_RETRY_DELAYS_MS = [250, 1_000, 4_000, 10_000] as const;
+const NOTIFICATION_CHANGE_BUFFER_MAX = 256;
 
 export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void {
   // Current-state ref so event callbacks (which subscribe with stable deps) see
@@ -561,62 +568,149 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
     );
   }, [state.activeWorkspace?.id, dispatch]);
 
-  // v1.4.9 #07 — Notifications. Initial paginated mount + live delta merge.
-  // The main process emits `notifications:changed` with a `{added, removed,
-  // unreadCount}` delta (D2 IPC contract); the reducer reconciles via the
-  // id-keyed upsert. The initial fetch is paginated (limit 100); the
-  // dropdown can infinite-scroll for older rows.
+  // Versioned notifications: subscribe before requesting the first snapshot,
+  // buffer live change sets during hydration, and recover revision gaps.
   useEffect(() => {
     let alive = true;
-    void (async () => {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const list = (await (rpcSilent as any).notifications.list({ limit: 100, offset: 0 })) as Notification[];
-        if (!alive) return;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const counter = (await (rpcSilent as any).notifications.unreadCount()) as number;
-        if (!alive) return;
-        dispatch({
-          type: 'SET_NOTIFICATIONS',
-          notifications: list,
-          unreadCount: typeof counter === 'number' ? counter : 0,
-        });
-      } catch {
-        // Pre-migration boot or controller not yet registered — silent.
+    let buffering = true;
+    let currentRevision: number | null = null;
+    let requestInFlight = false;
+    let recoveryRequested = false;
+    let retryAttempt = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    const buffered = new Map<number, NotificationChangeSet>();
+
+    const bufferChangeSet = (changeSet: NotificationChangeSet): void => {
+      if (
+        !buffered.has(changeSet.revision) &&
+        buffered.size >= NOTIFICATION_CHANGE_BUFFER_MAX
+      ) {
+        // Dropping the oldest buffered event deliberately creates a revision
+        // gap. Hydration detects that gap and refetches an authoritative
+        // snapshot, while memory stays bounded during a prolonged outage.
+        const oldestRevision = buffered.keys().next().value;
+        if (oldestRevision !== undefined) buffered.delete(oldestRevision);
       }
-    })();
-    return () => {
-      alive = false;
+      buffered.set(changeSet.revision, changeSet);
     };
-  }, [dispatch]);
 
-  useEffect(() => {
+    const scheduleRetry = (): void => {
+      if (!alive || retryTimer !== null) return;
+      dispatch({ type: 'SET_NOTIFICATION_HYDRATION', status: 'retrying' });
+      const delay =
+        NOTIFICATION_RETRY_DELAYS_MS[
+          Math.min(retryAttempt, NOTIFICATION_RETRY_DELAYS_MS.length - 1)
+        ];
+      retryAttempt += 1;
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        void hydrate();
+      }, delay);
+    };
+
+    const hydrate = async (isRecovery = false): Promise<void> => {
+      if (!alive || requestInFlight) return;
+      requestInFlight = true;
+      dispatch({
+        type: 'SET_NOTIFICATION_HYDRATION',
+        status: isRecovery || retryAttempt > 0 ? 'retrying' : 'loading',
+      });
+      try {
+        const raw = await rpcSilent.notifications.snapshot({ limit: 100 });
+        if (!alive) return;
+        // A malformed live envelope means this request may have captured state
+        // before the unparseable change. Discard it and let `finally` issue the
+        // queued authoritative recovery snapshot instead of briefly claiming
+        // the potentially stale response is ready.
+        if (recoveryRequested) return;
+        const snapshot = parseNotificationSnapshot(raw);
+        if (!snapshot) throw new Error('invalid notification snapshot');
+
+        dispatch({ type: 'INSTALL_NOTIFICATION_SNAPSHOT', snapshot });
+        currentRevision = snapshot.revision;
+        const pending = Array.from(buffered.values()).sort(
+          (a, b) => a.revision - b.revision,
+        );
+        buffered.clear();
+        for (const changeSet of pending) {
+          if (changeSet.revision <= currentRevision) continue;
+          if (changeSet.revision !== currentRevision + 1) {
+            bufferChangeSet(changeSet);
+            continue;
+          }
+          dispatch({ type: 'APPLY_NOTIFICATION_CHANGE_SET', changeSet });
+          currentRevision = changeSet.revision;
+        }
+
+        if (buffered.size > 0) {
+          buffering = true;
+          scheduleRetry();
+        } else {
+          buffering = false;
+          retryAttempt = 0;
+        }
+      } catch {
+        if (alive) scheduleRetry();
+      } finally {
+        requestInFlight = false;
+        if (alive && recoveryRequested) {
+          recoveryRequested = false;
+          if (retryTimer !== null) {
+            clearTimeout(retryTimer);
+            retryTimer = null;
+          }
+          void hydrate(true);
+        }
+      }
+    };
+
+    const recoverFromMalformedEnvelope = (): void => {
+      // No revision can be trusted after an unparseable envelope: stop applying
+      // deltas against the old cursor and rebuild from one authoritative source.
+      buffering = true;
+      currentRevision = null;
+      buffered.clear();
+      dispatch({ type: 'SET_NOTIFICATION_HYDRATION', status: 'retrying' });
+
+      if (requestInFlight) {
+        // Coalesce any number of malformed events during this request into one
+        // guaranteed snapshot after it settles.
+        recoveryRequested = true;
+        return;
+      }
+      if (retryTimer !== null) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
+      }
+      void hydrate(true);
+    };
+
     const off = window.sigma.eventOn('notifications:changed', (raw: unknown) => {
-      if (!raw || typeof raw !== 'object') return;
-      const p = raw as {
-        added?: unknown;
-        removed?: unknown;
-        updated?: unknown;
-        unreadCount?: unknown;
-      };
-      const added = Array.isArray(p.added)
-        ? (p.added.filter((n) => n && typeof n === 'object') as Notification[])
-        : [];
-      const removed = Array.isArray(p.removed)
-        ? (p.removed.filter((id) => typeof id === 'string') as string[])
-        : [];
-      // 2026-07-02 fix A — read-state reconcile rows (mark-read/-all/-unread).
-      // They reconcile the store below but MUST NOT feed the tone/toast
-      // handoff — only `added` alerts.
-      const updated = Array.isArray(p.updated)
-        ? (p.updated.filter((n) => n && typeof n === 'object') as Notification[])
-        : [];
-      const unreadCount = typeof p.unreadCount === 'number' ? p.unreadCount : 0;
+      const changeSet = parseNotificationChangeSet(raw);
+      if (!changeSet) {
+        recoverFromMalformedEnvelope();
+        return;
+      }
+      if (
+        buffered.has(changeSet.revision) ||
+        (currentRevision !== null && changeSet.revision <= currentRevision)
+      ) {
+        return;
+      }
 
-      // Reducer upsert is the load-bearing path — do it SYNCHRONOUSLY, exactly
-      // as before, so the bell badge / dropdown reconcile immediately and never
-      // wait on the (async) sound + toast handoff below.
-      dispatch({ type: 'NOTIFICATIONS_DELTA', added, removed, updated, unreadCount });
+      if (buffering || currentRevision === null) {
+        bufferChangeSet(changeSet);
+      } else if (changeSet.revision === currentRevision + 1) {
+        dispatch({ type: 'APPLY_NOTIFICATION_CHANGE_SET', changeSet });
+        currentRevision = changeSet.revision;
+      } else {
+        buffering = true;
+        bufferChangeSet(changeSet);
+        dispatch({ type: 'SET_NOTIFICATION_HYDRATION', status: 'retrying' });
+        void hydrate(true);
+      }
+
+      const { added } = changeSet;
 
       // P3 (NTF-2 / SND-1) — toast↔bell handoff. The new unread rows are
       // surfaced as a distinct per-severity tone + a themed sonner toast, BOTH
@@ -694,7 +788,12 @@ export function useLiveEvents(state: AppState, dispatch: Dispatch<Action>): void
         }
       })();
     });
-    return off;
+    void hydrate();
+    return () => {
+      alive = false;
+      off();
+      if (retryTimer !== null) clearTimeout(retryTimer);
+    };
   }, [dispatch]);
 
   // When the active workspace changes, refresh swarms for that workspace so

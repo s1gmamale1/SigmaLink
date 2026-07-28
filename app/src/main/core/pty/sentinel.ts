@@ -20,15 +20,16 @@ export const SENTINEL_SUFFIX = '__';
 
 /**
  * Regex that matches the sentinel line.
- * Capture group 1: the raw exit-code digits.
+ * Capture group 1: the raw signed or unsigned exit code.
  *
  * The sentinel is printed with a leading newline by the shell (`printf '\n…'`)
  * so it is always at the start of a line.  We tolerate:
+ *   - an optional minus sign (PowerShell can emit signed Windows status codes)
  *   - optional leading \r (Windows-style CRLF from PTY normalisation)
  *   - optional trailing \r before \n
  */
 export const SENTINEL_RE = new RegExp(
-  `(?:^|\\r?\\n)${SENTINEL_PREFIX}(\\d+)${SENTINEL_SUFFIX}\\r?(?:\\n|$)`,
+  `(?:^|\\r?\\n)${SENTINEL_PREFIX}(-?\\d+)${SENTINEL_SUFFIX}\\r?(?:\\n|$)`,
   'g',
 );
 
@@ -87,11 +88,12 @@ export function extractSentinel(data: string): SentinelMatch | null {
 // ---------------------------------------------------------------------------
 
 /**
- * Maximum carried tail length. The longest possible sentinel line is ~30
- * chars (`\n` + prefix(21) + 3 exit-code digits + suffix(2) + `\r\n`); 64
- * leaves comfortable headroom while bounding per-chunk concat cost.
+ * Maximum carried tail length. A signed 32-bit Windows status uses 11
+ * characters (for example `-1073741510`), making the framed sentinel line
+ * roughly 40 characters. 80 leaves headroom while bounding per-chunk concat
+ * cost.
  */
-export const SENTINEL_CARRY_MAX = 64;
+export const SENTINEL_CARRY_MAX = 80;
 
 /**
  * Compute the tail of `combined` (= previous carry + current chunk) to carry
@@ -129,68 +131,40 @@ export function buildSentinelSnippet(): string {
 }
 
 // ---------------------------------------------------------------------------
-// v1.6.0 Phase 5 — win32 per-shell sentinel snippets.
+// v1.6.0 Phase 5 — win32 PowerShell sentinel snippet.
 //
 // The sentinel MARKER format (__SIGMALINK_CLI_EXIT_<code>__) is identical on
 // all platforms — SENTINEL_RE / extractSentinel / containsSentinel remain
-// unchanged and recognise all three variants.
+// unchanged and recognise both POSIX and PowerShell variants.
 //
-// PowerShell emits the sentinel via Write-Host; cmd.exe via echo.  Both print
-// the same \n__SIGMALINK_CLI_EXIT_<code>__\n pattern that SENTINEL_RE matches.
+// PowerShell emits the same \n__SIGMALINK_CLI_EXIT_<code>__\n pattern that
+// SENTINEL_RE matches.
 // ---------------------------------------------------------------------------
 
 /**
  * Build the PowerShell snippet that emits the sentinel after the CLI exits.
  *
  * Intended for injection as the tail of a PowerShell command line, e.g.:
- *   claude --args; Write-Host "`n__SIGMALINK_CLI_EXIT_$LASTEXITCODE`__"
+ *   claude --args; Write-Host "`n__SIGMALINK_CLI_EXIT_$($LASTEXITCODE)__"
  *
  * The snippet is:
- *   ; Write-Host "`n__SIGMALINK_CLI_EXIT_$LASTEXITCODE`__"
+ *   ; Write-Host "`n__SIGMALINK_CLI_EXIT_$($LASTEXITCODE)__"
  *
  * Backtick-n (`` `n ``) is PowerShell's newline escape inside double-quoted
  * strings.  `$LASTEXITCODE` holds the exit code of the last native command.
- * `$LASTEXITCODE` is set BEFORE the semicolon sequence changes `$?`, so
- * chaining with `;` is correct here (`;` does not change `$LASTEXITCODE`).
+ * The `$()` delimiter prevents the sentinel suffix underscores from becoming
+ * part of the PowerShell variable name.
+ * Windows PowerShell resets `$LASTEXITCODE` to 0 when ConPTY interrupts the
+ * foreground native pipeline, but leaves `$?` false for the next command.
+ * Normalize only that otherwise-clean failure signature to the conventional
+ * SIGINT status 130. Real zero and non-zero native exits remain unchanged.
  *
  * The caller appends `\n` (the Enter keystroke written into the PTY master).
  */
 export function buildPowerShellSentinelSnippet(): string {
+  const exitCode =
+    '$(if ($LASTEXITCODE -eq 0 -and -not $?) { 130 } else { $LASTEXITCODE })';
   return (
-    `; Write-Host "\`n${SENTINEL_PREFIX}$LASTEXITCODE${SENTINEL_SUFFIX}"`
-  );
-}
-
-/**
- * Build the cmd.exe snippet that emits the sentinel after the CLI exits.
- *
- * Intended for injection as the tail of a cmd.exe command line, e.g.:
- *   claude --args & echo. & echo __SIGMALINK_CLI_EXIT_%ERRORLEVEL%__
- *
- * The snippet is:
- *   & echo. & echo __SIGMALINK_CLI_EXIT_%ERRORLEVEL%__
- *
- * `echo.` prints a blank line (the leading newline that SENTINEL_RE expects).
- * `%ERRORLEVEL%` is expanded by cmd at parse time when using `&` chaining,
- * which preserves the exit code of the left-hand command.
- *
- * IMPORTANT: cmd.exe expands `%ERRORLEVEL%` at parse time for the entire line
- * unless `DELAYEDEXPANSION` is enabled (`setlocal enabledelayedexpansion`).
- * We use `&` (unconditional sequence) rather than `&&`/`||` so that the echo
- * always runs, and we rely on `%ERRORLEVEL%` being the code from the CLI (the
- * `echo.` command itself always succeeds, setting ERRORLEVEL to 0 before the
- * second echo). To capture the CLI exit code we must expand it BEFORE `echo.`
- * resets it — use a `SET` capture in the same line:
- *
- *   & SET __SL_EC=%ERRORLEVEL% & echo. & echo __SIGMALINK_CLI_EXIT_%__SL_EC%__
- *
- * This is what `buildCmdSentinelSnippet()` emits.
- *
- * The caller appends `\r\n` or `\n` (the Enter keystroke written into the PTY
- * master for cmd.exe — `\r\n` is conventional but `\n` also works in ConPTY).
- */
-export function buildCmdSentinelSnippet(): string {
-  return (
-    ` & SET __SL_EC=%ERRORLEVEL% & echo. & echo ${SENTINEL_PREFIX}%__SL_EC%%${SENTINEL_SUFFIX}`
+    `; Write-Host "\`n${SENTINEL_PREFIX}${exitCode}${SENTINEL_SUFFIX}"`
   );
 }

@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createElectronTestProfile } from '../../src/test-utils/electron-test-profile';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -67,20 +68,16 @@ test('opening a workspace writes a Ruflo MCP entry', async () => {
     return;
   }
 
-  const userDataDir = tmpDir('sigmalink-ruflo-userdata-');
-  const fakeHome = tmpDir('sigmalink-ruflo-home-');
+  const profile = createElectronTestProfile('sigmalink-ruflo-profile-');
   const workspaceRoot = tmpDir('sigmalink-ruflo-workspace-');
   let app: ElectronApplication | null = null;
 
   try {
     app = await electron.launch({
-      args: [mainPath, `--user-data-dir=${userDataDir}`],
+      args: [mainPath, ...profile.args],
       env: {
-        ...process.env,
+        ...profile.env,
         ELECTRON_DISABLE_SECURITY_WARNINGS: '1',
-        NODE_ENV: 'test',
-        SIGMA_TEST: '1',
-        HOME: fakeHome,
       },
       timeout: 60_000,
     });
@@ -108,6 +105,6 @@ test('opening a workspace writes a Ruflo MCP entry', async () => {
       env: { CLAUDE_FLOW_DIR: path.join(workspaceRoot, '.claude-flow') },
     });
   } finally {
-    await app?.close().catch(() => undefined);
+    await profile.close(app);
   }
 });
