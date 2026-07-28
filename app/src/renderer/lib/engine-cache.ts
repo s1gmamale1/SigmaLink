@@ -18,8 +18,9 @@ import { computeSnapshotOverlap } from './snapshot-overlap';
 import { attachEngineLabelReader, detachLabelReader } from './label-reader';
 import { onAgentLabel } from './pane-title-orchestrator';
 import { shouldFollowTitle } from './pane-title-follow';
+import { ENGINE_CACHE_LIMIT } from './terminal-limits';
 
-export const ENGINE_CACHE_LIMIT = 32;
+export { ENGINE_CACHE_LIMIT } from './terminal-limits';
 
 export interface EngineCacheEntry {
   sessionId: string;

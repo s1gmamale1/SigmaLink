@@ -65,9 +65,10 @@ import { ctrlWheelShouldBubble } from './wheel-zoom';
 import { attachXtermLabelReader, detachLabelReader } from './label-reader';
 import { onAgentLabel } from './pane-title-orchestrator';
 import { shouldFollowTitle } from './pane-title-follow';
+import { DEFAULT_SCROLLBACK_ROWS, TERMINAL_CACHE_LIMIT } from './terminal-limits';
 
 /** Maximum number of cached xterm instances before LRU eviction. */
-export const TERMINAL_CACHE_LIMIT = 32;
+export { TERMINAL_CACHE_LIMIT } from './terminal-limits';
 
 /**
  * SF-3 (v1.29.0) — Device-Attributes RESPONSE matcher for the onData→pty.write
@@ -253,7 +254,7 @@ function buildTerminalOptions(
     cursorBlink: true,
     cursorStyle: 'bar',
     allowTransparency: false,
-    scrollback: 8000,
+    scrollback: DEFAULT_SCROLLBACK_ROWS,
     theme: xtermThemeFrom(activeTerminalPalette()),
     convertEol: true,
     // Required for the Unicode 11 width tables activated in getOrCreateTerminal

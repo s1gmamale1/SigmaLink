@@ -14,6 +14,7 @@
 import { Terminal as HeadlessTerminal } from '@xterm/headless';
 import type { IBuffer, IBufferCell } from '@xterm/headless';
 import type { EncoderModes } from '../features/command-room/input-encoder';
+import { DEFAULT_SCROLLBACK_ROWS } from './terminal-limits';
 
 export interface EngineDelegate {
   /** Bytes the TERMINAL emits toward the PTY (query answers; later, encoded
@@ -101,7 +102,7 @@ export class TerminalEngine {
     this.term = new HeadlessTerminal({
       cols: opts.cols ?? 120,
       rows: opts.rows ?? 32,
-      scrollback: opts.scrollback ?? 8000,
+      scrollback: opts.scrollback ?? DEFAULT_SCROLLBACK_ROWS,
       // Parity with the attached path (terminal-cache buildTerminalOptions):
       // PTY streams are \n-rich on some providers.
       convertEol: true,
