@@ -7,7 +7,7 @@
 // Cmd+Alt+<N> focus jumps. The legacy PaneStatusStrip was collapsed into
 // PaneHeader's provider-name tooltip; Stop moves to the right-click menu.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Terminal as TerminalIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -23,15 +23,16 @@ import type { AgentSession, Swarm } from '@/shared/types';
 import { useSkillBindings } from '@/renderer/features/skills/useSkillBindings';
 import { SkillBindingChip } from '@/renderer/features/skills/SkillBindingChip';
 import { SKILL_DRAG_MIME, type SkillDragPayload } from '@/renderer/features/skills/SkillsTab';
+import { usePaneOrder } from './usePaneOrder';
 
 const EMPTY_SESSIONS: AgentSession[] = [];
 const EMPTY_SWARMS: Swarm[] = [];
 
-// Pane layout: <PaneGrid> tiles the sessions into a uniform fill-grid (cells
-// keyed by sessionId; rows ≈ √n, the last/short rows widen to fill so there is
-// no dead space). Sessions are the authoritative set and the grid is a pure
-// function of them — no layout state, no persistence. (The old flat grid-cell
-// grouping + 1-level split-group model was retired with GridLayout/SplitGroupCell.)
+// Pane layout: canonical sessions remain the authoritative set. Resize layout
+// and presentation order are separate workspace-scoped UI state; neither
+// mutates session records or their persisted pane_index values. (The old flat
+// grid-cell grouping + 1-level split-group model was retired with
+// GridLayout/SplitGroupCell.)
 
 export function CommandRoom() {
   const dispatch = useAppDispatch();
@@ -45,12 +46,34 @@ export function CommandRoom() {
   // Workspace-header drop state for skill drags.
   const [wsHeaderDragOver, setWsHeaderDragOver] = useState(false);
   const activeSessionId = useAppStateSelector((state) => state.activeSessionId);
+  const latestActiveWorkspaceIdRef = useRef(activeWorkspaceId);
+  const latestActiveSessionIdRef = useRef(activeSessionId);
+  useLayoutEffect(() => {
+    latestActiveWorkspaceIdRef.current = activeWorkspaceId;
+    latestActiveSessionIdRef.current = activeSessionId;
+  }, [activeSessionId, activeWorkspaceId]);
   const activeSwarmId = useAppStateSelector((state) => state.activeSwarmId);
   // v1.4.2 packet-12 — non-null when a pane is rendered fullscreen.
   const focusedPaneId = useAppStateSelector((state) => state.focusedPaneId);
   const sessions = useAppStateSelector((state) =>
     activeWorkspaceId ? state.sessionsByWorkspace[activeWorkspaceId] ?? EMPTY_SESSIONS : EMPTY_SESSIONS,
   );
+  const canonicalSessionIds = useMemo(
+    () => sessions.map((session) => session.id),
+    [sessions],
+  );
+  const {
+    orderedSessionIds,
+    reorderReady,
+    swapPanes,
+    replaceSessionId,
+  } = usePaneOrder({ workspaceId: activeWorkspaceId, canonicalSessionIds });
+  const sessionsById = useMemo(
+    () => new Map(sessions.map((session) => [session.id, session])),
+    [sessions],
+  );
+  const canReorder =
+    reorderReady && orderedSessionIds.length > 1 && focusedPaneId === null;
   const workspaceSwarms = useAppStateSelector((state) =>
     activeWorkspaceId ? state.swarmsByWorkspace[activeWorkspaceId] ?? EMPTY_SWARMS : EMPTY_SWARMS,
   );
@@ -298,7 +321,13 @@ export function CommandRoom() {
       });
       dispatch({ type: 'UPSERT_SWARM', swarm: result.swarm });
       dispatch({ type: 'ADD_SESSIONS', sessions: [result.session] });
-      dispatch({ type: 'SET_ACTIVE_SESSION', id: result.sessionId });
+      replaceSessionId(session.workspaceId, session.id, result.sessionId);
+      if (
+        latestActiveWorkspaceIdRef.current === session.workspaceId
+        && latestActiveSessionIdRef.current === session.id
+      ) {
+        dispatch({ type: 'SET_ACTIVE_SESSION', id: result.sessionId });
+      }
       // session-persistence fix (2026-07-18) — close the crashed ROW in the DB,
       // not just the renderer (REMOVE_SESSION is UI-only). Without this the row
       // lingered open (closed_at NULL) as a stale sibling in its slot and boot
@@ -440,7 +469,7 @@ export function CommandRoom() {
       )}
       <div className="min-h-0 flex-1 overflow-hidden">
         <PaneGrid
-          sessionIds={sessions.map((s) => s.id)}
+          sessionIds={orderedSessionIds}
           activeSessionId={activeSessionId}
           focusedPaneId={focusedPaneId}
           workspaceId={activeWorkspaceId}
@@ -448,12 +477,18 @@ export function CommandRoom() {
             dispatch({ type: 'CLEAR_SESSION_ATTENTION', sessionId: id });
             if (activeSessionId !== id) dispatch({ type: 'SET_ACTIVE_SESSION', id });
           }}
+          reorderEnabled={canReorder}
+          onSwapPanes={swapPanes}
+          getPaneLabel={(id) => {
+            const session = sessionsById.get(id);
+            return session?.name?.trim() || session?.providerId || id;
+          }}
           renderLeaf={(sessionId) => {
-            const session = sessions.find((s) => s.id === sessionId);
+            const session = sessionsById.get(sessionId);
             if (!session) return null;
             // v1.7.1 W-5 Phase 2 — filter to pane-scoped bindings for this session.
             const paneBindings = skillBindings.filter((b) => b.paneSessionId === session.id);
-            const paneIndex = sessions.findIndex((s) => s.id === sessionId) + 1;
+            const paneIndex = orderedSessionIds.indexOf(sessionId) + 1;
             return (
               <PaneErrorBoundary
                 key={session.id}
@@ -463,6 +498,8 @@ export function CommandRoom() {
                 <PaneShell
                   session={session}
                   paneIndex={paneIndex}
+                  paneCount={orderedSessionIds.length}
+                  canReorder={canReorder}
                   providers={providers}
                   workspaceRootPath={activeWorkspace.rootPath}
                   onFocus={() => {

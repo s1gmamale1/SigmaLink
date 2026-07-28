@@ -30,10 +30,31 @@
 // on the active pane; fullscreen overlays the focused pane above all chrome
 // (z-50).
 
+import {
+  DndContext,
+  DragOverlay,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  pointerWithin,
+  useSensor,
+  useSensors,
+  type Announcements,
+  type CollisionDetection,
+  type DragEndEvent,
+  type DragStartEvent,
+} from '@dnd-kit/core';
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { prefersReducedMotion } from '@/renderer/lib/motion';
 import { rpcSilent } from '@/renderer/lib/rpc';
 import { paneRows, shapeSignature } from '@/shared/pane-grid-shape';
 import { PaneDivider } from './PaneDivider';
+import { PaneGridCell } from './PaneGridCell';
+import {
+  createPaneKeyboardCoordinates,
+  sessionIdFromPaneDragId,
+  sessionIdFromPaneDropId,
+} from './pane-reorder-navigation';
 
 export interface PaneGridProps {
   sessionIds: string[];
@@ -42,6 +63,9 @@ export interface PaneGridProps {
   workspaceId: string | null;
   onActivate: (sessionId: string) => void;
   renderLeaf: (sessionId: string) => React.ReactNode;
+  reorderEnabled: boolean;
+  onSwapPanes: (sourceSessionId: string, targetSessionId: string) => boolean;
+  getPaneLabel: (sessionId: string) => string;
 }
 
 interface Fracs {
@@ -51,6 +75,222 @@ interface Fracs {
 }
 
 const MIN_FRAC = 0.1;
+
+const paneCollisionDetection: CollisionDetection = (args) =>
+  args.pointerCoordinates ? pointerWithin(args) : closestCenter(args);
+
+interface PaneGridDndFrameProps {
+  sessionIds: string[];
+  reorderEnabled: boolean;
+  onDrop: (sourceSessionId: string, targetSessionId: string) => boolean;
+  getPaneLabel: (sessionId: string) => string;
+  children: (activeReorderId: string | null) => React.ReactNode;
+}
+
+function PaneGridDndFrame({
+  sessionIds,
+  reorderEnabled,
+  onDrop,
+  getPaneLabel,
+  children,
+}: PaneGridDndFrameProps) {
+  const [storedActiveReorderId, setActiveReorderId] = useState<string | null>(
+    null,
+  );
+  const mountedRef = useRef(false);
+  const dragEpochRef = useRef(0);
+  const activeDragRef = useRef<{
+    epoch: number;
+    sourceSessionId: string;
+  } | null>(null);
+  const lastDropOutcomeRef = useRef<{
+    sourceSessionId: string;
+    targetSessionId: string;
+    committed: boolean;
+  } | null>(null);
+  const activeReorderId =
+    reorderEnabled &&
+    storedActiveReorderId &&
+    sessionIds.includes(storedActiveReorderId)
+      ? storedActiveReorderId
+      : null;
+
+  useLayoutEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      dragEpochRef.current += 1;
+      activeDragRef.current = null;
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    const activeDrag = activeDragRef.current;
+    if (!activeDrag) return;
+    if (
+      !reorderEnabled ||
+      !sessionIds.includes(activeDrag.sourceSessionId)
+    ) {
+      const invalidatedEpoch = dragEpochRef.current + 1;
+      dragEpochRef.current = invalidatedEpoch;
+      activeDragRef.current = null;
+      queueMicrotask(() => {
+        if (
+          mountedRef.current &&
+          dragEpochRef.current === invalidatedEpoch &&
+          activeDragRef.current === null
+        ) {
+          setActiveReorderId(null);
+        }
+      });
+    }
+  }, [reorderEnabled, sessionIds]);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: createPaneKeyboardCoordinates(sessionIds),
+    }),
+  );
+  const panePosition = (sessionId: string) => sessionIds.indexOf(sessionId) + 1;
+
+  const handleReorderStart = ({ active }: DragStartEvent) => {
+    lastDropOutcomeRef.current = null;
+    const sourceSessionId = sessionIdFromPaneDragId(active.id);
+    if (
+      !reorderEnabled ||
+      !sourceSessionId ||
+      !sessionIds.includes(sourceSessionId)
+    ) {
+      setActiveReorderId(null);
+      return;
+    }
+    const epoch = dragEpochRef.current + 1;
+    dragEpochRef.current = epoch;
+    activeDragRef.current = { epoch, sourceSessionId };
+    setActiveReorderId(sourceSessionId);
+  };
+
+  const handleReorderEnd = ({ active, over }: DragEndEvent) => {
+    const activeDrag = activeDragRef.current;
+    activeDragRef.current = null;
+    setActiveReorderId(null);
+    if (
+      !mountedRef.current ||
+      !activeDrag ||
+      activeDrag.epoch !== dragEpochRef.current ||
+      !reorderEnabled
+    ) {
+      return;
+    }
+    // Consume this exact generation before parsing or notifying the parent so
+    // duplicate/retained end callbacks from the same sensor are inert.
+    dragEpochRef.current += 1;
+
+    const sourceSessionId = sessionIdFromPaneDragId(active.id);
+    const targetSessionId = sessionIdFromPaneDropId(over?.id);
+    if (
+      !sourceSessionId ||
+      !targetSessionId ||
+      activeDrag.sourceSessionId !== sourceSessionId ||
+      sourceSessionId === targetSessionId ||
+      !sessionIds.includes(sourceSessionId) ||
+      !sessionIds.includes(targetSessionId)
+    ) {
+      return;
+    }
+    lastDropOutcomeRef.current = {
+      sourceSessionId,
+      targetSessionId,
+      committed: onDrop(sourceSessionId, targetSessionId),
+    };
+  };
+
+  const noChangeAnnouncement = 'Pane move cancelled. No change.';
+  const announcements: Announcements = {
+    onDragStart({ active }) {
+      const sourceSessionId = sessionIdFromPaneDragId(active.id);
+      if (!sourceSessionId || !sessionIds.includes(sourceSessionId)) return;
+      return `Picked up ${getPaneLabel(sourceSessionId)}, position ${panePosition(sourceSessionId)} of ${sessionIds.length}.`;
+    },
+    onDragOver({ active, over }) {
+      const sourceSessionId = sessionIdFromPaneDragId(active.id);
+      const targetSessionId = sessionIdFromPaneDropId(over?.id);
+      if (
+        !sourceSessionId ||
+        !targetSessionId ||
+        !sessionIds.includes(sourceSessionId) ||
+        !sessionIds.includes(targetSessionId)
+      ) {
+        return;
+      }
+      if (sourceSessionId === targetSessionId) {
+        return `${getPaneLabel(sourceSessionId)} is already at position ${panePosition(sourceSessionId)} of ${sessionIds.length}.`;
+      }
+      return `${getPaneLabel(sourceSessionId)} will swap with position ${panePosition(targetSessionId)} of ${sessionIds.length}.`;
+    },
+    onDragEnd({ active, over }) {
+      const sourceSessionId = sessionIdFromPaneDragId(active.id);
+      const targetSessionId = sessionIdFromPaneDropId(over?.id);
+      if (
+        !sourceSessionId ||
+        !targetSessionId ||
+        !sessionIds.includes(sourceSessionId) ||
+        !sessionIds.includes(targetSessionId) ||
+        sourceSessionId === targetSessionId
+      ) {
+        return noChangeAnnouncement;
+      }
+      const outcome = lastDropOutcomeRef.current;
+      if (
+        !outcome?.committed
+        || outcome.sourceSessionId !== sourceSessionId
+        || outcome.targetSessionId !== targetSessionId
+      ) {
+        return noChangeAnnouncement;
+      }
+      return `Moved ${getPaneLabel(sourceSessionId)} to position ${panePosition(targetSessionId)} of ${sessionIds.length}.`;
+    },
+    onDragCancel() {
+      return 'Pane move cancelled.';
+    },
+  };
+
+  return (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={paneCollisionDetection}
+      accessibility={{ announcements }}
+      onDragStart={handleReorderStart}
+      onDragEnd={handleReorderEnd}
+      onDragCancel={() => {
+        dragEpochRef.current += 1;
+        activeDragRef.current = null;
+        lastDropOutcomeRef.current = null;
+        setActiveReorderId(null);
+      }}
+    >
+      {children(activeReorderId)}
+      <DragOverlay
+        dropAnimation={{
+          duration: prefersReducedMotion() ? 0 : 200,
+          easing: 'ease',
+        }}
+      >
+        {activeReorderId ? (
+          <div
+            data-testid="pane-reorder-overlay"
+            className="rounded border border-border bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md"
+          >
+            <span>{getPaneLabel(activeReorderId)}</span>
+            <span className="ml-2 text-muted-foreground">
+              position {panePosition(activeReorderId)} of {sessionIds.length}
+            </span>
+          </div>
+        ) : null}
+      </DragOverlay>
+    </DndContext>
+  );
+}
 
 function evenFracs(rows: string[][]): Fracs {
   return {
@@ -115,9 +355,13 @@ export function PaneGrid({
   workspaceId,
   onActivate,
   renderLeaf,
+  reorderEnabled,
+  onSwapPanes,
+  getPaneLabel,
 }: PaneGridProps) {
   const rows = paneRows(sessionIds);
   const sig = shapeSignature(sessionIds);
+  const orderKey = sessionIds.join('\u0000');
 
   // Resize fractions. `stored` is the user's overrides; falls back to even when
   // the shape signature doesn't match (a pane was added/removed). A re-render
@@ -150,6 +394,37 @@ export function PaneGrid({
   } | null>(null);
   const loadedForRef = useRef<string | null>(null);
   const lastSavedRef = useRef<string>('');
+  const pendingFocusSessionIdRef = useRef<string | null>(null);
+  const crossRowRefitArmedRef = useRef(false);
+  const pendingReorderWorkspaceRef = useRef<{
+    workspaceId: string | null;
+  } | null>(null);
+
+  useLayoutEffect(() => {
+    const pendingWorkspace = pendingReorderWorkspaceRef.current;
+    if (!pendingWorkspace) return;
+    if (pendingWorkspace.workspaceId !== workspaceId) {
+      pendingFocusSessionIdRef.current = null;
+      crossRowRefitArmedRef.current = false;
+      pendingReorderWorkspaceRef.current = null;
+      return;
+    }
+    const focusSessionId = pendingFocusSessionIdRef.current;
+    if (focusSessionId) {
+      const handle = Array.from(
+        containerRef.current?.querySelectorAll<HTMLElement>(
+          '[data-pane-reorder-handle][data-session-id]',
+        ) ?? [],
+      ).find((candidate) => candidate.dataset.sessionId === focusSessionId);
+      handle?.focus({ preventScroll: true });
+      pendingFocusSessionIdRef.current = null;
+    }
+    if (crossRowRefitArmedRef.current) {
+      crossRowRefitArmedRef.current = false;
+      window.dispatchEvent(new CustomEvent('sigma:pane-resize-end'));
+    }
+    pendingReorderWorkspaceRef.current = null;
+  }, [orderKey, workspaceId]);
 
   // Load persisted fractions for this workspace (setState only after await).
   useEffect(() => {
@@ -261,97 +536,113 @@ export function PaneGrid({
     window.dispatchEvent(new CustomEvent('sigma:pane-resize-end'));
   };
 
+  const handlePaneDrop = (
+    sourceSessionId: string,
+    targetSessionId: string,
+  ): boolean => {
+    const sourceRow = rows.findIndex((row) => row.includes(sourceSessionId));
+    const targetRow = rows.findIndex((row) => row.includes(targetSessionId));
+    if (sourceRow === -1 || targetRow === -1) return false;
+
+    // Arm these before the callback so a synchronous parent commit can observe
+    // them in the order-keyed layout effect. A rejected callback clears both.
+    pendingFocusSessionIdRef.current = sourceSessionId;
+    crossRowRefitArmedRef.current = sourceRow !== targetRow;
+    pendingReorderWorkspaceRef.current = { workspaceId };
+    const committed = onSwapPanes(sourceSessionId, targetSessionId);
+    if (!committed) {
+      pendingFocusSessionIdRef.current = null;
+      crossRowRefitArmedRef.current = false;
+      pendingReorderWorkspaceRef.current = null;
+    }
+    return committed;
+  };
+
   if (rows.length === 0) return <div className="h-full w-full" data-testid="pane-grid-empty" />;
 
   return (
-    <div
-      ref={containerRef}
-      data-testid="pane-grid"
-      className="relative grid h-full w-full bg-background"
-      // CONSTANT string — the live row sizes live in `--pg-rows`, written
-      // imperatively, so React reconciliation never rewrites them.
-      style={{ gridTemplateRows: 'var(--pg-rows)' }}
+    <PaneGridDndFrame
+      sessionIds={sessionIds}
+      reorderEnabled={reorderEnabled}
+      onDrop={handlePaneDrop}
+      getPaneLabel={getPaneLabel}
     >
-      {rows.map((rowIds, r) => (
-        <Fragment key={r}>
-          {r > 0 ? (
-            <PaneDivider
-              orientation="horizontal"
-              getSize={() => containerRef.current?.getBoundingClientRect().height ?? 0}
-              onResizeStart={() => beginDrag('row', r, r - 1)}
-              onResize={applyDrag}
-              onResizeEnd={endDrag}
-            />
-          ) : null}
-          <div
-            ref={(el) => {
-              if (el) rowRefs.current.set(r, el);
-              else rowRefs.current.delete(r);
-            }}
-            data-testid="pane-row"
-            className="grid min-h-0 min-w-0 overflow-hidden"
-            style={{ gridTemplateColumns: 'var(--pg-cols)' }}
-          >
-            {rowIds.map((sid, i) => {
-              const isFocused = focusedPaneId === sid;
-              const isHidden = focusedPaneId !== null && !isFocused;
-              const isActive = activeSessionId === sid && focusedPaneId === null;
-              return (
-                <Fragment key={sid}>
-                  {i > 0 ? (
-                    <PaneDivider
-                      orientation="vertical"
-                      getSize={() => rowRefs.current.get(r)?.getBoundingClientRect().width ?? 0}
-                      onResizeStart={() => beginDrag('col', r, i - 1)}
-                      onResize={applyDrag}
-                      onResizeEnd={endDrag}
-                    />
-                  ) : null}
-                  <div
-                    data-testid="pane-cell"
-                    data-session-id={sid}
-                    data-active={isActive ? 'true' : undefined}
-                    data-bsp-hidden={isHidden ? 'true' : undefined}
-                    onMouseDownCapture={() => onActivate(sid)}
-                    // Flicker fix: every cell keeps a STABLE stacking context — a
-                    // non-auto z-index in BOTH states (z-0 idle, z-1 active). Toggling
-                    // z-index auto↔1 created/destroyed a stacking context around the
-                    // terminal's GPU canvas on every focus switch → Chromium
-                    // re-rasterized the canvas for one frame. A constant z floor means
-                    // the toggle only reorders paint, never re-parents the canvas.
-                    //
-                    // NO transition on the focus state — the focus glow appears/clears
-                    // INSTANTLY. (An earlier `transition-shadow` fade was itself the
-                    // perceived "flicker animation"; removed per operator.)
-                    //
-                    // Theme-aware focus glow (active OR fullscreen-focused): the glow
-                    // is a `.sl-pane-active::after` inset overlay in glass-material.css —
-                    // drawn on top of the terminal, inside the cell, so it glows on ALL
-                    // FOUR sides and is never clipped by the row's overflow-hidden nor
-                    // covered by neighbouring panes (an outer box-shadow was both).
-                    className={[
-                      'relative min-h-0 min-w-0 overflow-hidden bg-card',
-                      isActive || isFocused ? 'sl-pane-active z-[1]' : 'z-0',
-                    ].join(' ')}
-                    // Cells carry NO size style — the grid track sizes them. Only
-                    // the fullscreen overlay / hidden-sibling branches set style,
-                    // and those change only on focus (rare), never per drag-frame.
-                    style={
-                      isFocused
-                        ? { position: 'absolute', inset: 0, zIndex: 50 }
-                        : isHidden
-                          ? { display: 'none' }
-                          : undefined
-                    }
-                  >
-                    {renderLeaf(sid)}
-                  </div>
-                </Fragment>
-              );
-            })}
-          </div>
-        </Fragment>
-      ))}
-    </div>
+      {(activeReorderId) => (
+        <div
+          ref={containerRef}
+          data-testid="pane-grid"
+          className={[
+            'relative grid h-full w-full bg-background',
+            activeReorderId ? 'cursor-grabbing select-none' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          // CONSTANT string — the live row sizes live in `--pg-rows`, written
+          // imperatively, so React reconciliation never rewrites them.
+          style={{ gridTemplateRows: 'var(--pg-rows)' }}
+        >
+          {rows.map((rowIds, r) => (
+            <Fragment key={r}>
+              {r > 0 ? (
+                <PaneDivider
+                  orientation="horizontal"
+                  getSize={() =>
+                    containerRef.current?.getBoundingClientRect().height ?? 0
+                  }
+                  onResizeStart={() => beginDrag('row', r, r - 1)}
+                  onResize={applyDrag}
+                  onResizeEnd={endDrag}
+                />
+              ) : null}
+              <div
+                ref={(el) => {
+                  if (el) rowRefs.current.set(r, el);
+                  else rowRefs.current.delete(r);
+                }}
+                data-testid="pane-row"
+                className="grid min-h-0 min-w-0 overflow-hidden"
+                style={{ gridTemplateColumns: 'var(--pg-cols)' }}
+              >
+                {rowIds.map((sid, i) => {
+                  const isFocused = focusedPaneId === sid;
+                  const isHidden = focusedPaneId !== null && !isFocused;
+                  const isActive =
+                    activeSessionId === sid && focusedPaneId === null;
+                  return (
+                    <Fragment key={sid}>
+                      {i > 0 ? (
+                        <PaneDivider
+                          orientation="vertical"
+                          getSize={() =>
+                            rowRefs.current
+                              .get(r)
+                              ?.getBoundingClientRect().width ?? 0
+                          }
+                          onResizeStart={() => beginDrag('col', r, i - 1)}
+                          onResize={applyDrag}
+                          onResizeEnd={endDrag}
+                        />
+                      ) : null}
+                      <PaneGridCell
+                        sessionId={sid}
+                        reorderEnabled={reorderEnabled}
+                        isReordering={activeReorderId !== null}
+                        isReorderSource={activeReorderId === sid}
+                        isActive={isActive}
+                        isFocused={isFocused}
+                        isHidden={isHidden}
+                        onActivate={onActivate}
+                      >
+                        {renderLeaf(sid)}
+                      </PaneGridCell>
+                    </Fragment>
+                  );
+                })}
+              </div>
+            </Fragment>
+          ))}
+        </div>
+      )}
+    </PaneGridDndFrame>
   );
 }

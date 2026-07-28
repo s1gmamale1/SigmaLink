@@ -41,6 +41,7 @@ export { useAppDispatch, useAppState, useAppStateSelector } from './state.hook';
 
 export function AppStateProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(appStateReducer, initialAppState);
+  const rendererTestMode = window.sigma.testMode === true;
 
   useLayoutEffect(() => {
     appStateStore.setState(state);
@@ -124,6 +125,34 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     window.addEventListener('sigma:test:reload-sessions', handler as EventListener);
     return () => window.removeEventListener('sigma:test:reload-sessions', handler as EventListener);
   }, [state.activeWorkspace?.id]);
+
+  // Task 7 E2E readiness acknowledgement. The preload bridge is installed
+  // before React mounts, so its presence alone cannot prove that the three
+  // test-event listeners above are ready. This effect runs after those
+  // registrations and exposes an observable lifecycle marker; cleanup clears
+  // it so a renderer reload cannot inherit stale readiness from the old tree.
+  useEffect(() => {
+    if (!rendererTestMode) return undefined;
+    const root = document.documentElement;
+    root.dataset.sigmaTestStateHooksReady = 'true';
+    return () => {
+      delete root.dataset.sigmaTestStateHooksReady;
+    };
+  }, [rendererTestMode]);
+
+  // Observable acknowledgement for test-event state transitions. E2E callers
+  // can wait for the exact committed workspace/room instead of inferring it
+  // from a view that may render different empty and populated layouts.
+  useEffect(() => {
+    if (!rendererTestMode) return undefined;
+    const root = document.documentElement;
+    root.dataset.sigmaTestActiveWorkspaceId = state.activeWorkspaceId ?? '';
+    root.dataset.sigmaTestRoom = state.room;
+    return () => {
+      delete root.dataset.sigmaTestActiveWorkspaceId;
+      delete root.dataset.sigmaTestRoom;
+    };
+  }, [rendererTestMode, state.activeWorkspaceId, state.room]);
 
   useSessionRestore(state, dispatch);
   // Multi-window B4 — scoped (secondary) windows don't receive

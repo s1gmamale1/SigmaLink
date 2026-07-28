@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   kvGet: vi.fn(),
   kvSet: vi.fn(),
   onEvent: vi.fn(),
+  buildPaneContext: vi.fn(),
 }));
 
 const workspace = vi.hoisted<Workspace>(() => ({
@@ -69,6 +70,11 @@ vi.mock('@/renderer/lib/notifications', () => ({
 
 vi.mock('@/renderer/lib/canDo', () => ({
   useCanDo: () => false,
+}));
+
+vi.mock('@/renderer/lib/pane-context-builder', () => ({
+  PANE_DRAG_MIME: 'application/sigmalink-pane',
+  buildPaneContext: mocks.buildPaneContext,
 }));
 
 import { JorvisRoom } from './JorvisRoom';
@@ -159,6 +165,7 @@ describe('<JorvisRoom /> resume UI', () => {
     mocks.kvGet.mockResolvedValue('conversation-1');
     mocks.kvSet.mockResolvedValue(undefined);
     mocks.onEvent.mockReturnValue(() => undefined);
+    mocks.buildPaneContext.mockResolvedValue('Context from Claude Alpha');
     installSigma();
   });
 
@@ -235,6 +242,31 @@ describe('<JorvisRoom /> resume UI', () => {
     });
     await waitFor(() => {
       expect(screen.queryByTestId('sigma-interrupted-banner')).toBeNull();
+    });
+  });
+
+  it('inserts native pane-drag context into the composer', async () => {
+    render(<JorvisRoom variant="rail" />);
+    const composer = screen.getByLabelText('Ask Jorvis') as HTMLTextAreaElement;
+    const dropTarget = composer.parentElement?.parentElement as HTMLDivElement;
+    const payload = {
+      kind: 'pane',
+      sessionId: 'pane-2',
+      branch: 'feat/reorder',
+      worktreePath: '/tmp/sigmalink/.worktrees/reorder',
+      providerId: 'claude',
+    };
+
+    fireEvent.drop(dropTarget, {
+      dataTransfer: {
+        types: ['application/sigmalink-pane'],
+        getData: vi.fn(() => JSON.stringify(payload)),
+      },
+    });
+
+    await waitFor(() => {
+      expect(mocks.buildPaneContext).toHaveBeenCalledWith(payload);
+      expect(composer.value).toBe('Context from Claude Alpha');
     });
   });
 });

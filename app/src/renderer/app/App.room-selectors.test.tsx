@@ -5,7 +5,7 @@
 // re-render when an unrelated slice (notificationsUnreadCount) changes.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, render } from '@testing-library/react';
+import { act, cleanup, render, waitFor } from '@testing-library/react';
 
 vi.mock('@/renderer/lib/rpc', () => ({
   rpc: {
@@ -34,6 +34,7 @@ import { initialAppState } from '@/renderer/app/state.types';
 // Stub window.sigma so AppStateProvider's effects don't crash in jsdom.
 beforeEach(() => {
   vi.stubGlobal('sigma', {
+    testMode: false,
     eventOn: vi.fn(() => () => undefined),
     eventSend: vi.fn(),
     invoke: vi.fn().mockResolvedValue({ ok: true, data: [] }),
@@ -60,6 +61,55 @@ function WsIdProbe({ onRender }: { onRender: () => void }) {
   onRender();
   return <span data-testid="wsid">{wsId ?? 'none'}</span>;
 }
+
+describe('pane reorder E2E test-hook readiness', () => {
+  it('does not expose renderer state markers without the preload test-mode capability', async () => {
+    const view = render(
+      <AppStateProvider>
+        <RoomProbe onRender={() => undefined} />
+      </AppStateProvider>,
+    );
+
+    // Flush mounted effects so an absent marker proves the gate held rather
+    // than merely observing the DOM before the acknowledgement effect ran.
+    await act(async () => undefined);
+    expect(document.documentElement.dataset.sigmaTestStateHooksReady).toBeUndefined();
+    expect(document.documentElement.dataset.sigmaTestActiveWorkspaceId).toBeUndefined();
+    expect(document.documentElement.dataset.sigmaTestRoom).toBeUndefined();
+
+    view.unmount();
+  });
+
+  it('acknowledges readiness and state only when test mode is enabled, then cleans up', async () => {
+    Object.assign(window.sigma, { testMode: true });
+    expect(document.documentElement.dataset.sigmaTestStateHooksReady).toBeUndefined();
+    const view = render(
+      <AppStateProvider>
+        <RoomProbe onRender={() => undefined} />
+      </AppStateProvider>,
+    );
+
+    await waitFor(() => {
+      expect(document.documentElement.dataset.sigmaTestStateHooksReady).toBe('true');
+    });
+    expect(document.documentElement.dataset.sigmaTestActiveWorkspaceId).toBe('');
+    expect(document.documentElement.dataset.sigmaTestRoom).toBe('workspaces');
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent('sigma:test:set-room', { detail: { room: 'command' } }),
+      );
+    });
+    await waitFor(() => {
+      expect(document.documentElement.dataset.sigmaTestRoom).toBe('command');
+    });
+
+    view.unmount();
+    expect(document.documentElement.dataset.sigmaTestStateHooksReady).toBeUndefined();
+    expect(document.documentElement.dataset.sigmaTestActiveWorkspaceId).toBeUndefined();
+    expect(document.documentElement.dataset.sigmaTestRoom).toBeUndefined();
+  });
+});
 
 describe('PERF-3: room-slice selector isolation', () => {
   it('a room-only consumer does NOT re-render on an unrelated notificationsUnreadCount change', () => {

@@ -72,6 +72,8 @@ const KV_PROMPT_CARDS = 'pty.promptCards';
 export function PaneShell({
   session,
   paneIndex,
+  paneCount,
+  canReorder,
   providers,
   workspaceRootPath,
   onFocus,
@@ -93,6 +95,8 @@ export function PaneShell({
 }: {
   session: AgentSession;
   paneIndex: number;
+  paneCount: number;
+  canReorder: boolean;
   providers: { id: string; name: string }[];
   /** v1.4.8 — workspace root used to compute relative paths for Finder drops. */
   workspaceRootPath: string;
@@ -484,6 +488,8 @@ export function PaneShell({
       <PaneHeader
         session={session}
         paneIndex={paneIndex}
+        paneCount={paneCount}
+        canReorder={canReorder}
         providers={providers}
         onFocus={onFocus}
         onClose={onRemove}
