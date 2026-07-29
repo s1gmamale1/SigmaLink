@@ -3447,6 +3447,9 @@ async function buildRouter() {
       kv: controlKv,
       credentials: CredentialStore,
       socketPath: controlMcpHost.getSocketPath(),
+      // `controlServerEntry` lives inside app.asar in a packaged build, so the
+      // emitted command must run Electron-as-node, not bare `node`.
+      execPath: process.execPath,
       serverEntry: controlServerEntry,
       start: () => controlMcpHost.start(),
       stop: () => controlMcpHost.stop(),

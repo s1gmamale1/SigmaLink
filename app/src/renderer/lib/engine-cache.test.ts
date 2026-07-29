@@ -17,6 +17,9 @@ const orchestratorMock = vi.hoisted(() => ({
 vi.mock('@/renderer/lib/pane-title-orchestrator', () => orchestratorMock);
 
 const rpcMock = vi.hoisted(() => ({
+  kv: {
+    get: vi.fn(async () => '2500'),
+  },
   pty: {
     snapshot: vi.fn(async () => ({ buffer: '' })),
     write: vi.fn(async () => undefined),
@@ -40,7 +43,13 @@ vi.mock('@/renderer/lib/pty-exit-bus', () => ({
   },
 }));
 
-import { __resetEngineCache, destroyEngine, getCachedEngine, getOrCreateEngine } from './engine-cache';
+import {
+  __resetEngineCache,
+  destroyEngine,
+  getCachedEngine,
+  getOrCreateEngine,
+  setEngineMounted,
+} from './engine-cache';
 import { __resetTitleFollow, setTitleFollow } from './pane-title-follow';
 
 function engineText(entry: ReturnType<typeof getOrCreateEngine>): string {
@@ -64,6 +73,75 @@ afterEach(() => {
 });
 
 describe('engine-cache', () => {
+  it('creates engines with the persisted visible scrollback depth', async () => {
+    await Promise.resolve();
+    const entry = getOrCreateEngine('scrollback-setting');
+    expect(entry.engine.term.options.scrollback).toBe(2500);
+  });
+
+  it('trims the oldest DOM-engine rows when parked without dropping the cache or PTY subscription', async () => {
+    const sessionId = 'parked-dom';
+    const entry = getOrCreateEngine(sessionId);
+    setEngineMounted(sessionId, true);
+    await settle();
+
+    await new Promise<void>((resolve) => {
+      dataSubs.get(sessionId)!({
+        sessionId,
+        data: Array.from({ length: 2400 }, (_, i) => `line-${i}\r\n`).join(''),
+      });
+      entry.engine.term.write('', resolve);
+    });
+    expect(entry.engine.bufferLength).toBeGreaterThan(2032);
+
+    setEngineMounted(sessionId, false);
+
+    expect(entry.mounted).toBe(false);
+    expect(entry.engine.bufferLength).toBeLessThanOrEqual(2032);
+    expect(engineText(entry)).toContain('line-2399');
+    expect(getCachedEngine(sessionId)).toBe(entry);
+    expect(dataSubs.has(sessionId)).toBe(true);
+  });
+
+  it('HOLDS the parked bound as PTY output keeps arriving, and restores depth on remount', async () => {
+    // Regression: trimming once on park is not enough. engine-cache keeps
+    // writing live PTY output into parked entries, so the clamp has to STAY
+    // in force until the pane is mounted again — otherwise a parked pane
+    // regrows straight back to the full configured depth and the memory the
+    // trim was supposed to reclaim comes right back.
+    const sessionId = 'parked-still-writing';
+    const entry = getOrCreateEngine(sessionId);
+    setEngineMounted(sessionId, true);
+    await settle();
+
+    const feed = (count: number, prefix: string) =>
+      new Promise<void>((resolve) => {
+        dataSubs.get(sessionId)!({
+          sessionId,
+          data: Array.from({ length: count }, (_, i) => `${prefix}-${i}\r\n`).join(''),
+        });
+        entry.engine.term.write('', resolve);
+      });
+
+    await feed(2400, 'before');
+    expect(entry.engine.bufferLength).toBeGreaterThan(2032);
+
+    setEngineMounted(sessionId, false);
+    expect(entry.engine.bufferLength).toBeLessThanOrEqual(2032);
+
+    // Thousands more rows arrive while the pane is still parked.
+    await feed(9000, 'while-parked');
+    expect(entry.engine.bufferLength).toBeLessThanOrEqual(2032);
+    expect(engineText(entry)).toContain('while-parked-8999');
+
+    // Remount lifts the clamp back to the operator-configured depth (2500 via
+    // the kv mock) so a visible pane keeps its full history again.
+    setEngineMounted(sessionId, true);
+    expect(entry.engine.term.options.scrollback).toBe(2500);
+    await feed(3000, 'after');
+    expect(entry.engine.bufferLength).toBeGreaterThan(2032);
+  });
+
   it('seeds from snapshot then drains pending without duplicating the overlap', async () => {
     let release!: (v: { buffer: string }) => void;
     rpcMock.pty.snapshot.mockImplementation(

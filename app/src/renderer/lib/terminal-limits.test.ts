@@ -1,0 +1,36 @@
+import { describe, expect, it } from 'vitest';
+import {
+  DEFAULT_SCROLLBACK_ROWS,
+  ENGINE_CACHE_LIMIT,
+  PARKED_SCROLLBACK_ROWS,
+  TERMINAL_CACHE_LIMIT,
+  resolveScrollbackRows,
+} from './terminal-limits';
+
+describe('terminal limits', () => {
+  it('keeps the shipped scrollback default unchanged', () => {
+    expect(DEFAULT_SCROLLBACK_ROWS).toBe(8000);
+  });
+
+  it('trims parked panes well above one screenful', () => {
+    // A pane is 32 rows tall by default (providers/launcher.ts spawns 120x32).
+    expect(PARKED_SCROLLBACK_ROWS).toBeGreaterThan(32 * 10);
+    expect(PARKED_SCROLLBACK_ROWS).toBeLessThan(DEFAULT_SCROLLBACK_ROWS);
+  });
+
+  it('caps both caches at the same value so the presenters cannot drift', () => {
+    expect(TERMINAL_CACHE_LIMIT).toBe(ENGINE_CACHE_LIMIT);
+  });
+
+  it('falls back to the default for absent or malformed settings', () => {
+    expect(resolveScrollbackRows(null)).toBe(DEFAULT_SCROLLBACK_ROWS);
+    expect(resolveScrollbackRows('')).toBe(DEFAULT_SCROLLBACK_ROWS);
+    expect(resolveScrollbackRows('not-a-number')).toBe(DEFAULT_SCROLLBACK_ROWS);
+    expect(resolveScrollbackRows('0')).toBe(DEFAULT_SCROLLBACK_ROWS);
+    expect(resolveScrollbackRows('-100')).toBe(DEFAULT_SCROLLBACK_ROWS);
+  });
+
+  it('honours a valid configured depth', () => {
+    expect(resolveScrollbackRows('2500')).toBe(2500);
+  });
+});

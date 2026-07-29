@@ -10,7 +10,11 @@
 
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
 import { rpc } from '@/renderer/lib/rpc';
-import { getOrCreateEngine, type EngineCacheEntry } from '@/renderer/lib/engine-cache';
+import {
+  getOrCreateEngine,
+  setEngineMounted,
+  type EngineCacheEntry,
+} from '@/renderer/lib/engine-cache';
 import { useTerminalPaletteEpoch } from '@/renderer/lib/terminal-palette';
 import { encodeKeyEvent, encodePaste, isNativePasteCombo, shiftEnterNewline } from './input-encoder';
 import { feedPromptKey, feedPromptPaste } from '@/renderer/lib/pane-prompt-capture';
@@ -182,8 +186,7 @@ export function DomTerminalView({
     const container = containerRef.current;
     if (!container) return;
     const entry = getOrCreateEngine(sessionId);
-    entry.mounted = true;
-    entry.lastAccessed = Date.now();
+    setEngineMounted(sessionId, true);
 
     let lastCols = -1;
     let lastRows = -1;
@@ -394,7 +397,7 @@ export function DomTerminalView({
     container.addEventListener('mousemove', onMouseMoveNative);
 
     return () => {
-      entry.mounted = false;
+      setEngineMounted(sessionId, false);
       container.removeEventListener('wheel', onWheel);
       container.removeEventListener('mousedown', onMouseDownNative);
       window.removeEventListener('mouseup', onMouseUpNative);

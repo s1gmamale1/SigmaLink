@@ -14,6 +14,7 @@
 import { Terminal as HeadlessTerminal } from '@xterm/headless';
 import type { IBuffer, IBufferCell } from '@xterm/headless';
 import type { EncoderModes } from '../features/command-room/input-encoder';
+import { DEFAULT_SCROLLBACK_ROWS } from './terminal-limits';
 
 export interface EngineDelegate {
   /** Bytes the TERMINAL emits toward the PTY (query answers; later, encoded
@@ -101,7 +102,7 @@ export class TerminalEngine {
     this.term = new HeadlessTerminal({
       cols: opts.cols ?? 120,
       rows: opts.rows ?? 32,
-      scrollback: opts.scrollback ?? 8000,
+      scrollback: opts.scrollback ?? DEFAULT_SCROLLBACK_ROWS,
       // Parity with the attached path (terminal-cache buildTerminalOptions):
       // PTY streams are \n-rich on some providers.
       convertEol: true,
@@ -302,6 +303,24 @@ export class TerminalEngine {
    *  bound a recent-rows scan without materializing the whole buffer. */
   get bufferLength(): number {
     return this.term.buffer.active.length;
+  }
+
+  /**
+   * Set the retained-scrollback bound to `maxRows`.
+   *
+   * Shrinking discards the OLDEST rows immediately (xterm has no public
+   * row-eviction API; a smaller `scrollback` is the eviction) and the new
+   * bound STAYS in force — a parked engine keeps receiving PTY output, so a
+   * one-shot trim that restored the previous value would regrow to the old
+   * depth within a few thousand lines. The caller lifts the bound again on
+   * remount, mirroring `attachToHost`/`detachFromHost` in terminal-cache.ts.
+   *
+   * The listener, the PTY subscription, and the visible viewport are all
+   * untouched.
+   */
+  setScrollback(maxRows: number): void {
+    if (maxRows <= 0) return;
+    this.term.options.scrollback = maxRows;
   }
 
   /** Absolute cursor position in the active buffer (row = baseY + cursorY). */

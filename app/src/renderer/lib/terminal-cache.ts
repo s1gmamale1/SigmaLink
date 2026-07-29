@@ -36,11 +36,12 @@
 //     → real dispose. Call when the underlying session is permanently gone
 //       (REMOVE_SESSION dispatch in CommandRoom, or LRU eviction).
 //
-// LRU policy: cap at 32 cached instances. The upper-bound design target is
-// 16 panes × N workspaces; eviction kicks in only when the user accumulates
-// far more sessions than they're actively working with. Evicted entries are
-// disposed (xterm + listeners + DOM), which is fine because the PTY itself
-// keeps running in the main process — a future remount just rebuilds.
+// LRU policy: cap at TERMINAL_CACHE_LIMIT (20) cached instances. The
+// upper-bound design target is 16 panes × N workspaces; eviction kicks in only
+// when the user accumulates far more sessions than they're actively working
+// with. Evicted entries are disposed (xterm + listeners + DOM), which is fine
+// because the PTY itself keeps running in the main process — a future remount
+// just rebuilds.
 
 import {
   Terminal as XTerm,
@@ -65,9 +66,15 @@ import { ctrlWheelShouldBubble } from './wheel-zoom';
 import { attachXtermLabelReader, detachLabelReader } from './label-reader';
 import { onAgentLabel } from './pane-title-orchestrator';
 import { shouldFollowTitle } from './pane-title-follow';
+import {
+  DEFAULT_SCROLLBACK_ROWS,
+  PARKED_SCROLLBACK_ROWS,
+  TERMINAL_CACHE_LIMIT,
+  resolveScrollbackRows,
+} from './terminal-limits';
 
 /** Maximum number of cached xterm instances before LRU eviction. */
-export const TERMINAL_CACHE_LIMIT = 32;
+export { TERMINAL_CACHE_LIMIT } from './terminal-limits';
 
 /**
  * SF-3 (v1.29.0) — Device-Attributes RESPONSE matcher for the onData→pty.write
@@ -161,6 +168,19 @@ export interface CacheEntry {
 
 const cache = new Map<string, CacheEntry>();
 let parkingLot: HTMLDivElement | null = null;
+const KV_PTY_SCROLLBACK_ROWS = 'pty.scrollbackRows';
+let configuredScrollbackRows = DEFAULT_SCROLLBACK_ROWS;
+
+try {
+  void rpc.kv
+    .get(KV_PTY_SCROLLBACK_ROWS)
+    .then((raw) => {
+      configuredScrollbackRows = resolveScrollbackRows(raw);
+    })
+    .catch(() => undefined);
+} catch {
+  /* optional startup setting unavailable — keep the shipped default */
+}
 
 function ensureParkingLot(): HTMLDivElement {
   if (parkingLot && parkingLot.isConnected) return parkingLot;
@@ -253,7 +273,7 @@ function buildTerminalOptions(
     cursorBlink: true,
     cursorStyle: 'bar',
     allowTransparency: false,
-    scrollback: 8000,
+    scrollback: configuredScrollbackRows,
     theme: xtermThemeFrom(activeTerminalPalette()),
     convertEol: true,
     // Required for the Unicode 11 width tables activated in getOrCreateTerminal
@@ -557,6 +577,7 @@ export function attachToHost(entry: CacheEntry, host: HTMLElement): void {
   const root = entry.terminal.element;
   if (!root) return;
   if (root.parentNode !== host) host.appendChild(root);
+  entry.terminal.options.scrollback = configuredScrollbackRows;
   entry.lastAccessed = Date.now();
   loadWebglAddon(entry);
 }
@@ -581,6 +602,11 @@ export function detachFromHost(entry: CacheEntry): void {
     }
     entry.webglAddon = null;
   }
+  // Trim-on-park: a parked pane is offscreen, so deep history costs memory
+  // nobody is reading. The attached path keeps DEFAULT_SCROLLBACK_ROWS.
+  // Does NOT dispose the instance or drop the PTY subscription — the parking
+  // contract at the top of this file still holds.
+  entry.terminal.options.scrollback = PARKED_SCROLLBACK_ROWS;
 }
 
 /**

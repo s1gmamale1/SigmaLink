@@ -38,6 +38,7 @@ interface MockTerm {
   getSelection: ReturnType<typeof vi.fn>;
   cols: number;
   rows: number;
+  options: Record<string, unknown>;
   focus: ReturnType<typeof vi.fn>;
   attachCustomWheelEventHandler: ReturnType<typeof vi.fn>;
   __ctorArg: unknown;
@@ -53,6 +54,7 @@ vi.mock('@xterm/xterm', () => {
     element: HTMLElement | undefined = undefined;
     cols = 80;
     rows = 24;
+    options: Record<string, unknown> = {};
     __ctorArg: unknown;
     open = vi.fn((parent: HTMLElement) => {
       // Mimic xterm's behaviour: append a child to the provided parent
@@ -82,6 +84,7 @@ vi.mock('@xterm/xterm', () => {
     attachCustomWheelEventHandler = vi.fn();
     constructor(opts: unknown) {
       this.__ctorArg = opts;
+      this.options = { ...(opts as Record<string, unknown>) };
       this.__id = `t${++nextTermId}`;
       createdTerms.push(this as unknown as MockTerm);
     }
@@ -145,7 +148,7 @@ vi.mock('@/renderer/lib/rpc', () => {
         resize: vi.fn(() => Promise.resolve()),
         kill: vi.fn(() => Promise.resolve()),
       },
-      kv: { get: vi.fn(() => Promise.resolve('1')) },
+      kv: { get: vi.fn(() => Promise.resolve('2500')) },
       browser: {
         getState: vi.fn(),
         navigate: vi.fn(),
@@ -153,7 +156,7 @@ vi.mock('@/renderer/lib/rpc', () => {
       },
     },
     rpcSilent: {
-      kv: { get: vi.fn(() => Promise.resolve('1')) },
+      kv: { get: vi.fn(() => Promise.resolve('2500')) },
       browser: {
         getState: vi.fn(),
         navigate: vi.fn(),
@@ -711,6 +714,7 @@ describe('terminal-cache — Windows TUI rendering config (windowsPty / sizing /
   interface CtorOpts {
     cols?: number;
     rows?: number;
+    scrollback?: number;
     allowProposedApi?: boolean;
     windowsPty?: { backend?: string; buildNumber?: number };
   }
@@ -730,6 +734,26 @@ describe('terminal-cache — Windows TUI rendering config (windowsPty / sizing /
     const opts = await ctorOptsFor('win-cfg-size');
     expect(opts.cols).toBe(120);
     expect(opts.rows).toBe(32);
+  });
+
+  it('uses the persisted visible depth for creation and restores it after parking', async () => {
+    setHost('darwin');
+    const { getOrCreateTerminal, attachToHost, detachFromHost } =
+      await import('./terminal-cache');
+    await Promise.resolve();
+    const entry = getOrCreateTerminal('scrollback-setting', ctx);
+    const term = entry.terminal as unknown as MockTerm;
+    const opts = term.__ctorArg as CtorOpts;
+    expect(opts.scrollback).toBe(2500);
+
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    attachToHost(entry, host);
+    expect(term.options.scrollback).toBe(2500);
+    detachFromHost(entry);
+    expect(term.options.scrollback).toBe(2000);
+    attachToHost(entry, host);
+    expect(term.options.scrollback).toBe(2500);
   });
 
   it('Layer B — enables allowProposedApi (required by the Unicode 11 addon)', async () => {

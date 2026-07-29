@@ -18,8 +18,14 @@ import { computeSnapshotOverlap } from './snapshot-overlap';
 import { attachEngineLabelReader, detachLabelReader } from './label-reader';
 import { onAgentLabel } from './pane-title-orchestrator';
 import { shouldFollowTitle } from './pane-title-follow';
+import {
+  DEFAULT_SCROLLBACK_ROWS,
+  ENGINE_CACHE_LIMIT,
+  PARKED_SCROLLBACK_ROWS,
+  resolveScrollbackRows,
+} from './terminal-limits';
 
-export const ENGINE_CACHE_LIMIT = 32;
+export { ENGINE_CACHE_LIMIT } from './terminal-limits';
 
 export interface EngineCacheEntry {
   sessionId: string;
@@ -38,6 +44,19 @@ export interface EngineCacheEntry {
 }
 
 const cache = new Map<string, EngineCacheEntry>();
+const KV_PTY_SCROLLBACK_ROWS = 'pty.scrollbackRows';
+let configuredScrollbackRows = DEFAULT_SCROLLBACK_ROWS;
+
+try {
+  void rpc.kv
+    .get(KV_PTY_SCROLLBACK_ROWS)
+    .then((raw) => {
+      configuredScrollbackRows = resolveScrollbackRows(raw);
+    })
+    .catch(() => undefined);
+} catch {
+  /* optional startup setting unavailable — keep the shipped default */
+}
 
 function evictOldestIfFull(): void {
   if (cache.size < ENGINE_CACHE_LIMIT) return;
@@ -71,7 +90,7 @@ export function getOrCreateEngine(sessionId: string): EngineCacheEntry {
       if (clean === '') return;
       void rpc.pty.write(sessionId, clean).catch(() => undefined);
     },
-  });
+  }, { scrollback: configuredScrollbackRows });
 
   const pending: string[] = [];
   let snapshotDone = false;
@@ -173,6 +192,24 @@ export function getCachedEngine(sessionId: string): EngineCacheEntry | undefined
 
 export function getEngineCacheSize(): number {
   return cache.size;
+}
+
+/**
+ * Update the DOM presenter's mounted state.
+ *
+ * Parking clamps the retained scrollback to PARKED_SCROLLBACK_ROWS and LEAVES
+ * it clamped — a parked entry keeps its PTY subscription (see the writer
+ * above), so a one-shot trim would regrow to the full depth within a few
+ * thousand lines. Remounting lifts the clamp back to the configured depth.
+ * Same contract as attachToHost/detachFromHost in terminal-cache.ts. The
+ * cache entry and its PTY subscription survive either way.
+ */
+export function setEngineMounted(sessionId: string, mounted: boolean): void {
+  const entry = cache.get(sessionId);
+  if (!entry) return;
+  entry.mounted = mounted;
+  entry.lastAccessed = Date.now();
+  entry.engine.setScrollback(mounted ? configuredScrollbackRows : PARKED_SCROLLBACK_ROWS);
 }
 
 /** Test-only: wipe every cached engine. */

@@ -84,4 +84,66 @@ describe('RufloSettings — auto-trust toggle (SF-7)', () => {
     const label = await screen.findByText(/Pre-approves only/i);
     expect(label.textContent ?? '').toMatch(/third-party MCP servers .* still prompt/i);
   });
+
+  it('round-trips the visible-pane scrollback depth through KV on commit', async () => {
+    kvStore.set('pty.scrollbackRows', '2500');
+    const RufloSettings = await loadComponent();
+    render(<RufloSettings />);
+
+    const input = (await screen.findByLabelText(
+      'Scrollback rows (visible pane)',
+    )) as HTMLInputElement;
+    await waitFor(() => expect(input.value).toBe('2500'));
+
+    fireEvent.change(input, { target: { value: '4096' } });
+    fireEvent.blur(input);
+    await waitFor(() =>
+      expect(kvSet).toHaveBeenCalledWith('pty.scrollbackRows', '4096'),
+    );
+  });
+
+  it('keeps a mid-edit empty field empty instead of re-filling the default', async () => {
+    kvStore.set('pty.scrollbackRows', '8000');
+    const RufloSettings = await loadComponent();
+    render(<RufloSettings />);
+
+    const input = (await screen.findByLabelText(
+      'Scrollback rows (visible pane)',
+    )) as HTMLInputElement;
+    await waitFor(() => expect(input.value).toBe('8000'));
+
+    // Select-all + delete. The field must go EMPTY. Resolving every keystroke
+    // snapped it straight back to 8000, so the next digits appended to the
+    // re-filled default and `80003000` got persisted.
+    fireEvent.change(input, { target: { value: '' } });
+    expect(input.value).toBe('');
+    expect(kvSet).not.toHaveBeenCalled();
+
+    fireEvent.change(input, { target: { value: '3000' } });
+    expect(input.value).toBe('3000');
+    expect(kvSet).not.toHaveBeenCalled();
+
+    fireEvent.blur(input);
+    await waitFor(() => expect(kvSet).toHaveBeenCalledWith('pty.scrollbackRows', '3000'));
+  });
+
+  it('clamps a committed value to the max and falls back to the default when blank', async () => {
+    const RufloSettings = await loadComponent();
+    render(<RufloSettings />);
+
+    const input = (await screen.findByLabelText(
+      'Scrollback rows (visible pane)',
+    )) as HTMLInputElement;
+    await waitFor(() => expect(input.value).toBe('8000'));
+
+    fireEvent.change(input, { target: { value: '80003000' } });
+    fireEvent.blur(input);
+    await waitFor(() => expect(kvSet).toHaveBeenCalledWith('pty.scrollbackRows', '100000'));
+    expect(input.value).toBe('100000');
+
+    fireEvent.change(input, { target: { value: '  ' } });
+    fireEvent.blur(input);
+    await waitFor(() => expect(kvSet).toHaveBeenCalledWith('pty.scrollbackRows', '8000'));
+    expect(input.value).toBe('8000');
+  });
 });

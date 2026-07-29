@@ -114,6 +114,54 @@ describe('DomTerminalView', () => {
     expect(getCachedEngine('d1')).toBeTruthy(); // engine survives unmount (cache-owned)
   });
 
+  it('parks the production DOM engine on unmount and retains its newest rows', async () => {
+    const sessionId = 'd-park';
+    const { unmount } = render(<DomTerminalView sessionId={sessionId} />);
+    await settle();
+    const entry = getCachedEngine(sessionId)!;
+    await new Promise<void>((resolve) => {
+      entry.engine.term.write(
+        Array.from({ length: 2200 }, (_, i) => `line-${i}\r\n`).join(''),
+        resolve,
+      );
+    });
+    expect(entry.engine.bufferLength).toBeGreaterThan(2032);
+
+    unmount();
+
+    expect(entry.engine.bufferLength).toBeLessThanOrEqual(2032);
+    expect(entry.engine.logicalLines().map((line) => line.text).join('\n')).toContain('line-2199');
+    expect(getCachedEngine(sessionId)).toBe(entry);
+  });
+
+  it('the parked bound HOLDS across later output, and remount restores full depth', async () => {
+    // The park in the test above only proves the bound at the instant of
+    // unmount. A parked engine keeps its PTY subscription, so the clamp has
+    // to survive everything that arrives afterwards.
+    const sessionId = 'd-park-holds';
+    const { unmount } = render(<DomTerminalView sessionId={sessionId} />);
+    await settle();
+    const entry = getCachedEngine(sessionId)!;
+    const feed = (count: number, prefix: string) =>
+      new Promise<void>((resolve) => {
+        entry.engine.term.write(
+          Array.from({ length: count }, (_, i) => `${prefix}-${i}\r\n`).join(''),
+          resolve,
+        );
+      });
+
+    unmount();
+    expect(entry.engine.bufferLength).toBeLessThanOrEqual(2032);
+
+    await feed(9000, 'parked');
+    expect(entry.engine.bufferLength).toBeLessThanOrEqual(2032);
+    expect(entry.engine.logicalLines().map((l) => l.text).join('\n')).toContain('parked-8999');
+
+    render(<DomTerminalView sessionId={sessionId} />);
+    await settle();
+    expect(entry.engine.term.options.scrollback).toBe(8000);
+  });
+
   it('keydown encodes through the InputEncoder to pty.write', async () => {
     const { container } = render(<DomTerminalView sessionId="d2" />);
     await settle();

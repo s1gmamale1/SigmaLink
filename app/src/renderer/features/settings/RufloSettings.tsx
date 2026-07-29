@@ -15,8 +15,14 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Loader2, Sparkles, AlertTriangle, CheckCircle2, Power, Download, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { rpc, rpcSilent, onEvent } from '@/renderer/lib/rpc';
+import {
+  DEFAULT_SCROLLBACK_ROWS,
+  MAX_SCROLLBACK_ROWS,
+  resolveScrollbackRows,
+} from '@/renderer/lib/terminal-limits';
 import { cn } from '@/lib/utils';
 
 const KV_TELEMETRY_OPT_IN = 'ruflo.telemetry.optIn';
@@ -30,6 +36,7 @@ const KV_STRICT_MCP_VERIFICATION = 'ruflo.strictMcpVerification';
 const KV_PTY_SPAWN_MODE = 'pty.spawnMode';
 // v1.9-scrollback — opt-in scrollback persistence flag. DEFAULT OFF.
 const KV_PTY_SCROLLBACK_PERSISTENCE = 'pty.scrollbackPersistence';
+const KV_PTY_SCROLLBACK_ROWS = 'pty.scrollbackRows';
 
 const DAEMON_POLL_INTERVAL_MS = 5_000;
 
@@ -105,6 +112,13 @@ export function RufloSettings() {
   const [shellFirstPanes, setShellFirstPanes] = useState<boolean>(true);
   // v1.9-scrollback — persist terminal scrollback across restart (DEFAULT OFF).
   const [scrollbackPersistence, setScrollbackPersistence] = useState<boolean>(false);
+  // Held as RAW TEXT, not a number. A controlled numeric field that runs every
+  // keystroke through resolveScrollbackRows re-fills itself with the default
+  // the moment it goes empty, so backspacing 8000 and typing 3000 persisted
+  // `80003000`. The draft is normalized + clamped only on commit (blur/Enter).
+  const [scrollbackRowsDraft, setScrollbackRowsDraft] = useState<string>(
+    String(DEFAULT_SCROLLBACK_ROWS),
+  );
   const [daemons, setDaemons] = useState<DaemonStatusRow[]>([]);
   const [restartingDaemon, setRestartingDaemon] = useState<string | null>(null);
   const daemonPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -155,6 +169,12 @@ export function RufloSettings() {
         if (alive) setScrollbackPersistence(sb === 'on');
       } catch {
         /* default OFF */
+      }
+      try {
+        const rows = await rpc.kv.get(KV_PTY_SCROLLBACK_ROWS);
+        if (alive) setScrollbackRowsDraft(String(resolveScrollbackRows(rows)));
+      } catch {
+        /* default 8000 */
       }
     })();
     const offHealth = onEvent<RufloHealth>('ruflo:health', (h) => {
@@ -258,6 +278,16 @@ export function RufloSettings() {
   const onToggleScrollbackPersistence = useCallback((next: boolean) => {
     setScrollbackPersistence(next);
     void rpc.kv.set(KV_PTY_SCROLLBACK_PERSISTENCE, next ? 'on' : 'off').catch(() => undefined);
+  }, []);
+
+  // Commit point for the scrollback field: normalize the draft (empty /
+  // malformed / non-positive -> default), clamp to MAX_SCROLLBACK_ROWS, echo
+  // the resolved value back into the field, then persist. Fired on blur and on
+  // Enter — never per keystroke.
+  const onCommitScrollbackRows = useCallback((raw: string) => {
+    const value = Math.min(resolveScrollbackRows(raw.trim()), MAX_SCROLLBACK_ROWS);
+    setScrollbackRowsDraft(String(value));
+    void rpc.kv.set(KV_PTY_SCROLLBACK_ROWS, String(value)).catch(() => undefined);
   }, []);
 
   const state = health?.state ?? 'absent';
@@ -527,6 +557,36 @@ export function RufloSettings() {
               </div>
             </div>
             <Switch checked={scrollbackPersistence} onCheckedChange={onToggleScrollbackPersistence} />
+          </div>
+          <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-card/40 p-3">
+            <div className="min-w-0 pr-3">
+              <label
+                htmlFor="ruflo-scrollback-rows"
+                className="flex items-center gap-2 text-sm font-medium"
+              >
+                <Sparkles className="h-3.5 w-3.5 text-primary" />
+                Scrollback rows (visible pane)
+              </label>
+              <div className="mt-0.5 text-[11px] text-muted-foreground">
+                Parked panes retain 2,000 rows. Max 100,000. Changes apply to
+                newly created panes after restarting SigmaLink.
+              </div>
+            </div>
+            <Input
+              id="ruflo-scrollback-rows"
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={MAX_SCROLLBACK_ROWS}
+              step={1}
+              className="w-28 shrink-0"
+              value={scrollbackRowsDraft}
+              onChange={(event) => setScrollbackRowsDraft(event.target.value)}
+              onBlur={(event) => onCommitScrollbackRows(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') onCommitScrollbackRows(event.currentTarget.value);
+              }}
+            />
           </div>
         </div>
       </section>

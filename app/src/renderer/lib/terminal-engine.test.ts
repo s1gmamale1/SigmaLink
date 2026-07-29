@@ -427,3 +427,58 @@ describe('TerminalEngine — OSC title sink', () => {
     expect(titles).toEqual([]);
   });
 });
+
+describe('setScrollback', () => {
+  it('bounds the buffer to maxRows while preserving the newest content', async () => {
+    const { engine } = makeEngine();
+    track(engine);
+    await flushWrite(
+      engine,
+      Array.from({ length: 500 }, (_, i) => `line-${i}\r\n`).join(''),
+    );
+    const beforeLength = engine.bufferLength;
+    expect(beforeLength).toBeGreaterThan(100);
+
+    engine.setScrollback(100);
+
+    expect(engine.bufferLength).toBeLessThanOrEqual(100 + engine.term.rows);
+    const tail = engine.logicalLines().map((line) => line.text).join('\n');
+    expect(tail).toContain('line-499');
+    expect(tail).not.toContain('line-0\n');
+  });
+
+  it('leaves a within-bounds buffer untouched', async () => {
+    const { engine } = makeEngine();
+    track(engine);
+    await flushWrite(engine, 'short\r\n');
+    const before = engine.bufferLength;
+    engine.setScrollback(5000);
+    expect(engine.bufferLength).toBe(before);
+  });
+
+  it('keeps accepting writes after a trim, and the bound HOLDS', async () => {
+    const { engine } = makeEngine();
+    track(engine);
+    await flushWrite(
+      engine,
+      Array.from({ length: 300 }, (_, i) => `x-${i}\r\n`).join(''),
+    );
+    engine.setScrollback(50);
+    await flushWrite(
+      engine,
+      Array.from({ length: 2000 }, (_, i) => `after-${i}\r\n`).join(''),
+    );
+    const tail = engine.logicalLines().map((line) => line.text).join('\n');
+    expect(tail).toContain('after-1999');
+    expect(engine.bufferLength).toBeLessThanOrEqual(50 + engine.term.rows);
+  });
+
+  it('ignores a non-positive bound rather than producing a zero-scrollback engine', async () => {
+    const { engine } = makeEngine();
+    track(engine);
+    const before = engine.term.options.scrollback;
+    engine.setScrollback(0);
+    engine.setScrollback(-1);
+    expect(engine.term.options.scrollback).toBe(before);
+  });
+});
