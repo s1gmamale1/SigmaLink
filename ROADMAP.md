@@ -172,7 +172,8 @@ with an arm64-only manifest → `null`. `pnpm tsc -b` and `pnpm eslint .` green.
 > by CI. `e2e-matrix.yml` never invokes electron-builder: it runs
 > `pnpm run build && node scripts/build-electron.cjs` and launches
 > `electron-dist/main.js` from the **unpacked source tree**
-> (`.github/workflows/e2e-matrix.yml:84`). `electron-builder` runs only in
+> (`.github/workflows/e2e-matrix.yml:90` and `:158` — the smoke and pane-reorder
+> jobs). `electron-builder` runs only in
 > `release-{macos,windows,linux}.yml`, gated on `push: tags: ['v*']`. So
 > `asar: true`, the pruned `files:` keep-list, and `asarUnpack` have been
 > exercised by **zero CI jobs on any platform**. Green CI proves the dev-tree
@@ -229,7 +230,8 @@ ships ~110 MB that nothing loads.
 
 **Findings + recommendation.** `asar: false` was set in v1.0.1 as a deliberate
 "guarantee the native modules load" retreat; the config comment says v1.1.0
-would restore it and it is still off at v3.0.0. The same v1.0.1 era produced the
+would restore it and it was still off as of v3.0.0 (`5d33351` flipped it on).
+The same v1.0.1 era produced the
 `lazy-val` incident — a module externalized at build time, absent from the
 packaged DMG, crashing at first launch. That is precisely this phase's failure
 mode. Recommendation: prune conservatively (keep anything unproven), and gate on
@@ -239,13 +241,16 @@ launching the packaged artifact, never on a passing unit suite.
 does not fail any test — it crashes the packaged app at first launch, exactly as
 `lazy-val` did. Mitigation: package and actually launch on macOS before merge,
 exercising DB open, PTY spawn, and an update check. Windows/Linux packaging must
-be re-smoked in CI (`e2e-matrix.yml`) since native resolution differs per
-platform — mac proves nothing about win32.
+be smoked the same way, **by hand or on a tagged release build** — native
+resolution differs per platform and mac proves nothing about win32. CI cannot
+cover this: `e2e-matrix.yml` never packages (see the header block above).
 
-**Definition of done.** The packaged app launches from `release/`; a pane
-spawns; the DB opens; `Check for updates` returns without error; packaged size
-is recorded before/after in the audit doc; CI `e2e-matrix.yml` green on all
-three platforms.
+**Definition of done.** ✅ *macOS:* the packaged app launches from `release/`; a
+pane spawns; the DB opens; `Check for updates` returns without error; packaged
+size recorded before/after in the audit doc. ❌ *Windows + Linux:* the same
+packaged-launch checklist is **still unmet** — green `e2e-matrix.yml` does not
+satisfy it, because that workflow launches the unpacked `electron-dist/` tree,
+never a packaged artifact.
 
 ---
 
@@ -292,13 +297,15 @@ at.
 **Why now.** Last, because it is the only phase whose sizing depends on Phase 2's
 measurement, and the only one that can regress UX if mis-tuned.
 
-**Scope.**
+**Scope.** *(pre-merge snapshot — these file:line references describe the code
+as it stood BEFORE `5d33351`. All four constants now live centralized in
+`src/renderer/lib/terminal-limits.ts`.)*
 - `src/renderer/lib/terminal-engine.ts:104` (`scrollback: opts.scrollback ?? 8000`)
-  and `src/renderer/lib/terminal-cache.ts:256` (`scrollback: 8000`) are the two
-  independent defaults; they must move together or the presenters diverge.
+  and `src/renderer/lib/terminal-cache.ts:256` (`scrollback: 8000`) were the two
+  independent defaults; they had to move together or the presenters diverge.
 - `src/renderer/lib/terminal-cache.ts:70` `TERMINAL_CACHE_LIMIT = 32` and
-  `src/renderer/lib/engine-cache.ts:22` `ENGINE_CACHE_LIMIT = 32` are two
-  independent caps against a stated design target of 16 panes.
+  `src/renderer/lib/engine-cache.ts:22` `ENGINE_CACHE_LIMIT = 32` were two
+  independent caps against a stated design target of 16 panes (now both 20).
 - Trim-on-park hooks `detachFromHost()` at
   `src/renderer/lib/terminal-cache.ts:571`; the paired `attachToHost()` is at
   `:556`. The parking contract documented at `terminal-cache.ts:1-40` — output
