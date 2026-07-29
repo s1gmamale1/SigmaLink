@@ -428,7 +428,7 @@ describe('TerminalEngine — OSC title sink', () => {
   });
 });
 
-describe('trimScrollback', () => {
+describe('setScrollback', () => {
   it('bounds the buffer to maxRows while preserving the newest content', async () => {
     const { engine } = makeEngine();
     track(engine);
@@ -439,7 +439,7 @@ describe('trimScrollback', () => {
     const beforeLength = engine.bufferLength;
     expect(beforeLength).toBeGreaterThan(100);
 
-    engine.trimScrollback(100);
+    engine.setScrollback(100);
 
     expect(engine.bufferLength).toBeLessThanOrEqual(100 + engine.term.rows);
     const tail = engine.logicalLines().map((line) => line.text).join('\n');
@@ -447,25 +447,38 @@ describe('trimScrollback', () => {
     expect(tail).not.toContain('line-0\n');
   });
 
-  it('is a no-op when the buffer is already within bounds', async () => {
+  it('leaves a within-bounds buffer untouched', async () => {
     const { engine } = makeEngine();
     track(engine);
     await flushWrite(engine, 'short\r\n');
     const before = engine.bufferLength;
-    engine.trimScrollback(5000);
+    engine.setScrollback(5000);
     expect(engine.bufferLength).toBe(before);
   });
 
-  it('keeps accepting writes after a trim', async () => {
+  it('keeps accepting writes after a trim, and the bound HOLDS', async () => {
     const { engine } = makeEngine();
     track(engine);
     await flushWrite(
       engine,
       Array.from({ length: 300 }, (_, i) => `x-${i}\r\n`).join(''),
     );
-    engine.trimScrollback(50);
-    await flushWrite(engine, 'after-trim\r\n');
+    engine.setScrollback(50);
+    await flushWrite(
+      engine,
+      Array.from({ length: 2000 }, (_, i) => `after-${i}\r\n`).join(''),
+    );
     const tail = engine.logicalLines().map((line) => line.text).join('\n');
-    expect(tail).toContain('after-trim');
+    expect(tail).toContain('after-1999');
+    expect(engine.bufferLength).toBeLessThanOrEqual(50 + engine.term.rows);
+  });
+
+  it('ignores a non-positive bound rather than producing a zero-scrollback engine', async () => {
+    const { engine } = makeEngine();
+    track(engine);
+    const before = engine.term.options.scrollback;
+    engine.setScrollback(0);
+    engine.setScrollback(-1);
+    expect(engine.term.options.scrollback).toBe(before);
   });
 });

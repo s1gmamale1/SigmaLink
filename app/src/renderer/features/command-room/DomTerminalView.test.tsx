@@ -134,6 +134,34 @@ describe('DomTerminalView', () => {
     expect(getCachedEngine(sessionId)).toBe(entry);
   });
 
+  it('the parked bound HOLDS across later output, and remount restores full depth', async () => {
+    // The park in the test above only proves the bound at the instant of
+    // unmount. A parked engine keeps its PTY subscription, so the clamp has
+    // to survive everything that arrives afterwards.
+    const sessionId = 'd-park-holds';
+    const { unmount } = render(<DomTerminalView sessionId={sessionId} />);
+    await settle();
+    const entry = getCachedEngine(sessionId)!;
+    const feed = (count: number, prefix: string) =>
+      new Promise<void>((resolve) => {
+        entry.engine.term.write(
+          Array.from({ length: count }, (_, i) => `${prefix}-${i}\r\n`).join(''),
+          resolve,
+        );
+      });
+
+    unmount();
+    expect(entry.engine.bufferLength).toBeLessThanOrEqual(2032);
+
+    await feed(9000, 'parked');
+    expect(entry.engine.bufferLength).toBeLessThanOrEqual(2032);
+    expect(entry.engine.logicalLines().map((l) => l.text).join('\n')).toContain('parked-8999');
+
+    render(<DomTerminalView sessionId={sessionId} />);
+    await settle();
+    expect(entry.engine.term.options.scrollback).toBe(8000);
+  });
+
   it('keydown encodes through the InputEncoder to pty.write', async () => {
     const { container } = render(<DomTerminalView sessionId="d2" />);
     await settle();

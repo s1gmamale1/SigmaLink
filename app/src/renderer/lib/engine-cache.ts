@@ -194,14 +194,22 @@ export function getEngineCacheSize(): number {
   return cache.size;
 }
 
-/** Update the DOM presenter's mounted state. Parking trims only the oldest
- * rows; the cache entry and its PTY subscription remain alive. */
+/**
+ * Update the DOM presenter's mounted state.
+ *
+ * Parking clamps the retained scrollback to PARKED_SCROLLBACK_ROWS and LEAVES
+ * it clamped — a parked entry keeps its PTY subscription (see the writer
+ * above), so a one-shot trim would regrow to the full depth within a few
+ * thousand lines. Remounting lifts the clamp back to the configured depth.
+ * Same contract as attachToHost/detachFromHost in terminal-cache.ts. The
+ * cache entry and its PTY subscription survive either way.
+ */
 export function setEngineMounted(sessionId: string, mounted: boolean): void {
   const entry = cache.get(sessionId);
   if (!entry) return;
   entry.mounted = mounted;
   entry.lastAccessed = Date.now();
-  if (!mounted) entry.engine.trimScrollback(PARKED_SCROLLBACK_ROWS);
+  entry.engine.setScrollback(mounted ? configuredScrollbackRows : PARKED_SCROLLBACK_ROWS);
 }
 
 /** Test-only: wipe every cached engine. */
