@@ -188,6 +188,148 @@ describe('PtyRegistry.forget()', () => {
     );
     expect(() => registry.forget('does-not-exist')).not.toThrow();
   });
+
+  // `forget` is a LIVE RPC (pty.forget) callable WITHOUT a prior
+  // stop({tree:true}), plus a direct call from workspaces/launcher.ts and
+  // swarms/factory-spawn.ts. Killing only the root pid strands every
+  // descendant on Windows, which has no process groups — the `npx`/node MCP
+  // servers survive detached. Route through the SAME tree-kill primitive
+  // stop({tree:true}) already uses.
+  it('kills the whole process tree, not just the root pid', () => {
+    const pty = makeFakePty(FAKE_PID);
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+    const registry = new PtyRegistry(
+      () => undefined,
+      () => undefined,
+    );
+    const sess = registry.create({
+      providerId: 'test',
+      command: 'shell',
+      args: [],
+      cwd: '/tmp',
+      cols: 80,
+      rows: 24,
+    });
+
+    registry.forget(sess.id);
+
+    expect(processTreeMock.stopProcessTree).toHaveBeenCalledWith(FAKE_PID, 5_000);
+  });
+
+  it('skips the root-only kill + fallback timer when the tree stop succeeded', () => {
+    const pty = makeFakePty(FAKE_PID);
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+    processTreeMock.stopProcessTree.mockReturnValue({
+      rootPid: FAKE_PID,
+      supported: true,
+      nodes: [
+        { pid: FAKE_PID, ppid: 1, rssBytes: 1024, command: 'zsh', args: 'zsh' },
+        { pid: 111, ppid: FAKE_PID, rssBytes: 2048, command: 'node', args: 'ruflo mcp' },
+      ],
+      descendantPids: [111],
+      rssBytes: 3072,
+    });
+    const registry = new PtyRegistry(
+      () => undefined,
+      () => undefined,
+    );
+    const sess = registry.create({
+      providerId: 'test',
+      command: 'shell',
+      args: [],
+      cwd: '/tmp',
+      cols: 80,
+      rows: 24,
+    });
+
+    const before = vi.getTimerCount();
+    registry.forget(sess.id);
+
+    // stopProcessTree owns the SIGTERM→SIGKILL escalation for the whole tree,
+    // exactly as in stop({tree:true}) — no duplicate root-only kill or timer.
+    expect(pty.killCalls).toBe(0);
+    expect(vi.getTimerCount()).toBe(before);
+    expect(registry.get(sess.id)).toBeUndefined();
+  });
+
+  it('stays non-throwing when the tree stop blows up', () => {
+    const pty = makeFakePty(FAKE_PID);
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+    processTreeMock.stopProcessTree.mockImplementation(() => {
+      throw new Error('ps exploded');
+    });
+    const registry = new PtyRegistry(
+      () => undefined,
+      () => undefined,
+    );
+    const sess = registry.create({
+      providerId: 'test',
+      command: 'shell',
+      args: [],
+      cwd: '/tmp',
+      cols: 80,
+      rows: 24,
+    });
+
+    expect(() => registry.forget(sess.id)).not.toThrow();
+    // Falls back to the root-only SIGTERM so the child is never left running.
+    expect(pty.killCalls).toBe(1);
+    expect(registry.get(sess.id)).toBeUndefined();
+  });
+
+  it('does not repeat the tree walk when stop({forget:true}) already did it', () => {
+    const pty = makeFakePty(FAKE_PID);
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+    processTreeMock.stopProcessTree.mockReturnValue({
+      rootPid: FAKE_PID,
+      supported: true,
+      nodes: [{ pid: FAKE_PID, ppid: 1, rssBytes: 1024, command: 'zsh', args: 'zsh' }],
+      descendantPids: [],
+      rssBytes: 1024,
+    });
+    const registry = new PtyRegistry(
+      () => undefined,
+      () => undefined,
+    );
+    const sess = registry.create({
+      providerId: 'test',
+      command: 'shell',
+      args: [],
+      cwd: '/tmp',
+      cols: 80,
+      rows: 24,
+    });
+
+    registry.stop(sess.id, { tree: true, forget: true });
+
+    // ONE sweep for the pane, not two — the cleanup paths call this per pane.
+    expect(processTreeMock.stopProcessTree).toHaveBeenCalledTimes(1);
+    expect(pty.killCalls).toBe(0);
+    expect(registry.get(sess.id)).toBeUndefined();
+  });
+
+  it('does NOT consult the process tree for an already-dead session', () => {
+    const pty = makeFakePty(-1);
+    vi.mocked(spawnLocalPty).mockReturnValue(pty);
+    const registry = new PtyRegistry(
+      () => undefined,
+      () => undefined,
+    );
+    const sess = registry.create({
+      providerId: 'test',
+      command: 'shell',
+      args: [],
+      cwd: '/tmp',
+      cols: 80,
+      rows: 24,
+    });
+    sess.alive = false;
+
+    registry.forget(sess.id);
+
+    // The post-exit grace-window sweep must not pay for a `ps` walk.
+    expect(processTreeMock.stopProcessTree).not.toHaveBeenCalled();
+  });
 });
 
 describe('PtyRegistry.kill()/stop() tree-aware teardown', () => {
