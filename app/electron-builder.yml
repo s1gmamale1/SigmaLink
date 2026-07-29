@@ -42,9 +42,13 @@ asarUnpack:
   - 'node_modules/node-pty/**/*'
   - 'node_modules/@sigmalink/voice-whisper/**/*'
 npmRebuild: true
-extraResources:
-  - from: dist
-    to: dist
+# No `extraResources` for the renderer bundle. `dist/**/*` is already in
+# `files:` above, so it ships inside app.asar, and electron/main.ts loads it
+# from there via `path.join(__dirname, '../dist/index.html')` — __dirname being
+# app.asar/electron-dist. A second copy at Contents/Resources/dist had no
+# reader: `process.resourcesPath` appears nowhere in src/, electron/, scripts/,
+# tests/, packages/, or build/, and every `app.getAppPath()` join targets
+# electron-dist or build inside the archive.
 mac:
   category: public.app-category.developer-tools
   # v1.1.5 — fix Gatekeeper "damaged" dialog on downloaded DMGs.
