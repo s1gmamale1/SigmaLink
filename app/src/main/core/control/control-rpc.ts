@@ -20,6 +20,12 @@ export interface ControlRpcDeps {
   kv: KvLike;
   credentials: CredentialStoreLike;
   socketPath: string;
+  /** Binary the emitted connect command runs the server entry with. In a
+   *  packaged build this is `process.execPath` — i.e. the bundled Electron —
+   *  which the command pairs with `ELECTRON_RUN_AS_NODE=1`. Plain `node`
+   *  would MODULE_NOT_FOUND because `serverEntry` lives inside `app.asar`
+   *  and only Electron's patched fs can read an asar archive. */
+  execPath: string;
   serverEntry: string;
   start: () => Promise<void>;
   stop: () => void;
@@ -39,9 +45,23 @@ export interface ControlStatus {
   connectCommand: string;
 }
 
-function buildConnectCommand(socketPath: string, serverEntry: string, token: string | null): string {
+/**
+ * The operator-copyable `claude mcp add` line.
+ *
+ * Runs `execPath` (the bundled Electron) rather than `node`, with
+ * `ELECTRON_RUN_AS_NODE=1` so it behaves as a plain node interpreter — the
+ * same trick as `MemoryMcpSupervisor.getCommandFor` and
+ * `writeJorvisHostMcpConfig`. Required because `asar: true` puts
+ * `serverEntry` inside `app.asar`, which only Electron's patched fs reads.
+ */
+function buildConnectCommand(
+  socketPath: string,
+  execPath: string,
+  serverEntry: string,
+  token: string | null,
+): string {
   const t = token ?? '<token-unavailable>';
-  return `claude mcp add sigmalink -e SIGMA_CONTROL_SOCKET='${socketPath}' -e SIGMA_CONTROL_TOKEN='${t}' -e SIGMA_CONTROL_LABEL='external' -- node '${serverEntry}'`;
+  return `claude mcp add sigmalink -e ELECTRON_RUN_AS_NODE=1 -e SIGMA_CONTROL_SOCKET='${socketPath}' -e SIGMA_CONTROL_TOKEN='${t}' -e SIGMA_CONTROL_LABEL='external' -- '${execPath}' '${serverEntry}'`;
 }
 
 export function buildControlController(deps: ControlRpcDeps) {
@@ -50,7 +70,7 @@ export function buildControlController(deps: ControlRpcDeps) {
     frozen: isControlFrozen(deps.kv),
     liveConnections: deps.liveConnections(),
     socketPath: deps.socketPath,
-    connectCommand: buildConnectCommand(deps.socketPath, deps.serverEntry, await getBearerToken(deps.credentials)),
+    connectCommand: buildConnectCommand(deps.socketPath, deps.execPath, deps.serverEntry, await getBearerToken(deps.credentials)),
   });
   return {
     status: async (): Promise<ControlStatus> => statusOf(),
@@ -62,7 +82,7 @@ export function buildControlController(deps: ControlRpcDeps) {
     freeze: async (): Promise<ControlStatus> => { setControlFrozen(deps.kv, true); deps.cancelEscalations(); return statusOf(); },
     unfreeze: async (): Promise<ControlStatus> => { setControlFrozen(deps.kv, false); return statusOf(); },
     rotateToken: async (): Promise<ControlStatus> => { const t = await rotateBearerToken(deps.credentials); deps.setBearer(t); return statusOf(); },
-    connectCommand: async (): Promise<{ command: string }> => ({ command: buildConnectCommand(deps.socketPath, deps.serverEntry, await getBearerToken(deps.credentials)) }),
+    connectCommand: async (): Promise<{ command: string }> => ({ command: buildConnectCommand(deps.socketPath, deps.execPath, deps.serverEntry, await getBearerToken(deps.credentials)) }),
     respondEscalation: async (input: { id: string; approved: boolean }): Promise<{ ok: boolean }> => { deps.respondEscalation(input.id, input.approved); return { ok: true }; },
     reportViewport: async (patch: import('./app-state-shadow').ViewportPatch): Promise<{ ok: boolean }> => {
       deps.reportViewport(patch); return { ok: true };
