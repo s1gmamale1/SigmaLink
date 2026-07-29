@@ -15,6 +15,12 @@ export const DEFAULT_SCROLLBACK_ROWS = 8000;
  *  enough to bound the cache. */
 export const PARKED_SCROLLBACK_ROWS = 2000;
 
+/** Upper bound the Settings input clamps to. A pane row costs memory in both
+ *  the xterm buffer and the DOM presenter's engine, so an unbounded value is a
+ *  self-inflicted OOM; 100k rows is ~12x the default and far past any real
+ *  scrollback need. */
+export const MAX_SCROLLBACK_ROWS = 100_000;
+
 /** LRU cap per cache. The stated design target is 16 panes x N workspaces;
  *  32 per cache across two caches was 4x that target. */
 export const TERMINAL_CACHE_LIMIT = 20;
