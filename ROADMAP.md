@@ -165,9 +165,18 @@ with an arm64-only manifest → `null`. `pnpm tsc -b` and `pnpm eslint .` green.
 ## Phase 4 — Stop shipping unused node_modules — ✅ MERGED (#247)
 
 > Merged in `5d33351`. Verified on disk: **380 MB → 274 MB x64 / 266 MB arm64**,
-> asar restored with natives in `app.asar.unpacked`. CI green on all three
-> platforms, so the packaged launch is proven beyond macOS. Audit:
+> asar restored with natives in `app.asar.unpacked`. Audit:
 > `app/docs/perf/2026-07-28-package-audit.md`.
+>
+> ⚠️ **The packaged launch is proven on macOS ONLY** — by one manual smoke, not
+> by CI. `e2e-matrix.yml` never invokes electron-builder: it runs
+> `pnpm run build && node scripts/build-electron.cjs` and launches
+> `electron-dist/main.js` from the **unpacked source tree**
+> (`.github/workflows/e2e-matrix.yml:84`). `electron-builder` runs only in
+> `release-{macos,windows,linux}.yml`, gated on `push: tags: ['v*']`. So
+> `asar: true`, the pruned `files:` keep-list, and `asarUnpack` have been
+> exercised by **zero CI jobs on any platform**. Green CI proves the dev-tree
+> launch cross-platform; it says nothing about the packaged artifact.
 >
 > **Review caught a CI-invisible CRITICAL:** `asar: true` makes
 > `app.getAppPath()` return `…/app.asar`, so the operator-copyable External
@@ -176,9 +185,14 @@ with an arm64-only manifest → `null`. `pnpm tsc -b` and `pnpm eslint .` green.
 > launch/DB/pane/update-check, not External Control. Fixed in `5d33351` via
 > `process.execPath` + `ELECTRON_RUN_AS_NODE=1`; win32 quoting followed in #248.
 >
-> ⚠️ **Owed before release:** packaged smoke of **all three** MCP entries, not
-> just External Control. `mcp-jorvis-host-server.cjs` and the memory server now
-> run from inside an asar for the first time ever (asar was off since v1.0.1).
+> ⚠️ **Owed before release, two separate debts:**
+> 1. **Packaged launch on Windows + Linux.** Never verified by anything. The
+>    v1.0.1 `lazy-val` incident above is the failure mode: a module absent from
+>    the package crashes at first launch and fails no test. Build the artifacts
+>    on each platform and launch them.
+> 2. **Packaged smoke of all three MCP entries**, not just External Control.
+>    `mcp-jorvis-host-server.cjs` and the memory server now run from inside an
+>    asar for the first time ever (asar was off since v1.0.1).
 
 **Goal.** The packaged app contains only the modules something actually resolves
 at runtime, cutting install size and cold-start file I/O without changing
@@ -237,15 +251,16 @@ three platforms.
 
 ## Phase 5 — Renderer memory tuning — ✅ MERGED (#247), savings UNMEASURED
 
-> `69edfb9` (limits centralized) · `7baeb93` (trim-on-park) · `5230f7a`
-> (`pty.scrollbackRows` setting) · `f968998` (DOM-path trim).
+> Merged in `5d33351` (limits centralized · trim-on-park · `pty.scrollbackRows`
+> setting · DOM-path trim). Branch commits were squashed away, so `5d33351` is
+> the only resolvable reference.
 >
-> **Review caught a production no-op:** `7baeb93` wired trim only to the xterm
+> **Review caught a production no-op:** the first trim wired only the xterm
 > presenter, but `renderer-mode.ts:14` sets `DEFAULT_RENDERER_MODE = 'dom'` and
 > no `panes.renderer%` KV override exists — so `trimScrollback()` had zero
-> production callers and saved nothing. `f968998` fixed it with
-> `setEngineMounted()`, called from `DomTerminalView`'s real mount/cleanup
-> effect (`:189` / `:400`), making `.mounted` a single choke point.
+> production callers and saved nothing. Fixed with `setEngineMounted()`, called
+> from `DomTerminalView`'s real mount/cleanup effect (`:189` / `:400`), making
+> `.mounted` a single choke point.
 >
 > A second review round found the first trim did not *hold* — it clamped
 > `options.scrollback` then restored it on the next line, a one-shot trim rather
