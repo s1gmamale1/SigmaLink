@@ -300,6 +300,94 @@ describe('traversal refusal', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 12b. Traversal refusal under win32 path semantics
+//
+// The guard used to split on `path.sep`. On win32 that is `\`, so a
+// `/`-separated path — which Node accepts perfectly well on Windows — never
+// split at all: the whole string was ONE segment, and its `..` sailed straight
+// past the defence-in-depth check. `node:path` is swapped for `path.win32` so
+// the win32 behaviour is exercised on any host.
+//
+// Observable contract: a rejected path returns 'skipped' / null from the guard
+// BEFORE any filesystem work. A path that legitimately passes the guard gets
+// as far as the session lookup and comes back 'missing' (no seeded sessions).
+// ─────────────────────────────────────────────────────────────────────────────
+describe('traversal refusal — win32 path semantics', () => {
+  let homeDir: string;
+  let win32Module: typeof import('./gemini-resume-sigma.ts');
+
+  beforeEach(async () => {
+    homeDir = makeTmpHome();
+    vi.resetModules();
+    vi.doMock('node:path', () => ({ default: path.win32, ...path.win32 }));
+    win32Module = await import('./gemini-resume-sigma.ts');
+  });
+
+  afterEach(() => {
+    vi.doUnmock('node:path');
+    vi.resetModules();
+    rmRf(homeDir);
+  });
+
+  it('rejects a forward-slash win32 path with ".." (C:/foo/../bar)', async () => {
+    const outcome = await win32Module.prepareGeminiResume(
+      'C:/foo/../bar',
+      'C:/worktree',
+      { homeDir },
+    );
+    expect(outcome).toBe('skipped');
+  });
+
+  it('rejects a backslash win32 path with ".." (C:\\foo\\..\\bar)', async () => {
+    const outcome = await win32Module.prepareGeminiResume(
+      'C:\\foo\\..\\bar',
+      'C:\\worktree',
+      { homeDir },
+    );
+    expect(outcome).toBe('skipped');
+  });
+
+  it('rejects a forward-slash ".." in the worktree cwd too', async () => {
+    const outcome = await win32Module.prepareGeminiResume(
+      'C:/workspace',
+      'C:/foo/../bar',
+      { homeDir },
+    );
+    expect(outcome).toBe('skipped');
+  });
+
+  it('ensureGeminiProjectDir rejects a forward-slash win32 ".." path', async () => {
+    const result = await win32Module.ensureGeminiProjectDir(
+      'C:/foo/../bar',
+      'C:/workspace',
+      { homeDir },
+    );
+    expect(result).toBeNull();
+  });
+
+  it('still ACCEPTS a legitimate mixed-separator win32 path (no ".." segment)', async () => {
+    // `C:\Users\dev/projects/MyApp` mixes both separators and must survive the
+    // guard — the fix must reject traversal, not every non-native separator.
+    const outcome = await win32Module.prepareGeminiResume(
+      'C:\\Users\\dev/projects/MyApp',
+      'C:\\Users\\dev/projects/MyApp-worktree',
+      { homeDir },
+    );
+    // Past the guard: no sessions were seeded, so the bridge reports 'missing'.
+    expect(outcome).toBe('missing');
+  });
+
+  it('still ACCEPTS a pure forward-slash win32 path (Node accepts "/" on Windows)', async () => {
+    const outcome = await win32Module.prepareGeminiResume(
+      'C:/Users/dev/projects/MyApp',
+      'C:/Users/dev/projects/MyApp-worktree',
+      { homeDir },
+    );
+    expect(outcome).toBe('missing');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 13. Absolute-path requirement
 // ─────────────────────────────────────────────────────────────────────────────
 describe('absolute-path requirement', () => {
