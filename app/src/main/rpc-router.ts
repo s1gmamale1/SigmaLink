@@ -3451,6 +3451,9 @@ async function buildRouter() {
       // emitted command must run Electron-as-node, not bare `node`.
       execPath: process.execPath,
       serverEntry: controlServerEntry,
+      // Decides how the copyable command quotes its arguments: cmd.exe treats
+      // `'` as a literal, so a win32 `C:\Program Files\...` execPath needs `"`.
+      platform: process.platform,
       start: () => controlMcpHost.start(),
       stop: () => controlMcpHost.stop(),
       liveConnections: () => controlMcpHost.liveConnectionCount(),
