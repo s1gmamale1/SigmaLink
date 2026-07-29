@@ -36,11 +36,12 @@
 //     → real dispose. Call when the underlying session is permanently gone
 //       (REMOVE_SESSION dispatch in CommandRoom, or LRU eviction).
 //
-// LRU policy: cap at 32 cached instances. The upper-bound design target is
-// 16 panes × N workspaces; eviction kicks in only when the user accumulates
-// far more sessions than they're actively working with. Evicted entries are
-// disposed (xterm + listeners + DOM), which is fine because the PTY itself
-// keeps running in the main process — a future remount just rebuilds.
+// LRU policy: cap at TERMINAL_CACHE_LIMIT (20) cached instances. The
+// upper-bound design target is 16 panes × N workspaces; eviction kicks in only
+// when the user accumulates far more sessions than they're actively working
+// with. Evicted entries are disposed (xterm + listeners + DOM), which is fine
+// because the PTY itself keeps running in the main process — a future remount
+// just rebuilds.
 
 import {
   Terminal as XTerm,
