@@ -27,6 +27,10 @@ export interface ControlRpcDeps {
    *  and only Electron's patched fs can read an asar archive. */
   execPath: string;
   serverEntry: string;
+  /** Platform the emitted connect command will be PASTED INTO. Injected (not
+   *  read off `process`) for the same reason `execPath` is: this module stays
+   *  electron-free and unit-testable across platforms. */
+  platform: NodeJS.Platform;
   start: () => Promise<void>;
   stop: () => void;
   liveConnections: () => number;
@@ -46,6 +50,22 @@ export interface ControlStatus {
 }
 
 /**
+ * Quote ONE argument of the connect command for the shell it will be pasted
+ * into. Exported for testing.
+ *
+ * cmd.exe does not treat `'` as a quoting character — it passes the byte
+ * through literally and still splits argv on whitespace. The NSIS installer
+ * sets `allowToChangeInstallationDirectory: true`, so `process.execPath` is
+ * routinely `C:\Program Files\SigmaLink\SigmaLink.exe`; single-quoting it
+ * handed cmd.exe the literal token `'C:\Program` and registered an MCP server
+ * that could never spawn. The win32 socketPath (a `\\.\pipe\...` named pipe)
+ * carried the same stray quotes into its value.
+ */
+export function quoteArg(value: string, platform: NodeJS.Platform): string {
+  return platform === 'win32' ? `"${value}"` : `'${value}'`;
+}
+
+/**
  * The operator-copyable `claude mcp add` line.
  *
  * Runs `execPath` (the bundled Electron) rather than `node`, with
@@ -59,9 +79,11 @@ function buildConnectCommand(
   execPath: string,
   serverEntry: string,
   token: string | null,
+  platform: NodeJS.Platform,
 ): string {
   const t = token ?? '<token-unavailable>';
-  return `claude mcp add sigmalink -e ELECTRON_RUN_AS_NODE=1 -e SIGMA_CONTROL_SOCKET='${socketPath}' -e SIGMA_CONTROL_TOKEN='${t}' -e SIGMA_CONTROL_LABEL='external' -- '${execPath}' '${serverEntry}'`;
+  const q = (value: string) => quoteArg(value, platform);
+  return `claude mcp add sigmalink -e ELECTRON_RUN_AS_NODE=1 -e SIGMA_CONTROL_SOCKET=${q(socketPath)} -e SIGMA_CONTROL_TOKEN=${q(t)} -e SIGMA_CONTROL_LABEL=${q('external')} -- ${q(execPath)} ${q(serverEntry)}`;
 }
 
 export function buildControlController(deps: ControlRpcDeps) {
@@ -70,7 +92,7 @@ export function buildControlController(deps: ControlRpcDeps) {
     frozen: isControlFrozen(deps.kv),
     liveConnections: deps.liveConnections(),
     socketPath: deps.socketPath,
-    connectCommand: buildConnectCommand(deps.socketPath, deps.execPath, deps.serverEntry, await getBearerToken(deps.credentials)),
+    connectCommand: buildConnectCommand(deps.socketPath, deps.execPath, deps.serverEntry, await getBearerToken(deps.credentials), deps.platform),
   });
   return {
     status: async (): Promise<ControlStatus> => statusOf(),
@@ -82,7 +104,7 @@ export function buildControlController(deps: ControlRpcDeps) {
     freeze: async (): Promise<ControlStatus> => { setControlFrozen(deps.kv, true); deps.cancelEscalations(); return statusOf(); },
     unfreeze: async (): Promise<ControlStatus> => { setControlFrozen(deps.kv, false); return statusOf(); },
     rotateToken: async (): Promise<ControlStatus> => { const t = await rotateBearerToken(deps.credentials); deps.setBearer(t); return statusOf(); },
-    connectCommand: async (): Promise<{ command: string }> => ({ command: buildConnectCommand(deps.socketPath, deps.execPath, deps.serverEntry, await getBearerToken(deps.credentials)) }),
+    connectCommand: async (): Promise<{ command: string }> => ({ command: buildConnectCommand(deps.socketPath, deps.execPath, deps.serverEntry, await getBearerToken(deps.credentials), deps.platform) }),
     respondEscalation: async (input: { id: string; approved: boolean }): Promise<{ ok: boolean }> => { deps.respondEscalation(input.id, input.approved); return { ok: true }; },
     reportViewport: async (patch: import('./app-state-shadow').ViewportPatch): Promise<{ ok: boolean }> => {
       deps.reportViewport(patch); return { ok: true };

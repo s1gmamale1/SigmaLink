@@ -28,10 +28,15 @@ export const ENGINE_CACHE_LIMIT = 20;
 
 /** Parse a `pty.scrollbackRows` KV value. Any absent, malformed, or
  *  non-positive value falls back to the default rather than producing a
- *  zero-scrollback terminal. */
+ *  zero-scrollback terminal; anything above MAX_SCROLLBACK_ROWS is clamped.
+ *
+ *  The Settings field already clamps at commit, but this resolver is the
+ *  single choke point every reader goes through (engine-cache, terminal-cache),
+ *  so the upper bound belongs here too — a hand-edited KV row (or a future
+ *  second writer) must not be honoured verbatim. */
 export function resolveScrollbackRows(raw: string | null): number {
   if (raw == null || raw === '') return DEFAULT_SCROLLBACK_ROWS;
   const parsed = Number.parseInt(raw, 10);
   if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_SCROLLBACK_ROWS;
-  return parsed;
+  return Math.min(parsed, MAX_SCROLLBACK_ROWS);
 }

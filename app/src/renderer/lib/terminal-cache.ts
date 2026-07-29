@@ -156,7 +156,8 @@ export interface CacheEntry {
   snapshotReady: boolean;
   /** 2026-06-10 finding 3 — WebGL addon held ONLY while attached to a real
    *  host, so live GPU contexts ≈ visible panes instead of ≈ cache size
-   *  (Chromium caps ~16 WebGL contexts per process; the cache holds 32).
+   *  (Chromium caps ~16 WebGL contexts per process; the cache holds
+   *  TERMINAL_CACHE_LIMIT).
    *  Null while parked (the DOM-renderer-free buffer still parses bytes). */
   webglAddon: WebglAddon | null;
   /** 2026-06-10 finding 5a — mutable holder for the LATEST mount's context.
@@ -450,10 +451,11 @@ export function getOrCreateTerminal(
   //
   // PERF-9 — subscribe via the shared exit bus instead of registering a raw
   // per-session `eventOn('pty:exit')`. The bus runs ONE global listener and
-  // fans out by sessionId, so we no longer install up to 32 listeners that
-  // each re-validate + filter every exit. The payload is already sessionId-
-  // matched + exitCode-normalised by the bus; the `entry.ptyExited` double-
-  // write guard and the scrollback write are preserved verbatim.
+  // fans out by sessionId, so we no longer install up to TERMINAL_CACHE_LIMIT
+  // listeners that each re-validate + filter every exit. The payload is
+  // already sessionId-matched + exitCode-normalised by the bus; the
+  // `entry.ptyExited` double-write guard and the scrollback write are
+  // preserved verbatim.
   const offExit = subscribeExit(sessionId, (payload) => {
     const entry = cache.get(sessionId);
     if (!entry) return;

@@ -127,6 +127,30 @@ describe('RufloSettings — auto-trust toggle (SF-7)', () => {
     await waitFor(() => expect(kvSet).toHaveBeenCalledWith('pty.scrollbackRows', '3000'));
   });
 
+  it('commits on Enter without a blur, persisting the normalized value', async () => {
+    // The Enter path is a SECOND commit trigger alongside blur. Untested, a
+    // wrapper around shadcn's Input that swallowed onKeyDown would silently
+    // stop persisting and the operator's edit would die on the next room
+    // switch — with the whole suite still green.
+    kvStore.set('pty.scrollbackRows', '8000');
+    const RufloSettings = await loadComponent();
+    render(<RufloSettings />);
+
+    const input = (await screen.findByLabelText(
+      'Scrollback rows (visible pane)',
+    )) as HTMLInputElement;
+    await waitFor(() => expect(input.value).toBe('8000'));
+
+    fireEvent.change(input, { target: { value: '250000' } });
+    expect(kvSet).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() =>
+      expect(kvSet).toHaveBeenCalledWith('pty.scrollbackRows', '100000'),
+    );
+    expect(input.value).toBe('100000');
+  });
+
   it('clamps a committed value to the max and falls back to the default when blank', async () => {
     const RufloSettings = await loadComponent();
     render(<RufloSettings />);
