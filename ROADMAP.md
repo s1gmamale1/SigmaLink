@@ -29,10 +29,12 @@ Deferred items (FlowView scroll-pin churn, `logicalLines()` windowing, DECSET-25
 
 ## Confirmed bugs to fix first (hotlist)
 
-> **Status 2026-07-28 — all three FIXED on `perf/hardware-load-optimization`,
-> gate-verified, NOT yet merged.** B-1/B-3 in `b89d6f6` + `6760bee`, B-2 in
-> `e86d17c`. Shipping the fix does not rescue already-trapped installs; every
-> Apple Silicon user still needs one manual arm64 install.
+> **Status 2026-07-29 — all three FIXED and MERGED** in PR #247 (`5d33351`).
+> ⚠️ Shipping the fix does **not** rescue already-trapped installs: an Apple
+> Silicon user on the x64 build reports `process.arch === 'x64'`, so their
+> updater hands them x64 one last time before the fix can take effect. Every
+> such user needs **one manual arm64 install** to escape. Say so in the release
+> notes.
 
 | # | Sev | Bug | Where | Effort |
 |---|-----|-----|-------|--------|
@@ -100,11 +102,11 @@ zero Rosetta regions on the native build.
 
 ---
 
-## Phase 3 — Arch-correct macOS updates — ✅ IMPLEMENTED, awaiting merge
+## Phase 3 — Arch-correct macOS updates — ✅ MERGED (#247)
 
-> `6760bee` · `b89d6f6` · `e86d17c`. Gate green (`tsc` 0 · vitest 489 files /
-> 5106 passed · `eslint` 0), independently re-run. 11/11 arch-routing tests
-> pass including the asymmetric-fallback pair. Ships as PR 1.
+> Merged in `5d33351`. CI 8/8 on macOS/Windows/Ubuntu; 11/11 arch-routing tests
+> including the asymmetric-fallback pair (arm64 may accept x64 via Rosetta; x64
+> must never receive arm64).
 
 **Goal.** An Apple Silicon Mac that auto-updates lands on the arm64 build, and
 an Intel Mac never lands on an arm64 build it cannot execute.
@@ -160,16 +162,23 @@ with an arm64-only manifest → `null`. `pnpm tsc -b` and `pnpm eslint .` green.
 
 ---
 
-## Phase 4 — Stop shipping unused node_modules — ✅ IMPLEMENTED, blocked on CI
+## Phase 4 — Stop shipping unused node_modules — ✅ MERGED (#247)
 
-> `4be7c96` (audit) · `75113d2` (prune + asar) · `1364f05` (restored v1.0.1
-> rationale). Verified on disk: **380 MB → 274 MB x64 / 266 MB arm64**, asar
-> restored with natives in `app.asar.unpacked`. Packaged-app macOS smoke passed
-> (launch · DB · pane round-trip · update check · clean shutdown). Audit:
+> Merged in `5d33351`. Verified on disk: **380 MB → 274 MB x64 / 266 MB arm64**,
+> asar restored with natives in `app.asar.unpacked`. CI green on all three
+> platforms, so the packaged launch is proven beyond macOS. Audit:
 > `app/docs/perf/2026-07-28-package-audit.md`.
 >
-> **Merge blocker:** `e2e-matrix.yml` must be green on Windows + Linux. macOS
-> proves nothing about win32 native resolution. Ships as PR 2.
+> **Review caught a CI-invisible CRITICAL:** `asar: true` makes
+> `app.getAppPath()` return `…/app.asar`, so the operator-copyable External
+> Control command ran bare `node` on a path inside the archive →
+> `MODULE_NOT_FOUND`. CI could not hit it — packaged smoke covers
+> launch/DB/pane/update-check, not External Control. Fixed in `5d33351` via
+> `process.execPath` + `ELECTRON_RUN_AS_NODE=1`; win32 quoting followed in #248.
+>
+> ⚠️ **Owed before release:** packaged smoke of **all three** MCP entries, not
+> just External Control. `mcp-jorvis-host-server.cjs` and the memory server now
+> run from inside an asar for the first time ever (asar was off since v1.0.1).
 
 **Goal.** The packaged app contains only the modules something actually resolves
 at runtime, cutting install size and cold-start file I/O without changing
@@ -226,7 +235,7 @@ three platforms.
 
 ---
 
-## Phase 5 — Renderer memory tuning — ✅ IMPLEMENTED, savings UNMEASURED
+## Phase 5 — Renderer memory tuning — ✅ MERGED (#247), savings UNMEASURED
 
 > `69edfb9` (limits centralized) · `7baeb93` (trim-on-park) · `5230f7a`
 > (`pty.scrollbackRows` setting) · `f968998` (DOM-path trim).
@@ -238,11 +247,19 @@ three platforms.
 > `setEngineMounted()`, called from `DomTerminalView`'s real mount/cleanup
 > effect (`:189` / `:400`), making `.mounted` a single choke point.
 >
+> A second review round found the first trim did not *hold* — it clamped
+> `options.scrollback` then restored it on the next line, a one-shot trim rather
+> than a bound, so parked engines regrew (2032 → +9000 lines → 8032). Fixed by
+> leaving the engine clamped while parked and restoring on remount, mirroring
+> the xterm `detachFromHost`/`attachToHost` pair. **A bound must be tested under
+> continued load, not just immediately after it is applied.**
+>
 > **Built:** shared 8000-visible / 2000-parked limits · caches 32 → 20 ·
-> park/reattach trim on both presenters · `pty.scrollbackRows` KV round-trip.
+> park/reattach trim on both presenters · `pty.scrollbackRows` KV round-trip
+> (clamped at `MAX_SCROLLBACK_ROWS`, #248).
 > **Spec-only:** the actual RAM saving — no native-arm64 before/after exists.
-> Constants were chosen against the x64-under-Rosetta 17-pane workload.
-> Ships as PR 3, but Phase 2 must land before any saving is claimed.
+> Constants were chosen against the x64-under-Rosetta 17-pane workload, so
+> **Phase 2 must land before any saving is claimed.**
 
 **Goal.** A 17-pane session holds materially less renderer memory with no
 user-visible loss of scrollback on the panes the operator is actually looking
@@ -361,10 +378,20 @@ WKWebView equivalent.
 
 | Item | Phase | Effort | Impact | Status |
 |------|-------|--------|--------|--------|
-| arm64 baseline measurement | 2 | S | **High** | ⏳ **operator-only, not done** — gates every RAM claim |
-| Arch-correct macOS updates (B-1/B-2/B-3) | 3 | S | **High** | ✅ implemented — PR 1, ready |
-| Prune packaged `node_modules` + restore asar | 4 | M | Medium | ✅ implemented — PR 2, needs win/linux CI |
-| Renderer scrollback + LRU tuning | 5 | M | **High** | ✅ implemented — PR 3; saving unmeasured until Phase 2 |
+| arm64 baseline measurement | 2 | S | **High** | ⏳ **operator-only, NOT DONE** — gates every RAM claim |
+| Arch-correct macOS updates (B-1/B-2/B-3) | 3 | S | **High** | ✅ MERGED — #247 `5d33351` |
+| Prune packaged `node_modules` + restore asar | 4 | M | Medium | ✅ MERGED — #247 `5d33351` |
+| Renderer scrollback + LRU tuning | 5 | M | **High** | ✅ MERGED — #247 `5d33351`; saving unmeasured |
+| Release blockers (win32 quoting, doc drift, clamp) | — | S | Medium | ✅ MERGED — #248 `2ebd928` |
+| One shared shell quoter (C-058/059/060) | — | M | Medium | 📋 parked in [WISHLIST.md](WISHLIST.md) |
+
+**Release checklist (owed before any tag):**
+1. Phase 2 arm64 baseline — otherwise no RAM saving may be claimed.
+2. Packaged smoke of **all three** MCP entries (External Control is proven;
+   jorvis-host and memory-server run from inside an asar for the first time).
+3. Version bump — `package.json` is still `3.0.0` and that tag is taken.
+4. Release notes must tell Apple Silicon users on the x64 build that they need
+   **one manual arm64 install**; their updater cannot rescue them.
 
 **Rejected:** Electron → Tauri/Rust migration. ~630 dev-days (10–15 months
 operator-led) for 40–55 %, versus days for 30–40 % via Phases 2–5, and it would
