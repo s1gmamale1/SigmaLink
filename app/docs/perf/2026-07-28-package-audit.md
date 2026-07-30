@@ -175,5 +175,30 @@ that case, while the renderer waits for an `update-available` broadcast that
 electron-updater correctly does not emit. This is a state-handling defect, not
 evidence of a pruned runtime module, and is outside the two Task 5-owned files.
 
-Windows and Linux native resolution remains unverified locally and must pass
-the `e2e-matrix.yml` packaging smoke before merge.
+Windows and Linux native resolution remains **unverified, and no CI job closes
+that gap.** An earlier revision of this section claimed the two platforms "must
+pass the `e2e-matrix.yml` packaging smoke before merge". There is no such
+smoke. `e2e-matrix.yml` has exactly two jobs — `smoke` and `pane-reorder` — and
+neither invokes `electron-builder`: both run
+`pnpm run build && node scripts/build-electron.cjs` and launch the **unpacked**
+tree under Playwright. Running from the unpacked tree resolves modules through
+the developer `node_modules`, so it cannot exercise the `files:` keep-list, the
+asar boundary, or `asarUnpack` at all — precisely the mechanisms this audit
+changed.
+
+`electron-builder` runs in exactly three places, all tag-triggered
+(`on: push: tags: ['v*']`): `release-macos.yml`, `release-windows.yml`, and
+`release-linux.yml`. The first Windows or Linux pack therefore only exists
+*after* a release tag is pushed — there is nothing to gate on "before merge".
+
+Packaged verification on Windows and Linux is still **owed**. It must be done
+by hand from a local `electron-builder --win` / `--linux` pack, or against the
+artifacts of a tagged release build, before those platforms are treated as
+verified. Two build-time guardrails now fail the pack rather than letting a
+broken one ship silently, but neither is a substitute for a real packaged
+launch on each platform:
+
+- `scripts/verify-packaged-deps.cjs` (`afterPack`, all platforms) throws if any
+  `node_modules/<pkg>` keep-list entry is missing from the packed output.
+- `scripts/adhoc-sign.cjs` (`afterSign`, macOS only) throws if the packed app
+  ships no `spawn-helper` for it to restore `+x` on.

@@ -337,9 +337,8 @@ Both are cached globally: subsequent browser tool calls in any pane are instant.
 Full triage in [`docs/08-bugs/OPEN.md`](docs/08-bugs/OPEN.md) and [`docs/03-plan/WISHLIST.md`](docs/03-plan/WISHLIST.md).
 
 - **macOS notarisation + Windows code-signing** — installers are unsigned. macOS users see Gatekeeper warnings (workarounds documented above and inside the DMG); Windows users see SmartScreen. Notarisation requires an Apple Developer ID (procurement deferred).
-- **CI red on `main`** — `@playwright/test` module mismatch on Linux workers + macOS `shellcheck-via-apt-get` infra issues. Local gates (tsc / vitest / eslint / build / electron compile) all green; CI infra fix is queued.
 - **Wake-word "Hey Jorvis"** — implemented via energy-gated tiny-Whisper phrase matching (no ML wake-word model). Porcupine-based detection was considered but its free-tier licensing forbids shipping a bundled AccessKey to public users.
-- **macOS-only voice** — Windows SAPI + Linux Whisper.cpp not yet shipped; Win/Linux remain on Web Speech API fallback.
+- **Linux voice has no native engine** — macOS runs on the native Speech framework and Windows on a native SAPI5 (`ISpRecognizer`) binding shipped in v1.5.0. Linux has no native recogniser and falls back to the Chromium Web Speech API, which requires an internet connection.
 - **Remaining cosmetic gaps** — a small set of UI refinements tracked in `docs/03-plan/V3_PARITY_BACKLOG.md` (role-color tokens, multi-pane grid layout persistence, general token retheme audit). Apple-grade frontend Stages 1–4 addressed the major gaps.
 
 ## Contributing

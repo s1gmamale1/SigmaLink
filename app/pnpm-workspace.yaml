@@ -17,6 +17,31 @@ packages:
   - native/voice-whisper
   - packages/voice-core
 
+# The packaged app REQUIRES a hoisted node_modules.
+#
+# electron-builder 24.13.3 collects `node_modules` by walking the top-level
+# `node_modules/<pkg>` entries; it does not enumerate pnpm's `.pnpm` virtual
+# store. Under the ISOLATED linker only DIRECT dependencies exist at top level,
+# so every transitive native helper — `bindings` and `file-uri-to-path` (both
+# pulled in by better-sqlite3), `node-gyp-build` — is silently left out of the
+# package, and the app throws `Cannot find module 'bindings'` at the first
+# `new Database(...)`. That is the v1.0.0 crash, and no electron-builder
+# `files:` glob can recover it: the files are never enumerated to be matched.
+#
+# `.npmrc` has carried `node-linker=hoisted` for exactly this reason, but pnpm
+# v10+ stopped reading dependency-resolution settings from `.npmrc` and moved
+# them here. Verified on pnpm 11.0.9 with a two-package probe:
+#   .npmrc node-linker=hoisted      → `pnpm config get node-linker` = undefined,
+#                                     transitive dep NOT hoisted (isolated)
+#   pnpm-workspace.yaml nodeLinker  → config = hoisted, transitive dep hoisted
+# CI pins pnpm 9, which still honours `.npmrc`, so the breakage was latent — a
+# pnpm bump would have flipped it on silently at the next release.
+#
+# Both spellings are kept on purpose: `.npmrc` for pnpm 9 (CI), this key for
+# pnpm 10+. Unknown keys are ignored by older pnpm — `allowBuilds` below is
+# already a pnpm 10+ key and pnpm 9 CI is green with it.
+nodeLinker: hoisted
+
 # pnpm v10+ blocks dependency build scripts by default. These four are
 # required native/toolchain builds — without them a fresh install leaves
 # electron without its binary, node-pty/better-sqlite3 unbuilt, and esbuild

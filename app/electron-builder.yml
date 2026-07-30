@@ -4,6 +4,22 @@ copyright: Copyright © 2026 SigmaLink
 directories:
   output: release
   buildResources: build
+# KEEP-LIST PRECONDITION: a HOISTED node_modules.
+#
+# Every `node_modules/<pkg>/**/*` entry below matches a TOP-LEVEL directory.
+# electron-builder 24.13.3 collects node_modules by walking top-level
+# `node_modules/<pkg>` and does NOT enumerate pnpm's `.pnpm` virtual store, so
+# under the ISOLATED linker the transitive helpers (`bindings`,
+# `file-uri-to-path`, `node-gyp-build`) are never even offered to this filter.
+# Proven by a real `--mac --dir` pack on an isolated tree: the app.asar held
+# only @sigmalink, better-sqlite3, and node-pty — and still did with the
+# `!node_modules/**/*` negation removed entirely. No glob here can recover
+# files the packer never enumerates, so the LINKER is pinned instead, in both
+# pnpm dialects:
+#   .npmrc              node-linker=hoisted   (pnpm 9 — what every workflow pins)
+#   pnpm-workspace.yaml nodeLinker: hoisted   (pnpm 10+, which ignores .npmrc)
+# `afterPack: scripts/verify-packaged-deps.cjs` is the backstop — it asserts
+# every keep-list module actually landed in the packed output.
 files:
   - dist/**/*
   - electron-dist/**/*
@@ -42,9 +58,13 @@ asarUnpack:
   - 'node_modules/node-pty/**/*'
   - 'node_modules/@sigmalink/voice-whisper/**/*'
 npmRebuild: true
-extraResources:
-  - from: dist
-    to: dist
+# No `extraResources` for the renderer bundle. `dist/**/*` is already in
+# `files:` above, so it ships inside app.asar, and electron/main.ts loads it
+# from there via `path.join(__dirname, '../dist/index.html')` — __dirname being
+# app.asar/electron-dist. A second copy at Contents/Resources/dist had no
+# reader: `process.resourcesPath` appears nowhere in src/, electron/, scripts/,
+# tests/, packages/, or build/, and every `app.getAppPath()` join targets
+# electron-dist or build inside the archive.
 mac:
   category: public.app-category.developer-tools
   # v1.1.5 — fix Gatekeeper "damaged" dialog on downloaded DMGs.
@@ -141,6 +161,16 @@ publish:
   provider: github
   owner: s1gmamale1
   repo: SigmaLink
+# Post-pack keep-list verification. `app/pnpm-lock.yaml` is gitignored and every
+# release workflow installs with `--no-frozen-lockfile`, so each release
+# resolves its dependency tree fresh. Before the `asar: true` flip the whole
+# resolved node_modules shipped and that float was harmless; with the pruned
+# keep-list above, a patch bump that swaps a native helper (e.g. `bindings` for
+# `node-gyp-build`) would silently drop it from the package and the app would
+# throw `Cannot find module` at the first `new Database()`. The hook asserts
+# every keep-list module actually landed in the packed output and throws — which
+# aborts the build — if any did not. Runs on all platforms.
+afterPack: scripts/verify-packaged-deps.cjs
 # v1.1.5 — ad-hoc codesign sweep after electron-builder finishes packing.
 # See the long comment under `mac:` for context. Hook signature matches
 # electron-builder's afterSign contract: receives `{ appOutDir, packager }`

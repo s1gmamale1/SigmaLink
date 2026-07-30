@@ -66,7 +66,10 @@ const MAX_DROP_FILES = 10;
 
 // FEAT-4 — opt-in gate for interactive in-terminal prompt cards. Default OFF
 // ('1' = on) to avoid false positives on untrusted PTY output. Mirrors the
-// off-by-default pty.spawnMode / pty.scrollbackPersistence reads.
+// single-KV-read shape of pty.scrollbackPersistence (also default OFF) and
+// pty.spawnMode — the latter is NOT off-by-default: the Phase 7 flip
+// (2026-05-22) made 'shell-first' its default on darwin/linux, with win32
+// defaulting to 'direct' until win32 shell-first has been dogfooded.
 const KV_PROMPT_CARDS = 'pty.promptCards';
 
 export function PaneShell({

@@ -585,11 +585,26 @@ export class PtyRegistry {
         /* ignore */
       }
     }
-    if (opts.forget) this.forget(id);
+    // Tell forget() the tree is already down when the walk above landed, so it
+    // does not repeat the (synchronous, execFileSync) `ps`/CIM sweep for the
+    // same pid. Workspace removal and the cleanup sweeps call this per pane.
+    if (opts.forget) {
+      this.forget(id, {
+        treeAlreadyStopped:
+          snapshot !== null && snapshot.supported && snapshot.nodes.length > 0,
+      });
+    }
     return snapshot;
   }
 
-  forget(id: string): void {
+  /**
+   * Drop a session's listeners, buffer, and record.
+   *
+   * `treeAlreadyStopped` is an INTERNAL hint from `stop()` — the public
+   * `pty.forget` RPC never sets it, so an RPC-driven forget always performs
+   * its own tree teardown.
+   */
+  forget(id: string, opts: { treeAlreadyStopped?: boolean } = {}): void {
     const rec = this.sessions.get(id);
     if (!rec) return;
     try {
@@ -606,27 +621,51 @@ export class PtyRegistry {
     // our handle. Without this, dropping the only reference leaks the child
     // process (it keeps running detached) — the registry's `alive` flag is
     // bookkeeping, not a kernel resource.
+    //
+    // Tree-aware since 2026-07-30: killing only the root pid stranded every
+    // DESCENDANT. Windows has no process groups, so the `npx`/node MCP servers
+    // a pane spawns survive detached once ConPTY closes — the same leak class
+    // stop({tree:true}) already fixes. And `forget` is not an internal detail:
+    // it is a live `pty.forget` RPC callable WITHOUT a prior stop, plus a
+    // direct call from workspaces/launcher.ts and swarms/factory-spawn.ts.
+    // Route through the SAME primitive rather than growing a second killer.
+    //
+    // Cost note: the tree walk only runs for a session that is still alive, so
+    // the hot post-exit grace-window sweep (which forgets dead records) never
+    // pays for it. Everything stays synchronous and non-throwing, as before.
     const pid = rec.pid;
-    const stillAlive = rec.alive && isProcessAlive(pid);
+    const stillAlive = rec.alive && isProcessAlive(pid) && !opts.treeAlreadyStopped;
     if (stillAlive) {
+      let snapshot: ProcessTreeSnapshot | null = null;
       try {
-        rec.pty.kill();
+        snapshot = stopProcessTree(pid, PTY_KILL_FALLBACK_MS);
       } catch {
-        /* ignore */
+        /* fall through to the root-only kill below */
       }
-      // 5s fallback: SIGKILL any survivor that ignored SIGTERM (e.g. a CLI
-      // mid-`waitpid` that's swallowing signals). PID may have been reused
-      // by then, but `process.kill(pid, 0)` will tell us if the original
-      // child is still resident before we escalate.
-      setTimeout(() => {
+      // Mirrors stop({tree:true}): when the tree walk landed, stopProcessTree
+      // owns the SIGTERM→SIGKILL escalation (win32 uses `taskkill /T /F`, which
+      // needs no escalation at all). Only an unsupported platform or an empty
+      // snapshot falls back to the root-only path.
+      if (!snapshot || !snapshot.supported || snapshot.nodes.length === 0) {
         try {
-          if (pid > 0 && isProcessAlive(pid)) {
-            process.kill(pid, 'SIGKILL');
-          }
+          rec.pty.kill();
         } catch {
-          /* ignore — already gone */
+          /* ignore */
         }
-      }, PTY_KILL_FALLBACK_MS).unref();
+        // 5s fallback: SIGKILL any survivor that ignored SIGTERM (e.g. a CLI
+        // mid-`waitpid` that's swallowing signals). PID may have been reused
+        // by then, but `process.kill(pid, 0)` will tell us if the original
+        // child is still resident before we escalate.
+        setTimeout(() => {
+          try {
+            if (pid > 0 && isProcessAlive(pid)) {
+              process.kill(pid, 'SIGKILL');
+            }
+          } catch {
+            /* ignore — already gone */
+          }
+        }, PTY_KILL_FALLBACK_MS).unref();
+      }
     }
     rec.buffer.clear();
     this.sessions.delete(id);

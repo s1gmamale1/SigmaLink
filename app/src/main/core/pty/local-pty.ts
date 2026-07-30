@@ -223,7 +223,8 @@ function resolveSiblingPowerShellShim(resolvedCommand: string): string | null {
 
 /**
  * KV key for the Phase 1 shell-first pane mode feature flag.
- * Value: 'shell-first' (DEFAULT as of Phase 7) | 'direct'.
+ * Value: 'shell-first' | 'direct'. Unset defaults to 'shell-first' on
+ * darwin/linux and 'direct' on win32 — see `parseSpawnMode`.
  * Exported so registry.ts (and tests) can read the canonical key name.
  */
 export const KV_PTY_SPAWN_MODE = 'pty.spawnMode';
@@ -231,17 +232,35 @@ export const KV_PTY_SPAWN_MODE = 'pty.spawnMode';
 /**
  * Parse the raw KV value for `pty.spawnMode`.
  *
- * Phase 7 default flip (2026-05-22): the default is now 'shell-first'.
+ * Phase 7 default flip (2026-05-22): the default is 'shell-first'.
  * An unset/absent/null/undefined key resolves to 'shell-first' so that a
  * crashed CLI leaves a live shell in the pane (the operator-requested
- * terminal-fallback behaviour). Explicit 'direct' values are still honoured.
+ * terminal-fallback behaviour).
  *
- * The default applies consistently across platforms. Operators can still
- * restore direct mode by setting the KV flag to 'direct' explicitly.
+ * win32 carve-out: the DEFAULT is 'direct' on Windows. win32 shell-first is
+ * NOT yet Windows-dogfooded — it routes every pane through a PowerShell `--%`
+ * stop-parsing marker, `$env:` injection, and a nested `cmd.exe /d /s /c`
+ * escaping pass that no one has exercised on a real Windows host. Shipping
+ * that as the silent default would make every Windows user the first tester.
+ * `resolveEffectiveSpawnMode` downgrades only three narrow cases (no
+ * PowerShell resolvable / `.cmd` without a `.ps1` sibling / legacy PowerShell
+ * 5.1 + npm shim), so without this carve-out the untested path IS the default.
+ *
+ * The carve-out applies to the DEFAULT only. An EXPLICIT 'shell-first' is an
+ * operator opt-in and is honoured on win32 too; explicit 'direct' is honoured
+ * everywhere. Remove the carve-out once win32 shell-first has been dogfooded.
+ *
+ * `platform` is a parameter (not an inline `process.platform` read) so the
+ * function stays a pure, unit-testable mapping on any host.
  */
-export function parseSpawnMode(raw: string | null | undefined): 'direct' | 'shell-first' {
+export function parseSpawnMode(
+  raw: string | null | undefined,
+  platform: NodeJS.Platform = process.platform,
+): 'direct' | 'shell-first' {
   if (raw === 'direct') return 'direct';
-  return 'shell-first';
+  if (raw === 'shell-first') return 'shell-first';
+  // Unset / absent / unrecognised → platform-aware default.
+  return platform === 'win32' ? 'direct' : 'shell-first';
 }
 
 /**
@@ -321,6 +340,11 @@ export function buildShellCommandLine(command: string, args: string[], withSenti
  *
  * Centralising the decision here guarantees the wrapping and the watching can
  * never disagree again across macOS, Linux, and Windows.
+ *
+ * win32 note: win32 shell-first is NOT yet Windows-dogfooded. Conditions 3-5
+ * below are narrow capability downgrades, NOT a default — a win32 pane only
+ * reaches this function with 'shell-first' when the operator set the KV flag
+ * explicitly, because `parseSpawnMode` defaults win32 to 'direct'.
  */
 export function resolveEffectiveSpawnMode(
   spawnMode: 'direct' | 'shell-first' | undefined,
@@ -423,8 +447,9 @@ export function spawnLocalPty(input: SpawnInput): PtyHandle {
   //   2. command !== ''                (non-empty → launching a CLI, not just opening a shell)
   //
   // Phase 7 (DONE — 2026-05-22): default is now 'shell-first'.
-  // parseSpawnMode() returns 'shell-first' for any unset/absent KV value.
-  // Explicit 'direct' KV values are still honoured.
+  // parseSpawnMode() returns 'shell-first' for any unset/absent KV value on
+  // darwin/linux, and 'direct' on win32 (the not-yet-dogfooded carve-out —
+  // see its doc comment). Explicit KV values are honoured on every platform.
   //
   // H-6 (Wave-2 hardening): spawnLocalPty and PtyRegistry both resolve the mode
   // through the helper above, keeping shell wrapping and sentinel watching in

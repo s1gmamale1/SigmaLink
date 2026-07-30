@@ -190,36 +190,93 @@ describe('resolveWindowsCommand (smoke test on non-Windows host)', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('parseSpawnMode', () => {
-  // Phase 7 default flip: unset/absent/null/undefined now resolves to 'shell-first'.
+  // Phase 7 default flip: unset/absent/null/undefined resolves to 'shell-first'
+  // on the dogfooded platforms. The platform is passed explicitly so these
+  // assertions hold on any host (a Windows runner would otherwise see the
+  // win32 carve-out — covered in the next describe block).
 
   it('returns "shell-first" for null (unset) — Phase 7 default', () => {
-    expect(parseSpawnMode(null)).toBe('shell-first');
+    expect(parseSpawnMode(null, 'darwin')).toBe('shell-first');
   });
 
   it('returns "shell-first" for undefined — Phase 7 default', () => {
-    expect(parseSpawnMode(undefined)).toBe('shell-first');
+    expect(parseSpawnMode(undefined, 'darwin')).toBe('shell-first');
   });
 
   it('returns "shell-first" for empty string — Phase 7 default', () => {
-    expect(parseSpawnMode('')).toBe('shell-first');
+    expect(parseSpawnMode('', 'darwin')).toBe('shell-first');
   });
 
   it('returns "shell-first" for an unrecognised value — Phase 7 default', () => {
-    expect(parseSpawnMode('shell_first')).toBe('shell-first');
-    expect(parseSpawnMode('1')).toBe('shell-first');
-    expect(parseSpawnMode('true')).toBe('shell-first');
+    expect(parseSpawnMode('shell_first', 'darwin')).toBe('shell-first');
+    expect(parseSpawnMode('1', 'darwin')).toBe('shell-first');
+    expect(parseSpawnMode('true', 'darwin')).toBe('shell-first');
   });
 
   it('returns "shell-first" for the exact string "shell-first"', () => {
-    expect(parseSpawnMode('shell-first')).toBe('shell-first');
+    expect(parseSpawnMode('shell-first', 'darwin')).toBe('shell-first');
   });
 
   it('returns "direct" for explicit "direct" — still honoured', () => {
-    expect(parseSpawnMode('direct')).toBe('direct');
+    expect(parseSpawnMode('direct', 'darwin')).toBe('direct');
   });
 
   it('exports the correct KV key constant', () => {
     expect(KV_PTY_SPAWN_MODE).toBe('pty.spawnMode');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// parseSpawnMode — platform-aware default (win32 carve-out)
+//
+// The Phase 7 flip (2026-05-22) made 'shell-first' the default on EVERY
+// platform, but win32 shell-first has never been dogfooded on real Windows: it
+// routes through a first-time-live PowerShell `--%` + env-injection + nested
+// `cmd.exe /d /s /c` escaping path. An UNSET KV must therefore fall back to
+// 'direct' on win32 while staying 'shell-first' everywhere else. An EXPLICIT
+// 'shell-first' is an operator opt-in and stays honoured on win32.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('parseSpawnMode — platform-aware default', () => {
+  it('unset (null) on win32 falls back to "direct" — win32 shell-first is not dogfooded', () => {
+    expect(parseSpawnMode(null, 'win32')).toBe('direct');
+  });
+
+  it('unset (undefined) on win32 falls back to "direct"', () => {
+    expect(parseSpawnMode(undefined, 'win32')).toBe('direct');
+  });
+
+  it('unset on darwin keeps the Phase 7 "shell-first" default', () => {
+    expect(parseSpawnMode(null, 'darwin')).toBe('shell-first');
+  });
+
+  it('unset on linux keeps the Phase 7 "shell-first" default', () => {
+    expect(parseSpawnMode(null, 'linux')).toBe('shell-first');
+  });
+
+  it('explicit "shell-first" on win32 is still honoured — opt-in, not a ban', () => {
+    expect(parseSpawnMode('shell-first', 'win32')).toBe('shell-first');
+  });
+
+  it('explicit "direct" on darwin is still honoured', () => {
+    expect(parseSpawnMode('direct', 'darwin')).toBe('direct');
+  });
+
+  it('an unrecognised value on win32 falls back to "direct"', () => {
+    expect(parseSpawnMode('shell_first', 'win32')).toBe('direct');
+    expect(parseSpawnMode('1', 'win32')).toBe('direct');
+    expect(parseSpawnMode('', 'win32')).toBe('direct');
+  });
+
+  it('an unrecognised value on darwin still falls back to "shell-first"', () => {
+    expect(parseSpawnMode('shell_first', 'darwin')).toBe('shell-first');
+  });
+
+  it('defaults the platform parameter to process.platform when omitted', () => {
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    expect(parseSpawnMode(null)).toBe('direct');
+    Object.defineProperty(process, 'platform', { value: 'darwin' });
+    expect(parseSpawnMode(null)).toBe('shell-first');
   });
 });
 

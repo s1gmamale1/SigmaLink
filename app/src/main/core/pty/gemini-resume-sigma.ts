@@ -58,12 +58,29 @@ export interface GeminiBridgeDeps {
 // Internal helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Reject obviously bad paths before we touch the filesystem. */
-function isSafeAbsolutePath(p: string): boolean {
+/** Reject obviously bad paths before we touch the filesystem.
+ *
+ *  Exported for tests. The accept-side cases are asserted directly against this
+ *  guard rather than by driving `prepareGeminiResume`, because a path that
+ *  PASSES goes on to do real filesystem work — and the win32 suite swaps
+ *  `node:path` for `path.win32`, so a POSIX temp `homeDir` joins into backslash
+ *  paths that a POSIX host then creates as literal directories inside the repo.
+ *  Asserting the guard directly keeps accept-side coverage with zero filesystem
+ *  involvement. */
+export function isSafeAbsolutePath(p: string): boolean {
   if (typeof p !== 'string' || p.length === 0) return false;
   if (!path.isAbsolute(p)) return false;
-  // Disallow `..` segments anywhere in the path — defence in depth.
-  const parts = p.split(path.sep);
+  // Disallow `..` segments anywhere in the path — defence in depth even though
+  // both callers pass cwds we control (workspace root or worktree path).
+  // Split on BOTH separators: on win32 `path.sep` is `\`, but Node accepts
+  // `/`-separated paths there too, so a POSIX-style `C:/foo/../bar` previously
+  // sailed straight through this guard on Windows (the whole string stayed one
+  // segment). Splitting unconditionally rather than branching on the platform
+  // keeps this a pure string check with no host-dependent behaviour to drift —
+  // a POSIX directory whose literal name contains `\..\` is not a real case.
+  // Mirrors claude-resume-sigma.ts, which was fixed in #134; this twin was
+  // missed.
+  const parts = p.split(/[\\/]/);
   if (parts.some((seg) => seg === '..')) return false;
   return true;
 }
