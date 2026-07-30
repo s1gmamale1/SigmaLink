@@ -35,6 +35,10 @@
 
 None. The inbox was cleared during this evidence-gated audit; new ideas should be added with a concrete trigger rather than mixed into verified findings.
 
+## 🔬 CI reliability (2026-07-31)
+
+- **[CI] `e2e-matrix` flakes at roughly 1 run in 4 (C-066).** `Confirmed · medium · M`. Citations: `.github/workflows/e2e-matrix.yml`, `app/tests/e2e/dogfood.spec.ts:213` and the `BUG-W7-006` race case, `app/src/renderer/features/settings/VoiceTab.dictionary.test.tsx:114`. Observed across one session, every one green on a single re-run: #248 `smoke (windows-latest)` — `electronApplication.firstWindow` 30 s timeout; #250 `lint + build (macos)` — `VoiceTab.dictionary` expected usage "150", got "No sessions recorded yet" (async data not loaded); #255 `smoke (ubuntu-latest)` — `BUG-W7-006` race case exceeded the 180 s test timeout, on a **docs-only two-file diff that cannot reach it**. `e2e-matrix` has also concluded red twice on `main` itself within its last 8 runs. Two of the three are timeouts under runner load; all three sit in `dogfood.spec.ts` or renderer async paths. **Why it matters beyond annoyance:** this is the gate a release is tagged behind, so a red check there now carries little information — and the necessary habit of re-running to classify it is one bad day from becoming a habit of re-running until green. Action: make the three named cases deterministic (await a settled condition rather than a fixed timeout; seed the usage fixture synchronously), then consider `--retries=1` ONLY once the underlying races are fixed, never as the fix. Verification trigger: 20 consecutive `e2e-matrix` runs on an unchanged `main` are green without a re-run.
+
 ## 🔬 Deep review findings (2026-07-30) — pre-release audit (#250 · #251)
 
 Surviving minors from the 5-lane pre-release audit of `v3.0.0..main`. None gates a
