@@ -126,8 +126,14 @@ function listAsarNodeModulesViaLibrary(archive) {
       // node_modules/@sigmalink/voice-whisper/node_modules/node-gyp-build/...
       // the leading match is the parent, and a first-match-only scan would
       // shadow the nested package we are actually looking for.
+      // The terminator MUST be a lookahead. A consuming `(?:\/|$)` eats the
+      // separator that the next iteration's `(?:^|\/)` needs, so matchAll
+      // yields only the outermost package and the nested one stays shadowed —
+      // the exact bug this loop exists to avoid. Verified by execution:
+      //   consuming  → ['@sigmalink/voice-whisper']
+      //   lookahead  → ['@sigmalink/voice-whisper', 'node-gyp-build']
       for (const match of normalised.matchAll(
-        /(?:^|\/)node_modules\/((?:@[^/]+\/)?[^/]+)(?:\/|$)/g,
+        /(?:^|\/)node_modules\/((?:@[^/]+\/)?[^/]+)(?=\/|$)/g,
       )) {
         // listPackage enumerates directories too, so a scope root arrives on
         // its own as `node_modules/@scope`. That is not a package — skip it.

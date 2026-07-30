@@ -103,22 +103,18 @@ function restoreSpawnHelperPermissions(appPath) {
     const darwinDirs = fs
       .readdirSync(nodePtyPrebuilds, { withFileTypes: true })
       .filter((entry) => entry.isDirectory() && entry.name.startsWith('darwin-'));
-    const before = chmodded.length;
     for (const entry of darwinDirs) {
       const helper = path.join(nodePtyPrebuilds, entry.name, 'spawn-helper');
       if (fs.existsSync(helper)) {
         fixHelper(helper);
       }
     }
-    if (chmodded.length === before) {
-      throw new Error(
-        `[adhoc-sign] ${nodePtyPrebuilds} exists but ships no darwin-*/spawn-helper ` +
-          `(saw: ${darwinDirs.map((entry) => entry.name).join(', ') || 'no darwin-* dirs'}). ` +
-          `node-pty cannot spawn a PTY without it, so every terminal pane would ` +
-          `fail to open. The packaged node-pty layout changed — fix the pack ` +
-          `before shipping.`,
-      );
-    }
+    // NO throw here. An empty `prebuilds/` is not proof of a broken pack: a
+    // from-source node-pty (npmRebuild: true) puts its helper at
+    // build/Release/spawn-helper, which pass 2 below finds. Throwing here would
+    // abort a perfectly valid release build. The aggregate check after the
+    // recursive sweep is the real gate — it fires only when NO helper exists
+    // anywhere, which is the condition we actually care about.
   }
 
   // (2) Future-proof recursive sweep — any other dep shipping a spawn-helper

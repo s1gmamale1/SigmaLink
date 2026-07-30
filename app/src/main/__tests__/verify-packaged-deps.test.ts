@@ -178,6 +178,39 @@ describe('asar inspection', () => {
     expect(found.has('dist')).toBe(false);
   });
 
+  // A transitive dep of a WORKSPACE package is packed nested, at
+  // node_modules/@scope/owner/node_modules/dep — precisely where Node's
+  // resolver finds it. Every other asar test here builds a FLAT archive, so
+  // nesting was never exercised and a regex that shadowed the nested package
+  // behind its parent passed the whole suite (and a real pack, which found the
+  // module via the on-disk walk instead). This is the case that catches it.
+  it('finds a package nested inside another package inside a real asar', async () => {
+    const resources = makeTempDir();
+    const archive = await buildAsar(resources, [
+      '@sigmalink/voice-whisper',
+      '@sigmalink/voice-whisper/node_modules/node-gyp-build',
+    ]);
+
+    const found = verify.listAsarNodeModules(archive);
+
+    expect(found.has('@sigmalink/voice-whisper')).toBe(true);
+    // The parent must NOT shadow the nested package.
+    expect(found.has('node-gyp-build')).toBe(true);
+  });
+
+  it('the header fallback also sees a nested package', async () => {
+    const resources = makeTempDir();
+    const archive = await buildAsar(resources, [
+      '@sigmalink/voice-whisper',
+      '@sigmalink/voice-whisper/node_modules/node-gyp-build',
+    ]);
+
+    expect([...verify.listAsarNodeModulesViaHeader(archive)].sort()).toEqual(
+      [...verify.listAsarNodeModules(archive)].sort(),
+    );
+    expect(verify.listAsarNodeModulesViaHeader(archive).has('node-gyp-build')).toBe(true);
+  });
+
   it('the dependency-free header fallback agrees with the library path', async () => {
     const resources = makeTempDir();
     const archive = await buildAsar(resources, ['bindings', '@sigmalink/voice-whisper']);
