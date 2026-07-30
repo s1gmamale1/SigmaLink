@@ -413,15 +413,49 @@ WKWebView equivalent.
 | Arch-correct macOS updates (B-1/B-2/B-3) | 3 | S | **High** | ✅ MERGED — #247 `5d33351` |
 | Prune packaged `node_modules` + restore asar | 4 | M | Medium | ✅ MERGED — #247 `5d33351` |
 | Renderer scrollback + LRU tuning | 5 | M | **High** | ✅ MERGED — #247 `5d33351`; saving unmeasured |
+| Pre-release audit (packaging · win32 · RAM leak) | 6 | L | **High** | ✅ MERGED — #250 `33e83d49`, #251 `71eacd3b` |
 | Release blockers (win32 quoting, doc drift, clamp) | — | S | Medium | ✅ MERGED — #248 `2ebd928` |
 | One shared shell quoter (C-058/059/060) | — | M | Medium | 📋 parked in [WISHLIST.md](WISHLIST.md) |
 
+## Phase 6 — Pre-release audit (#250 · #251) — ✅ MERGED
+
+> A 5-lane audit of `v3.0.0..main` (17 commits, 171 files) before tagging.
+> Merged in `33e83d49` (#250) and `71eacd3b` (#251). Surviving minors are parked
+> as C-061…C-065 in [WISHLIST.md](WISHLIST.md).
+>
+> **Every finding failed no existing test.** Several only surface at first launch
+> of a packaged build, which no CI job produces.
+>
+> | | |
+> |---|---|
+> | `asar: true` (#247) silently disabled the spawn-helper chmod net → every macOS pane would `EACCES` | fixed; **proven on a real `electron-builder --mac` artifact** |
+> | win32 shell-first was default-ON and had never been Windows-dogfooded — the "NOT yet dogfooded" comment was deleted, not earned | win32 unset now resolves to `direct`; explicit opt-in preserved |
+> | ~1.57 GB Windows stdio-MCP RAM leak, diagnosed and tested, unmerged for 4 weeks | merged, workspace-scoped, with a `ramBrake.observedEnabled` kill switch |
+> | `.npmrc node-linker=hoisted` stopped working in pnpm 10+ (settings moved to `pnpm-workspace.yaml`); CI pins 9, so a bump would have shipped a broken package silently | pinned in both dialects |
+> | win32 traversal-guard bypass (`split(path.sep)` missed `/`-separated paths) · `forget()` stranding descendants | both fixed |
+> | 4 false/stale product-truth claims incl. "Windows SAPI voice not shipped" (it shipped in v1.5.0) | corrected |
+>
+> New `afterPack` guard (`scripts/verify-packaged-deps.cjs`) asserts the keep-list
+> survived packing and **throws** on a miss — it caught a real drift on its first run.
+>
+> Retired as superseded: PR #209 (rebased into #251) and PR #216 (fixes landed in
+> #250; its `voice-win` stub fix salvaged into #251).
+
+---
+
 **Release checklist (owed before any tag):**
-1. Phase 2 arm64 baseline — otherwise no RAM saving may be claimed.
-2. Packaged smoke of **all three** MCP entries (External Control is proven;
+1. **Phase 2 arm64 baseline** — otherwise no RAM saving may be claimed. Operator-only.
+2. **Packaged launch on Windows + Linux.** Still verified by *nothing*:
+   `e2e-matrix.yml` launches the unpacked `electron-dist/` tree and never invokes
+   electron-builder, which runs only on a `v*` tag push. macOS is proven by one
+   manual pack; the other two platforms are not.
+3. Packaged smoke of **all three** MCP entries (External Control is proven;
    jorvis-host and memory-server run from inside an asar for the first time).
-3. Version bump — `package.json` is still `3.0.0` and that tag is taken.
-4. Release notes must tell Apple Silicon users on the x64 build that they need
+4. **Windows RAM-brake live verification.** Every receipt in #251 is source-trace
+   and unit-test. Nobody has yet proven the brake contains the leak on a real
+   Windows box.
+5. Version bump — `package.json` is still `3.0.0` and that tag is taken.
+6. Release notes must tell Apple Silicon users on the x64 build that they need
    **one manual arm64 install**; their updater cannot rescue them.
 
 **Rejected:** Electron → Tauri/Rust migration. ~630 dev-days (10–15 months
