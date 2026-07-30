@@ -4,6 +4,22 @@ copyright: Copyright © 2026 SigmaLink
 directories:
   output: release
   buildResources: build
+# KEEP-LIST PRECONDITION: a HOISTED node_modules.
+#
+# Every `node_modules/<pkg>/**/*` entry below matches a TOP-LEVEL directory.
+# electron-builder 24.13.3 collects node_modules by walking top-level
+# `node_modules/<pkg>` and does NOT enumerate pnpm's `.pnpm` virtual store, so
+# under the ISOLATED linker the transitive helpers (`bindings`,
+# `file-uri-to-path`, `node-gyp-build`) are never even offered to this filter.
+# Proven by a real `--mac --dir` pack on an isolated tree: the app.asar held
+# only @sigmalink, better-sqlite3, and node-pty — and still did with the
+# `!node_modules/**/*` negation removed entirely. No glob here can recover
+# files the packer never enumerates, so the LINKER is pinned instead, in both
+# pnpm dialects:
+#   .npmrc              node-linker=hoisted   (pnpm 9 — what every workflow pins)
+#   pnpm-workspace.yaml nodeLinker: hoisted   (pnpm 10+, which ignores .npmrc)
+# `afterPack: scripts/verify-packaged-deps.cjs` is the backstop — it asserts
+# every keep-list module actually landed in the packed output.
 files:
   - dist/**/*
   - electron-dist/**/*

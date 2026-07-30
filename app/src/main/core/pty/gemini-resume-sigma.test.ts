@@ -365,25 +365,28 @@ describe('traversal refusal — win32 path semantics', () => {
     expect(result).toBeNull();
   });
 
-  it('still ACCEPTS a legitimate mixed-separator win32 path (no ".." segment)', async () => {
+  // Accept-side cases assert the guard DIRECTLY rather than driving
+  // prepareGeminiResume. A path that passes the guard goes on to do real
+  // filesystem work, and this suite has `node:path` swapped for `path.win32`,
+  // so the POSIX temp `homeDir` would join into `\var\folders\…` — which a
+  // POSIX host happily creates as a literal backslash-named directory inside
+  // the repo. That polluted the working tree on every run.
+  it('still ACCEPTS a legitimate mixed-separator win32 path (no ".." segment)', () => {
     // `C:\Users\dev/projects/MyApp` mixes both separators and must survive the
     // guard — the fix must reject traversal, not every non-native separator.
-    const outcome = await win32Module.prepareGeminiResume(
-      'C:\\Users\\dev/projects/MyApp',
-      'C:\\Users\\dev/projects/MyApp-worktree',
-      { homeDir },
-    );
-    // Past the guard: no sessions were seeded, so the bridge reports 'missing'.
-    expect(outcome).toBe('missing');
+    expect(win32Module.isSafeAbsolutePath('C:\\Users\\dev/projects/MyApp')).toBe(true);
+    expect(win32Module.isSafeAbsolutePath('C:\\Users\\dev/projects/MyApp-worktree')).toBe(true);
   });
 
-  it('still ACCEPTS a pure forward-slash win32 path (Node accepts "/" on Windows)', async () => {
-    const outcome = await win32Module.prepareGeminiResume(
-      'C:/Users/dev/projects/MyApp',
-      'C:/Users/dev/projects/MyApp-worktree',
-      { homeDir },
-    );
-    expect(outcome).toBe('missing');
+  it('still ACCEPTS a pure forward-slash win32 path (Node accepts "/" on Windows)', () => {
+    expect(win32Module.isSafeAbsolutePath('C:/Users/dev/projects/MyApp')).toBe(true);
+    expect(win32Module.isSafeAbsolutePath('C:/Users/dev/projects/MyApp-worktree')).toBe(true);
+  });
+
+  it('rejects traversal through the guard directly, on both separators', () => {
+    expect(win32Module.isSafeAbsolutePath('C:/foo/../bar')).toBe(false);
+    expect(win32Module.isSafeAbsolutePath('C:\\foo\\..\\bar')).toBe(false);
+    expect(win32Module.isSafeAbsolutePath('C:\\foo/../bar')).toBe(false);
   });
 });
 
