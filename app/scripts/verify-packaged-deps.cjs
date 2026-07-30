@@ -115,16 +115,28 @@ function listAsarNodeModulesViaLibrary(archive) {
     const names = new Set();
     for (const entry of asar.listPackage(archive)) {
       const normalised = String(entry).replace(/\\/g, '/').replace(/^\//, '');
-      const match = /^node_modules\/((?:@[^/]+\/)?[^/]+)(?:\/|$)/.exec(normalised);
-      if (!match) {
-        continue;
+      // Match a package at ANY depth, not just top level. A transitive dep of a
+      // workspace package is packed NESTED — e.g. node-gyp-build lands at
+      // node_modules/@sigmalink/voice-whisper/node_modules/node-gyp-build, which
+      // is exactly where Node's resolver finds it when voice-whisper/index.js
+      // calls require('node-gyp-build'). Anchoring to ^node_modules/ reported
+      // that as missing and would have failed every release build on a false
+      // alarm.
+      // ALL matches, not just the first: in
+      // node_modules/@sigmalink/voice-whisper/node_modules/node-gyp-build/...
+      // the leading match is the parent, and a first-match-only scan would
+      // shadow the nested package we are actually looking for.
+      for (const match of normalised.matchAll(
+        /(?:^|\/)node_modules\/((?:@[^/]+\/)?[^/]+)(?:\/|$)/g,
+      )) {
+        // listPackage enumerates directories too, so a scope root arrives on
+        // its own as `node_modules/@scope`. That is not a package — skip it.
+        if (match[1].startsWith('@') && !match[1].includes('/')) {
+          continue;
+        }
+        names.add(match[1]);
       }
-      // listPackage enumerates directories too, so a scope root arrives on its
-      // own as `node_modules/@scope`. That is not a package — skip it.
-      if (match[1].startsWith('@') && !match[1].includes('/')) {
-        continue;
-      }
-      names.add(match[1]);
+      continue;
     }
     return names;
   } catch {
@@ -152,16 +164,26 @@ function listAsarNodeModulesViaHeader(archive) {
     const parsed = JSON.parse(header.toString('utf8', 8, 8 + jsonLength));
 
     const names = new Set();
-    const nodeModules = parsed?.files?.node_modules?.files;
-    for (const name of Object.keys(nodeModules ?? {})) {
-      if (name.startsWith('@')) {
-        for (const scoped of Object.keys(nodeModules[name]?.files ?? {})) {
-          names.add(`${name}/${scoped}`);
+    // Recurse: a transitive dep of a workspace package is packed NESTED, at
+    // node_modules/<owner>/node_modules/<pkg>, which is precisely where Node's
+    // resolver finds it. A top-level-only walk reports it missing and would
+    // fail every release build on a false alarm.
+    const collect = (dirEntry) => {
+      const nodeModules = dirEntry?.files?.node_modules?.files;
+      for (const name of Object.keys(nodeModules ?? {})) {
+        const child = nodeModules[name];
+        if (name.startsWith('@')) {
+          for (const scoped of Object.keys(child?.files ?? {})) {
+            names.add(`${name}/${scoped}`);
+            collect(child.files[scoped]);
+          }
+        } else {
+          names.add(name);
+          collect(child);
         }
-      } else {
-        names.add(name);
       }
-    }
+    };
+    collect(parsed);
     return names;
   } finally {
     fs.closeSync(fd);
@@ -182,11 +204,52 @@ function findMissingModules(resourcesDir, modules) {
   ];
   const inAsar = listAsarNodeModules(path.join(resourcesDir, 'app.asar'));
 
+  /** True when `name` exists under `root` at ANY depth — top level, or nested
+   *  inside another package's own node_modules (where Node resolves a
+   *  workspace package's transitive deps from). */
+  const onDiskAnyDepth = (root, name) => {
+    if (fs.existsSync(path.join(root, name))) {
+      return true;
+    }
+    let owners;
+    try {
+      owners = fs.readdirSync(root, { withFileTypes: true });
+    } catch {
+      return false;
+    }
+    for (const owner of owners) {
+      if (!owner.isDirectory()) continue;
+      const nested = owner.name.startsWith('@')
+        ? path.join(root, owner.name)
+        : path.join(root, owner.name, 'node_modules');
+      if (owner.name.startsWith('@')) {
+        // Scope dir: descend one more level to each scoped package.
+        let scoped;
+        try {
+          scoped = fs.readdirSync(nested, { withFileTypes: true });
+        } catch {
+          continue;
+        }
+        for (const pkg of scoped) {
+          if (!pkg.isDirectory()) continue;
+          if (onDiskAnyDepth(path.join(nested, pkg.name, 'node_modules'), name)) {
+            return true;
+          }
+        }
+        continue;
+      }
+      if (fs.existsSync(nested) && onDiskAnyDepth(nested, name)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
   return modules.filter((name) => {
     if (inAsar.has(name)) {
       return false;
     }
-    return !diskRoots.some((root) => fs.existsSync(path.join(root, name)));
+    return !diskRoots.some((root) => onDiskAnyDepth(root, name));
   });
 }
 
