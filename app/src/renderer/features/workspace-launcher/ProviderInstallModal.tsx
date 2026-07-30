@@ -124,6 +124,14 @@ export function ProviderInstallModal({ providerId, onClose }: Props) {
         }
       } catch {
         /* non-fatal */
+      } finally {
+        // Never strand the UI. If getPlatform() rejects (preload not ready, a
+        // throwing handler), leaving platformReady false would show
+        // "Detecting platform…" with Copy disabled for the modal's whole
+        // lifetime — no error, no retry, strictly worse than the pre-gate
+        // behaviour, which at least showed the darwin-guessed command. Fall
+        // back to the guess instead of a dead panel.
+        if (!cancelled) setPlatformReady(true);
       }
     })();
     return () => { cancelled = true; };
@@ -297,7 +305,12 @@ export function ProviderInstallModal({ providerId, onClose }: Props) {
                 className="h-40 overflow-y-auto rounded-md border border-border bg-black/40 p-2 font-mono text-[11px] leading-relaxed text-green-300"
               >
                 {installing && !installLog ? (
-                  <span className="text-muted-foreground">Running {cmdStr}…</span>
+                  // Same gate as the command block above — don't echo a
+                  // guessed-platform command line while the real one is
+                  // still resolving.
+                  <span className="text-muted-foreground">
+                    {platformReady ? `Running ${cmdStr}…` : 'Starting install…'}
+                  </span>
                 ) : (
                   installLog || ''
                 )}
