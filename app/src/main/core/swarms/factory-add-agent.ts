@@ -25,6 +25,7 @@ import type {
   SwarmFactoryDeps,
 } from './factory';
 import { checkRamBrakeAdmission } from '../ram-brake/admission';
+import { runObservedProcessPreflight } from '../ram-brake/observed-preflight';
 import {
   countLiveAgentPanes,
   countsTowardAgentCap,
@@ -61,6 +62,25 @@ export async function addAgentToSwarm(
   checkRamBrakeAdmission(getRawDb(), {
     workspaceId: wsRow.id,
     requestedProfiles: [input.runtimeProfileId],
+    force: input.forceRamBrake === true,
+  });
+
+  // C-061 — OBSERVED-process RAM-brake, the twin of the admission check above.
+  // Admission counts the agent_sessions rows this add is about to create; this
+  // inspects the LIVE OS footprint of already-running panes. Without it a
+  // workspace correctly blocked from a full launch could still grow one leaky
+  // pane at a time through `+ Pane` — the exact multiplier the brake exists to
+  // contain. Same helper the workspace launcher uses, so the two can't drift.
+  //
+  // Placed BEFORE the insert transaction and the spawn so an over-budget refusal
+  // leaves no swarm_agents row behind, mirroring the cap refusal below.
+  // FAIL-OPEN: unavailable process inspection contributes zero RSS / zero MCP
+  // chains, so the add proceeds. `AddPaneButton`'s Force path retries with
+  // `forceRamBrake: true`, which is threaded straight through.
+  await runObservedProcessPreflight({
+    db: getRawDb(),
+    pty: deps.pty,
+    workspaceId: wsRow.id,
     force: input.forceRamBrake === true,
   });
 
