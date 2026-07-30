@@ -226,6 +226,27 @@ describe('findMissingModules — resolvability, not presence-by-name (C-064)', (
     expect(verify.findMissingModules(resources, ['node-gyp-build'])).toEqual(['node-gyp-build']);
   });
 
+  // Mirrors the asar fixture, on the DISK path. Without this, the disk-side
+  // `if (sibling === name) continue;` guard has zero coverage: every other disk
+  // fixture writes a manifest for the nested package, so removing that guard
+  // leaves the whole suite green while the namesake starts vouching for
+  // ITSELF — a blind pass on `app.asar.unpacked`, which is exactly where the
+  // native modules live. Verified by ablation: with the guard this reports
+  // MISSING, without it the array comes back empty.
+  it('reports MISSING a manifest-less nested namesake — it cannot vouch for itself', () => {
+    const resources = makeTempDir();
+    const ownerDir = path.join(resources, 'app.asar.unpacked', 'node_modules', 'some-vendor');
+    // A vendored fixture directory that merely happens to be NAMED after a
+    // keep-list entry, carrying no package.json at all. Nothing declares it.
+    fs.mkdirSync(path.join(ownerDir, 'node_modules', 'better-sqlite3'), { recursive: true });
+    fs.writeFileSync(
+      path.join(ownerDir, 'package.json'),
+      JSON.stringify({ name: 'some-vendor' }),
+    );
+
+    expect(verify.findMissingModules(resources, ['better-sqlite3'])).toEqual(['better-sqlite3']);
+  });
+
   it('PASSES a genuine nested transitive dep of a workspace package', () => {
     const resources = makeTempDir();
     // The real shape: voice-whisper declares node-gyp-build, and pnpm packed it
