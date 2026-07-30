@@ -87,6 +87,13 @@ async function getUserHome(platform: NodeJS.Platform): Promise<string> {
 export function ProviderInstallModal({ providerId, onClose }: Props) {
   const def = AGENT_PROVIDERS.find((p) => p.id === providerId);
   const [platform, setPlatform] = useState<'darwin' | 'linux' | 'win32'>('darwin');
+  // `platform` starts at a GUESS ('darwin') and is corrected once
+  // `rpc.app.getPlatform()` resolves. Until then the command shown is for the
+  // wrong OS: a Windows operator who hit Copy inside that IPC window got the
+  // darwin line (`bash -c '…'`) and pasted something cmd.exe answers with
+  // "bash is not recognized". Gate the command block on this flag so nothing
+  // copyable renders until the real platform is known.
+  const [platformReady, setPlatformReady] = useState(false);
   const [runtimeMissing, setRuntimeMissing] = useState(false);
   const [copied, setCopied] = useState(false);
   const [dontAskAgain, setDontAskAgain] = useState(false);
@@ -105,6 +112,7 @@ export function ProviderInstallModal({ providerId, onClose }: Props) {
         const pl = await rpc.app.getPlatform();
         if (cancelled) return;
         setPlatform((pl === 'win32' ? 'win32' : pl === 'linux' ? 'linux' : 'darwin'));
+        setPlatformReady(true);
         // Prereq check — only run for providers whose installCommand uses npm/pip.
         const cmd = def ? installCommandFor(def, pl) : null;
         if (cmd && cmd.length > 0) {
@@ -182,13 +190,14 @@ export function ProviderInstallModal({ providerId, onClose }: Props) {
   }, [providerId]);
 
   const handleCopy = useCallback(() => {
-    if (!def) return;
+    // Refuse to copy a guessed-platform command — see `platformReady`.
+    if (!def || !platformReady) return;
     const cmd = installCommandFor(def, platform) ?? [];
     void navigator.clipboard.writeText(joinShellCommand(cmd, platform)).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
-  }, [def, platform]);
+  }, [def, platform, platformReady]);
 
   if (!def) return null;
 
@@ -256,11 +265,14 @@ export function ProviderInstallModal({ providerId, onClose }: Props) {
                 ) : null}
               </div>
               <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
-                <code className="flex-1 truncate font-mono text-sm">{cmdStr}</code>
+                <code className="flex-1 truncate font-mono text-sm">
+                  {platformReady ? cmdStr : 'Detecting platform…'}
+                </code>
                 <button
                   type="button"
                   onClick={handleCopy}
-                  className="shrink-0 rounded p-1 text-muted-foreground transition hover:text-foreground"
+                  disabled={!platformReady}
+                  className="shrink-0 rounded p-1 text-muted-foreground transition hover:text-foreground disabled:opacity-40"
                   aria-label="Copy install command"
                 >
                   {copied ? (

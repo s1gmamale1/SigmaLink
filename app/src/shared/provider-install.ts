@@ -17,7 +17,12 @@ export function providerInstallCommandFor(
     return [
       'bash',
       '-lc',
-      `set -euo pipefail; prefix="\${NPM_CONFIG_PREFIX:-$HOME/.npm-global}"; mkdir -p "$prefix/bin"; npm config set prefix "$prefix"; npm i -g ${linux.slice(3).map((pkg) => pkg.replace(/[^@/a-zA-Z0-9._-]/g, '')).join(' ')}; printf "\\nInstalled to %s/bin\\n" "$prefix"`,
+      // Quote, do NOT strip. The old `pkg.replace(/[^@/a-zA-Z0-9._-]/g, '')`
+      // silently DELETED characters outside that class, so a spec like
+      // `@scope/pkg@^2.0` became `@scope/pkg2.0` — npm then installs the wrong
+      // package (or errors) with nothing to explain why. joinShellCommand
+      // escapes instead, so the spec survives verbatim and is still safe.
+      `set -euo pipefail; prefix="\${NPM_CONFIG_PREFIX:-$HOME/.npm-global}"; mkdir -p "$prefix/bin"; npm config set prefix "$prefix"; npm i -g ${joinShellCommand(linux.slice(3), 'linux')}; printf "\\nInstalled to %s/bin\\n" "$prefix"`,
     ];
   }
 
@@ -25,7 +30,9 @@ export function providerInstallCommandFor(
     return [
       'bash',
       '-lc',
-      `set -euo pipefail; if command -v pipx >/dev/null 2>&1; then pipx install ${linux.slice(2).map((pkg) => pkg.replace(/[^a-zA-Z0-9._-]/g, '')).join(' ')}; else python3 -m pip install --user ${linux.slice(2).map((pkg) => pkg.replace(/[^a-zA-Z0-9._-]/g, '')).join(' ')}; fi`,
+      // Same as the npm branch: quote rather than strip, so a version-pinned
+      // spec (`pkg==1.2.3`, `pkg[extra]`) survives instead of being mangled.
+      `set -euo pipefail; if command -v pipx >/dev/null 2>&1; then pipx install ${joinShellCommand(linux.slice(2), 'linux')}; else python3 -m pip install --user ${joinShellCommand(linux.slice(2), 'linux')}; fi`,
     ];
   }
 
