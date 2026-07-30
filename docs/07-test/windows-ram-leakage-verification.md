@@ -27,7 +27,11 @@ Three changes make the Windows Ruflo-stdio-MCP RAM multiplier **observable** and
    stdio MCP chains, unless `forceRamBrake` is set. (Panes in other workspaces, and panes with no
    workspace at all, count only toward the total-RSS cap.) Error prefix:
    `RAM_BRAKE_OBSERVED_PROCESS_BUDGET:` — the renderers parse it into a readable hold with a
-   "Force launch" / "Force pane" escape. Caps are KV-tunable:
+   "Force launch" escape. **Scope: `executeLaunchPlan` only.** The `+ Pane` / swarm add-agent path
+   (`swarms/factory-add-agent.ts`) runs the admission (DB-row) brake but NOT this observed one, so
+   an operator held back from a full launch can still add a pane to the same workspace. The
+   `AddPaneButton` hold-parsing is forward-compatible plumbing that cannot fire today. Extending
+   the observed brake to that path is parked in WISHLIST. Caps are KV-tunable:
    `ramBrake.maxObservedWorkspaceRssMb` (default 4096), `ramBrake.maxObservedTotalRssMb` (12288),
    `ramBrake.maxClaudeFlowStdioPerSession` (1). Kill switch: `ramBrake.observedEnabled = 0` skips
    the preflight entirely (no process snapshots taken); absent = enabled.
