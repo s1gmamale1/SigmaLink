@@ -42,9 +42,9 @@ import { AGENT_PROVIDERS } from '@/shared/providers';
 import { worktreeModeKey as worktreeModeKvKey } from '@/shared/worktree-mode';
 import type { AgentRuntimeProfileId } from '@/shared/runtime-profiles';
 import {
-  parseRamBrakeAdmissionError,
-  summarizeRamBrakeAdmission,
-  type RamBrakeAdmissionDetails,
+  parseRamBrakeHold,
+  summarizeRamBrakeHold,
+  type RamBrakeHoldDetails,
 } from '@/shared/ram-brake';
 
 /** KV key for the per-workspace Yolo/Bypass default. */
@@ -197,7 +197,9 @@ export function WorkspaceLauncher() {
   const [ramBrakePrompt, setRamBrakePrompt] = useState<{
     plan: LaunchPlan;
     workspace: Workspace;
-    details: RamBrakeAdmissionDetails;
+    // Either brake — admission (agent_sessions rows) or observed-process (live
+    // OS footprint). Both feed this one prompt → Force launch → forceRamBrake.
+    details: RamBrakeHoldDetails;
     queued: boolean;
   } | null>(null);
   const [sessionRiskPrompt, setSessionRiskPrompt] = useState<{
@@ -669,10 +671,10 @@ export function WorkspaceLauncher() {
       setRamBrakePrompt(null);
       setSessionRiskPrompt(null);
     } catch (err) {
-      const details = parseRamBrakeAdmissionError(err);
+      const details = parseRamBrakeHold(err);
       if (details && !forceRamBrake) {
         setRamBrakePrompt({ plan, workspace, details, queued: false });
-        setError(`RAM Brake held this launch: ${summarizeRamBrakeAdmission(details)}`);
+        setError(`RAM Brake held this launch: ${summarizeRamBrakeHold(details)}`);
         return;
       }
       const message = err instanceof Error ? err.message : String(err);
@@ -779,7 +781,7 @@ export function WorkspaceLauncher() {
               {ramBrakePrompt.queued ? 'Launch queued by RAM Brake' : 'Launch held by RAM Brake'}
             </div>
             <div className="text-xs text-muted-foreground">
-              {summarizeRamBrakeAdmission(ramBrakePrompt.details)}
+              {summarizeRamBrakeHold(ramBrakePrompt.details)}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">

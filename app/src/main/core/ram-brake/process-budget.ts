@@ -11,14 +11,21 @@
 
 import type { ProcessTreeSnapshot } from '../process/process-tree';
 import { summarizeMcpProcesses } from './mcp-process-diagnostic';
+import {
+  OBSERVED_PROCESS_BUDGET_ERROR_PREFIX,
+  type ObservedProcessBudgetCaps,
+  type ObservedProcessBudgetDetails,
+} from '../../../shared/ram-brake';
 
-export const OBSERVED_PROCESS_BUDGET_ERROR_PREFIX = 'RAM_BRAKE_OBSERVED_PROCESS_BUDGET:';
+// The marker + wire shape live in `shared/` so the renderers can parse what this
+// module throws (PR #251 review finding 1). Re-exported here so this module's
+// existing public surface is unchanged — mirrors `admission.ts`.
+export {
+  OBSERVED_PROCESS_BUDGET_ERROR_PREFIX,
+  type ObservedProcessBudgetCaps,
+  type ObservedProcessBudgetDetails,
+} from '../../../shared/ram-brake';
 
-export interface ObservedProcessBudgetCaps {
-  maxWorkspaceRssBytes: number;
-  maxTotalRssBytes: number;
-  maxClaudeFlowStdioPerSession: number;
-}
 export interface ObservedSessionProcess {
   sessionId: string;
   /**
@@ -29,12 +36,6 @@ export interface ObservedSessionProcess {
    */
   workspaceId: string | undefined;
   snapshot: ProcessTreeSnapshot | null;
-}
-export interface ObservedProcessBudgetDetails {
-  kind: 'observed-process-budget';
-  caps: ObservedProcessBudgetCaps;
-  current: { workspaceRssBytes: number; totalRssBytes: number; duplicateStdioMcpSessionIds: string[] };
-  violations: Array<'workspace-rss' | 'total-rss' | 'duplicate-stdio-mcp'>;
 }
 export class ObservedProcessBudgetError extends Error {
   readonly details: ObservedProcessBudgetDetails;

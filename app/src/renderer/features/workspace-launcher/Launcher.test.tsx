@@ -316,6 +316,102 @@ describe('WorkspaceLauncher — Phase 2 RAM Brake resume risk', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// PR #251 review finding 1 — observed-process RAM-brake hold.
+//
+// `executeLaunchPlan`'s observed preflight throws
+// `RAM_BRAKE_OBSERVED_PROCESS_BUDGET:{…}`, a DIFFERENT prefix/kind from the
+// admission brake. Before the fix, `parseRamBrakeAdmissionError` returned null
+// for it, so the launcher fell through to `setError(message)` and rendered the
+// raw JSON blob — and because `forceRamBrake` is only ever set from inside the
+// details-gated prompt, the escape hatch was unreachable. The operator was
+// hard-blocked with no way out.
+// ---------------------------------------------------------------------------
+
+const GIB = 1024 * 1024 * 1024;
+
+function observedBudgetError(): Error {
+  return new Error(
+    `RAM_BRAKE_OBSERVED_PROCESS_BUDGET:${JSON.stringify({
+      kind: 'observed-process-budget',
+      caps: {
+        maxWorkspaceRssBytes: 4 * GIB,
+        maxTotalRssBytes: 12 * GIB,
+        maxClaudeFlowStdioPerSession: 1,
+      },
+      current: {
+        workspaceRssBytes: 5 * GIB,
+        totalRssBytes: 6 * GIB,
+        duplicateStdioMcpSessionIds: ['sess-leaky'],
+      },
+      violations: ['workspace-rss', 'duplicate-stdio-mcp'],
+    })}`,
+  );
+}
+
+describe('WorkspaceLauncher — observed-process RAM Brake hold', () => {
+  it('shows the RAM Brake prompt (not the raw JSON blob) and Force launch retries with forceRamBrake', async () => {
+    workspacesLaunchMock.mockRejectedValueOnce(observedBudgetError());
+
+    await renderAndEnterWizard(makeWorkspace());
+    // The launch button is disabled until the (mocked) AgentsStep mounts and
+    // reports onSkipChange(true) — mirrors the resume-risk test above. Without
+    // this jump the click is a no-op and nothing is exercised.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('jump-agents'));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const launchBtn = screen.getByRole('button', { name: /launch|open.*shell/i });
+    await act(async () => {
+      fireEvent.click(launchBtn);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // The escape hatch must be on screen.
+    expect(await screen.findByTestId('ram-brake-launch-prompt')).toBeTruthy();
+    // …and the operator must never see the wire payload.
+    const banner = screen.getByTestId('error-banner');
+    expect(banner.textContent ?? '').not.toContain('RAM_BRAKE_OBSERVED_PROCESS_BUDGET');
+    expect(banner.textContent ?? '').not.toContain('{');
+    expect(banner.textContent ?? '').toMatch(/RAM Brake held this launch/i);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /force launch/i }));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(workspacesLaunchMock).toHaveBeenCalledTimes(2);
+    expect((workspacesLaunchMock.mock.calls[1]![0] as LaunchPlan).forceRamBrake).toBe(true);
+  });
+
+  it('still surfaces an unrelated launch failure verbatim with no prompt', async () => {
+    workspacesLaunchMock.mockRejectedValueOnce(new Error('Workspace not opened: ws-42'));
+
+    await renderAndEnterWizard(makeWorkspace());
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('jump-agents'));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /launch|open.*shell/i }));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.queryByTestId('ram-brake-launch-prompt')).toBeNull();
+    expect(screen.getByTestId('error-banner').textContent ?? '').toContain(
+      'Workspace not opened: ws-42',
+    );
+  });
+});
+
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
