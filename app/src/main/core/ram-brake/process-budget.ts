@@ -52,10 +52,14 @@ export function checkObservedProcessBudget(input: {
   force?: boolean;
 }): ObservedProcessBudgetDetails {
   const totalRssBytes = input.sessions.reduce((sum, s) => sum + (s.snapshot?.rssBytes ?? 0), 0);
-  const workspaceRssBytes = input.sessions
-    .filter((s) => s.workspaceId === input.workspaceId)
-    .reduce((sum, s) => sum + (s.snapshot?.rssBytes ?? 0), 0);
-  const duplicateStdioMcpSessionIds = input.sessions
+  // Sessions belonging to the launching workspace. Everything scoped below uses
+  // this list so the `ObservedSessionProcess.workspaceId` guarantee — "an
+  // unrelated session can't consume the launching workspace's budget" — holds
+  // for BOTH dimensions, not just RSS. An unscoped duplicate-stdio scan meant
+  // one leaking pane in workspace A hard-blocked every launch in workspace B.
+  const ownSessions = input.sessions.filter((s) => s.workspaceId === input.workspaceId);
+  const workspaceRssBytes = ownSessions.reduce((sum, s) => sum + (s.snapshot?.rssBytes ?? 0), 0);
+  const duplicateStdioMcpSessionIds = ownSessions
     .filter((s) => summarizeMcpProcesses(s.snapshot).claudeFlowStdioCount > input.caps.maxClaudeFlowStdioPerSession)
     .map((s) => s.sessionId);
   const violations: ObservedProcessBudgetDetails['violations'] = [];
