@@ -950,3 +950,84 @@ describe('+ Pane auto-resume (spec 2026-06-10 D)', () => {
     expect(resumeMock).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// PR #251 review finding 1 — observed-process RAM-brake hold.
+//
+// The observed brake throws `RAM_BRAKE_OBSERVED_PROCESS_BUDGET:{…}`, a
+// different prefix/kind from the admission brake. `parseRamBrakeAdmissionError`
+// returns null for it, so the catch block fell through to the generic
+// toast+chip path and showed the raw JSON payload — with the "Force pane"
+// escape hatch unreachable (it is only wired from inside the details-gated
+// prompt). Both renderer catch blocks must branch on BOTH brake errors and
+// feed the SAME ramBrakePrompt → forceRamBrake flow.
+// ---------------------------------------------------------------------------
+
+const OBSERVED_GIB = 1024 * 1024 * 1024;
+
+function observedBudgetError(): Error {
+  return new Error(
+    `RAM_BRAKE_OBSERVED_PROCESS_BUDGET:${JSON.stringify({
+      kind: 'observed-process-budget',
+      caps: {
+        maxWorkspaceRssBytes: 4 * OBSERVED_GIB,
+        maxTotalRssBytes: 12 * OBSERVED_GIB,
+        maxClaudeFlowStdioPerSession: 1,
+      },
+      current: {
+        workspaceRssBytes: 5 * OBSERVED_GIB,
+        totalRssBytes: 6 * OBSERVED_GIB,
+        duplicateStdioMcpSessionIds: ['sess-leaky'],
+      },
+      violations: ['workspace-rss', 'duplicate-stdio-mcp'],
+    })}`,
+  );
+}
+
+describe('AddPaneButton — observed-process RAM Brake hold', () => {
+  it('shows the RAM Brake prompt (not the raw JSON blob) instead of the generic error chip', async () => {
+    addAgentMock.mockRejectedValue(observedBudgetError());
+
+    await renderAddPaneButton();
+    clickProvider('Claude');
+
+    const prompt = await screen.findByTestId('add-pane-ram-brake-prompt');
+    expect(prompt.textContent ?? '').not.toContain('RAM_BRAKE_OBSERVED_PROCESS_BUDGET');
+    expect(prompt.textContent ?? '').not.toContain('{');
+    expect(screen.queryByTestId('add-pane-error-chip')).toBeNull();
+    expect(toastErrorMock).not.toHaveBeenCalled();
+  });
+
+  it('Force pane retries addAgent with forceRamBrake:true', async () => {
+    addAgentMock.mockRejectedValueOnce(observedBudgetError()).mockResolvedValue({
+      sessionId: 's-new',
+      paneIndex: 0,
+      agentKey: 'builder-1',
+      session: { id: 's-new', workspaceId: 'ws-1' },
+      swarm: makeSwarm(),
+    });
+
+    await renderAddPaneButton();
+    clickProvider('Claude');
+    await screen.findByTestId('add-pane-ram-brake-prompt');
+
+    fireEvent.click(screen.getByRole('button', { name: /force pane/i }));
+
+    await waitFor(() => {
+      expect(addAgentMock).toHaveBeenCalledTimes(2);
+    });
+    expect(addAgentMock.mock.calls[1]![0]).toMatchObject({ forceRamBrake: true });
+  });
+
+  it('still surfaces an unrelated addAgent failure in the generic error chip', async () => {
+    addAgentMock.mockRejectedValue(new Error('network timeout'));
+
+    await renderAddPaneButton();
+    clickProvider('Claude');
+
+    await waitFor(() => {
+      expect(screen.getByTestId('add-pane-error-chip').textContent).toContain('network timeout');
+    });
+    expect(screen.queryByTestId('add-pane-ram-brake-prompt')).toBeNull();
+  });
+});

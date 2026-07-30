@@ -50,6 +50,13 @@ export interface SigmaVoiceWin {
    * Async availability probe. Posts CoCreateInstance(SpSharedRecognizer) to
    * the STA thread so the JS event loop is never blocked (PR #53 caveat 2).
    * Resolves to true when the SAPI5 shared recogniser service is reachable.
+   *
+   * CROSS-PLATFORM CONTRACT NOTE (2026-07-03 audit D4): unlike
+   * `@sigmalink/voice-mac` (sync boolean), this is ASYNC on Windows, and the
+   * load-failure stub returns a sync `false`. Callers must therefore wrap:
+   * `await Promise.resolve(mod.isAvailable())` (see voice/diagnostics.ts).
+   * Also: SAPI5 ignores the `onDevice` / `addPunctuation` start options —
+   * recognition is always on-device and punctuation is grammar-dependent.
    */
   isAvailable(): Promise<boolean>;
 

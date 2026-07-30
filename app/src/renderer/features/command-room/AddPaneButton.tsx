@@ -39,9 +39,9 @@ import { countLiveAgentPanes, MAX_SWARM_AGENTS } from '@/shared/providers';
 import { worktreeModeKey } from '@/shared/worktree-mode';
 import type { AgentRuntimeProfileId } from '@/shared/runtime-profiles';
 import {
-  parseRamBrakeAdmissionError,
-  summarizeRamBrakeAdmission,
-  type RamBrakeAdmissionDetails,
+  parseRamBrakeHold,
+  summarizeRamBrakeHold,
+  type RamBrakeHoldDetails,
 } from '@/shared/ram-brake';
 
 /** SF-8 B3 — Per-workspace Yolo default kv key (mirrors Launcher.tsx). */
@@ -107,7 +107,9 @@ export function AddPaneButton({
   const [ramBrakePrompt, setRamBrakePrompt] = useState<{
     providerId: string;
     targetSwarmId: string;
-    details: RamBrakeAdmissionDetails;
+    // Either brake — admission (agent_sessions rows) or observed-process (live
+    // OS footprint). Both feed this one prompt → Force pane → forceRamBrake.
+    details: RamBrakeHoldDetails;
     queued: boolean;
   } | null>(null);
   // DOGFOOD-V1.4.2-01 hypothesis 3 — persistent error chip for ~10s after
@@ -294,7 +296,7 @@ export function AddPaneButton({
       setRamBrakePrompt(null);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      const details = parseRamBrakeAdmissionError(err);
+      const details = parseRamBrakeHold(err);
       if (details && !forceRamBrake) {
         if (targetSwarmIdForPrompt) {
           setRamBrakePrompt({
@@ -306,7 +308,7 @@ export function AddPaneButton({
           setLastAddError(null);
           return;
         }
-        setLastAddError(`RAM Brake held pane: ${summarizeRamBrakeAdmission(details)}`);
+        setLastAddError(`RAM Brake held pane: ${summarizeRamBrakeHold(details)}`);
         return;
       }
       toast.error('Could not add pane', { description: msg });
@@ -484,7 +486,7 @@ export function AddPaneButton({
               {ramBrakePrompt.queued ? 'Pane queued by RAM Brake' : 'Pane held by RAM Brake'}
             </div>
             <div className="text-muted-foreground">
-              {summarizeRamBrakeAdmission(ramBrakePrompt.details)}
+              {summarizeRamBrakeHold(ramBrakePrompt.details)}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
