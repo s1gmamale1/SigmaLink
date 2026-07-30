@@ -22,6 +22,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { AGENT_PROVIDERS, installCommandFor } from '@/shared/providers';
+import { joinShellCommand } from '@/shared/shell-quote';
 import { rpc, onEvent } from '@/renderer/lib/rpc';
 
 interface Props {
@@ -183,7 +184,7 @@ export function ProviderInstallModal({ providerId, onClose }: Props) {
   const handleCopy = useCallback(() => {
     if (!def) return;
     const cmd = installCommandFor(def, platform) ?? [];
-    void navigator.clipboard.writeText(cmd.join(' ')).then(() => {
+    void navigator.clipboard.writeText(joinShellCommand(cmd, platform)).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
@@ -192,7 +193,13 @@ export function ProviderInstallModal({ providerId, onClose }: Props) {
   if (!def) return null;
 
   const cmd = installCommandFor(def, platform) ?? [];
-  const cmdStr = cmd.join(' ');
+  // Shell-quoted, NOT a raw argv join: cursor-agent's
+  // `['bash','-c','curl … | bash']` rendered unquoted as `bash -c curl … |
+  // bash`, which runs `bash -c curl` with $0 = the URL and pipes curl's
+  // (empty, usage-goes-to-stderr) stdout into bash — a silent no-op install
+  // for anyone who copied it (C-059). The in-app spawn path is unaffected:
+  // it hands the argv array straight to the PTY.
+  const cmdStr = joinShellCommand(cmd, platform);
   const docsUrl = def.installDocsUrl;
 
   const showLog = installing || installDone || installError;

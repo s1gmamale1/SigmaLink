@@ -1,8 +1,5 @@
 import type { AgentProviderDefinition } from './providers';
-
-function shellJoin(tokens: string[]): string {
-  return tokens.map((token) => `'${token.replace(/'/g, `'\\''`)}'`).join(' ');
-}
+import { joinShellCommand } from './shell-quote';
 
 export function providerInstallCommandFor(
   def: AgentProviderDefinition,
@@ -33,5 +30,7 @@ export function providerInstallCommandFor(
   }
 
   if (linux[0] === 'bash' || linux[0] === 'sh') return linux;
-  return ['bash', '-lc', shellJoin(linux)];
+  // The joined string is executed by `bash -lc`, so it takes POSIX quoting
+  // regardless of which platform is doing the formatting.
+  return ['bash', '-lc', joinShellCommand(linux, 'linux')];
 }
