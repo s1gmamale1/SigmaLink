@@ -542,6 +542,104 @@ describe('executeLaunchPlan — Task 5: observed-process RAM-brake budget', () =
     const { sessions } = await executeLaunchPlan(makeGitPlan(), deps);
     expect(sessions[0]!.status).toBe('running');
   });
+
+  // ── PR #251 review finding 3 — kill switch ───────────────────────────────
+  // Before this, the ONLY workaround for a false observed-budget block was to
+  // set an absurdly high cap (`readPositiveIntKv` rejects 0, so a 0 cap
+  // silently fell back to the default 1). `ramBrake.observedEnabled = 0` now
+  // bypasses the observed preflight entirely.
+  it('skips the observed preflight entirely when ramBrake.observedEnabled = 0', async () => {
+    const { deps } = makeTestDeps();
+
+    // A live pane in the SAME workspace with two claude-flow stdio chains AND
+    // 5 GiB RSS — this trips BOTH violations with the brake enabled.
+    const FIVE_GIB = 5 * 1024 * 1024 * 1024;
+    deps.pty.list = vi.fn(() => [
+      {
+        id: 'live-1',
+        workspaceId: WS_ID,
+        providerId: 'codex',
+        cwd: '/repo',
+        pid: 10,
+        alive: true,
+      } as unknown as ReturnType<typeof deps.pty.list>[number],
+    ]);
+    const snapshot = vi.fn(async () => ({
+      rootPid: 10,
+      supported: true,
+      rssBytes: FIVE_GIB,
+      descendantPids: [11, 12],
+      nodes: [
+        { pid: 10, ppid: 1, rssBytes: 100, command: 'codex.exe', args: 'codex' },
+        { pid: 11, ppid: 10, rssBytes: 400, command: 'node.exe', args: 'node @claude-flow/cli/bin/cli.js mcp start' },
+        { pid: 12, ppid: 10, rssBytes: 400, command: 'node.exe', args: 'node @claude-flow/cli/bin/cli.js mcp start' },
+      ],
+    }));
+    deps.pty.processSnapshotCached = snapshot;
+
+    vi.mocked(getRawDb).mockReturnValue({
+      prepare: vi.fn(() => ({
+        get: vi.fn((key?: string) => {
+          if (key === 'ramBrake.observedEnabled') return { value: '0' };
+          if (typeof key === 'string' && key.startsWith('workspace.worktreeMode.')) {
+            return { value: 'in-place' };
+          }
+          return undefined;
+        }),
+        all: vi.fn(() => []),
+        run: vi.fn(() => undefined),
+      })),
+      transaction: <T extends (...args: unknown[]) => unknown>(fn: T): T => fn,
+    } as unknown as ReturnType<typeof getRawDb>);
+    vi.mocked(getDb).mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({ where: vi.fn(() => ({ get: vi.fn(() => GIT_WS_ROW) })) })),
+      })),
+      insert: vi.fn(() => ({ values: vi.fn(() => ({ run: vi.fn() })) })),
+      update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(() => ({ run: vi.fn() })) })) })),
+    } as unknown as ReturnType<typeof getDb>);
+
+    const { sessions } = await executeLaunchPlan(makeGitPlan(), deps);
+    expect(sessions[0]!.status).toBe('running');
+    // Disabled means SKIPPED, not "checked and forgiven": no snapshots taken.
+    expect(snapshot).not.toHaveBeenCalled();
+  });
+
+  it('keeps the observed preflight ON when ramBrake.observedEnabled is absent', async () => {
+    const { deps } = makeTestDeps();
+    deps.pty.list = vi.fn(() => [
+      {
+        id: 'live-1',
+        workspaceId: WS_ID,
+        providerId: 'codex',
+        cwd: '/repo',
+        pid: 10,
+        alive: true,
+      } as unknown as ReturnType<typeof deps.pty.list>[number],
+    ]);
+    deps.pty.processSnapshotCached = vi.fn(async () => ({
+      rootPid: 10,
+      supported: true,
+      rssBytes: 1024,
+      descendantPids: [11, 12],
+      nodes: [
+        { pid: 10, ppid: 1, rssBytes: 100, command: 'codex.exe', args: 'codex' },
+        { pid: 11, ppid: 10, rssBytes: 400, command: 'node.exe', args: 'node @claude-flow/cli/bin/cli.js mcp start' },
+        { pid: 12, ppid: 10, rssBytes: 400, command: 'node.exe', args: 'node @claude-flow/cli/bin/cli.js mcp start' },
+      ],
+    }));
+    vi.mocked(getDb).mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({ where: vi.fn(() => ({ get: vi.fn(() => GIT_WS_ROW) })) })),
+      })),
+      insert: vi.fn(() => ({ values: vi.fn(() => ({ run: vi.fn() })) })),
+      update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(() => ({ run: vi.fn() })) })) })),
+    } as unknown as ReturnType<typeof getDb>);
+
+    await expect(executeLaunchPlan(makeGitPlan(), deps)).rejects.toThrow(
+      'RAM_BRAKE_OBSERVED_PROCESS_BUDGET:',
+    );
+  });
 });
 
 describe('executeLaunchPlan — Phase 2 RAM Brake MCP launch modes', () => {

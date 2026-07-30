@@ -22,11 +22,15 @@ Three changes make the Windows Ruflo-stdio-MCP RAM multiplier **observable** and
    non-localhost URL, is detected as user-managed and recorded in `refused`). Opt back in with the
    KV flag `ruflo.codexStdioMcp = 1`. HTTP entries are still written normally when a port exists.
 3. **Observed-process RAM brake.** Launch admission runs a second pass over live OS process state
-   and blocks the launch — *before* any worktree/PTY side effect — when an existing pane already
-   exceeds an observed RSS cap or holds duplicate `@claude-flow/cli` stdio MCP chains, unless
-   `forceRamBrake` is set. Error prefix: `RAM_BRAKE_OBSERVED_PROCESS_BUDGET:`. Caps are KV-tunable:
+   and blocks the launch — *before* any worktree/PTY side effect — when an existing pane **in the
+   launching workspace** already exceeds an observed RSS cap or holds duplicate `@claude-flow/cli`
+   stdio MCP chains, unless `forceRamBrake` is set. (Panes in other workspaces, and panes with no
+   workspace at all, count only toward the total-RSS cap.) Error prefix:
+   `RAM_BRAKE_OBSERVED_PROCESS_BUDGET:` — the renderers parse it into a readable hold with a
+   "Force launch" / "Force pane" escape. Caps are KV-tunable:
    `ramBrake.maxObservedWorkspaceRssMb` (default 4096), `ramBrake.maxObservedTotalRssMb` (12288),
-   `ramBrake.maxClaudeFlowStdioPerSession` (1).
+   `ramBrake.maxClaudeFlowStdioPerSession` (1). Kill switch: `ramBrake.observedEnabled = 0` skips
+   the preflight entirely (no process snapshots taken); absent = enabled.
 
 ## Preflight
 
