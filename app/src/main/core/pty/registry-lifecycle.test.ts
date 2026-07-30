@@ -207,6 +207,82 @@ describe('graceful-exit timer vs resume-overwrite race (finding 1)', () => {
   });
 });
 
+// C-062 — `stop({tree:false})` is an explicit "kill the root, leave the
+// descendants alone" opt-out. It leaves the tree snapshot null, so the
+// `treeAlreadyStopped` hint was false and `forget()` went on to run its OWN full
+// tree kill, SIGKILLing exactly the descendants the caller asked to spare. The
+// `skipTree` hint carries the caller's intent so the opt-out survives forget().
+//
+// `stopProcessTree` is the ONLY thing in this path that touches descendants
+// (registry.ts's own fallback only ever kills the root pid), so "was it called"
+// is a faithful proxy for "did the descendants die" — and it keeps the test off
+// real processes and real timers.
+describe('stop() tree opt-out survives forget (C-062)', () => {
+  function landedSnapshot(rootPid: number) {
+    return {
+      rootPid,
+      supported: true,
+      nodes: [
+        { pid: rootPid, ppid: 1, rssBytes: 0, command: 'claude', args: 'claude' },
+        { pid: rootPid + 1, ppid: rootPid, rssBytes: 0, command: 'node', args: 'node mcp' },
+      ],
+      descendantPids: [rootPid + 1],
+      rssBytes: 0,
+    };
+  }
+
+  it('stop({tree:false, forget:true}) leaves descendants alive', () => {
+    const fake = makeLifecyclePty();
+    vi.mocked(spawnLocalPty).mockReturnValue(fake.pty);
+    const registry = new PtyRegistry(() => undefined, () => undefined);
+    registry.create({ ...baseInput, sessionId: 'pane-no-tree' });
+
+    registry.stop('pane-no-tree', { tree: false, forget: true });
+
+    // No tree walk, from stop() OR from forget(): the descendants survive.
+    expect(processTreeMock.stopProcessTree).not.toHaveBeenCalled();
+    // The ROOT was still asked to die exactly once — `tree:false` opts out of
+    // the descendants, not out of the teardown.
+    expect(fake.pty.killCalls).toBe(1);
+    expect(registry.get('pane-no-tree')).toBeUndefined();
+  });
+
+  it('stop({tree:true, forget:true}) still kills the tree exactly once', () => {
+    processTreeMock.stopProcessTree.mockImplementation((rootPid: number) =>
+      landedSnapshot(rootPid),
+    );
+    const fake = makeLifecyclePty();
+    vi.mocked(spawnLocalPty).mockReturnValue(fake.pty);
+    const registry = new PtyRegistry(() => undefined, () => undefined);
+    registry.create({ ...baseInput, sessionId: 'pane-tree' });
+
+    registry.stop('pane-tree', { tree: true, forget: true });
+
+    // Exactly one walk: forget() must honour `treeAlreadyStopped` and not repeat
+    // the (synchronous, execFileSync) sweep.
+    expect(processTreeMock.stopProcessTree).toHaveBeenCalledTimes(1);
+    // stopProcessTree owns the SIGTERM→SIGKILL escalation when the walk lands.
+    expect(fake.pty.killCalls).toBe(0);
+    expect(registry.get('pane-tree')).toBeUndefined();
+  });
+
+  it('a bare forget() on a live session still tears the tree down (RPC path unchanged)', () => {
+    // The public `pty.forget` RPC passes no hints, so it must keep performing its
+    // own teardown — the fix must not turn every forget into an opt-out.
+    processTreeMock.stopProcessTree.mockImplementation((rootPid: number) =>
+      landedSnapshot(rootPid),
+    );
+    const fake = makeLifecyclePty();
+    vi.mocked(spawnLocalPty).mockReturnValue(fake.pty);
+    const registry = new PtyRegistry(() => undefined, () => undefined);
+    registry.create({ ...baseInput, sessionId: 'pane-bare-forget' });
+
+    registry.forget('pane-bare-forget');
+
+    expect(processTreeMock.stopProcessTree).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('exit pane-event kind hardening (finding 5)', () => {
   it("reports kind 'exited' + exitCode 0 even when the record was already forgotten", () => {
     // disconnectOnUnsub:false models node-pty's exit event already in flight

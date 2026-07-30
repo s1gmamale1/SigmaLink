@@ -602,10 +602,19 @@ export class PtyRegistry {
     // Tell forget() the tree is already down when the walk above landed, so it
     // does not repeat the (synchronous, execFileSync) `ps`/CIM sweep for the
     // same pid. Workspace removal and the cleanup sweeps call this per pane.
+    //
+    // C-062 — `tree: false` is an explicit opt-out ("kill the root, leave the
+    // descendants alone"), but it also leaves `snapshot` null, so the
+    // already-stopped hint was false and forget() went on to run its OWN full
+    // tree kill — SIGKILLing exactly the descendants the caller asked to spare.
+    // `skipTree` carries the caller's INTENT, separately from
+    // `treeAlreadyStopped`, which states a FACT about the world. Collapsing the
+    // two would make that field's name a lie at one of its call sites.
     if (opts.forget) {
       this.forget(id, {
         treeAlreadyStopped:
           snapshot !== null && snapshot.supported && snapshot.nodes.length > 0,
+        skipTree: opts.tree === false,
       });
     }
     return snapshot;
@@ -614,11 +623,18 @@ export class PtyRegistry {
   /**
    * Drop a session's listeners, buffer, and record.
    *
-   * `treeAlreadyStopped` is an INTERNAL hint from `stop()` — the public
-   * `pty.forget` RPC never sets it, so an RPC-driven forget always performs
-   * its own tree teardown.
+   * Both hints are INTERNAL, set only by `stop()` — the public `pty.forget` RPC
+   * passes neither, so an RPC-driven forget always performs its own tree
+   * teardown.
+   *   * `treeAlreadyStopped` — a FACT: `stop({tree:true})` already walked and
+   *     signalled the tree, so repeating the sweep would be pure cost.
+   *   * `skipTree` — an INTENT (C-062): the caller passed `{tree:false}` and
+   *     wants the descendants LEFT ALIVE. The root has already been asked to
+   *     die by `stop()`; forget() must not escalate to the tree behind the
+   *     caller's back.
+   * Either one suppresses the tree teardown below.
    */
-  forget(id: string, opts: { treeAlreadyStopped?: boolean } = {}): void {
+  forget(id: string, opts: { treeAlreadyStopped?: boolean; skipTree?: boolean } = {}): void {
     const rec = this.sessions.get(id);
     if (!rec) return;
     try {
@@ -648,7 +664,8 @@ export class PtyRegistry {
     // the hot post-exit grace-window sweep (which forgets dead records) never
     // pays for it. Everything stays synchronous and non-throwing, as before.
     const pid = rec.pid;
-    const stillAlive = rec.alive && isProcessAlive(pid) && !opts.treeAlreadyStopped;
+    const stillAlive =
+      rec.alive && isProcessAlive(pid) && !opts.treeAlreadyStopped && !opts.skipTree;
     if (stillAlive) {
       let snapshot: ProcessTreeSnapshot | null = null;
       try {

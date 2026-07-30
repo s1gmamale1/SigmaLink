@@ -76,81 +76,113 @@ function keepListModules(files) {
 }
 
 /**
- * Read the top-level `node_modules/*` entries out of an asar archive.
+ * Resolve `@electron/asar` through electron-builder's own dependency chain.
  *
- * Prefers `@electron/asar` (authoritative). Under pnpm's strict layout that
- * package is not hoisted into `app/node_modules`, so it is resolved through
- * electron-builder's own dependency chain rather than by bare name. If that
- * chain ever changes shape we fall back to reading the archive's header
- * directly — an asar is a 8-byte size prologue followed by a JSON directory,
- * so this stays dependency-free and cannot silently degrade into a blind pass.
- *
- * @param {string} archive absolute path to app.asar
- * @returns {Set<string>} package names present under node_modules (empty when
- *   the archive is absent — an unpacked `asar: false` build)
+ * Under pnpm's strict layout that package is not hoisted into
+ * `app/node_modules`, so it cannot be required by bare name. Returns null when
+ * the chain has changed shape — every caller then degrades to a path that
+ * cannot false-FAIL.
  */
-function listAsarNodeModules(archive) {
-  if (!fs.existsSync(archive)) {
-    return new Set();
-  }
-
-  const viaLibrary = listAsarNodeModulesViaLibrary(archive);
-  if (viaLibrary) {
-    return viaLibrary;
-  }
-  return listAsarNodeModulesViaHeader(archive);
-}
-
-function listAsarNodeModulesViaLibrary(archive) {
-  let asar;
+let asarLib;
+function resolveAsarLib() {
+  if (asarLib !== undefined) return asarLib;
   try {
     const builder = require.resolve('electron-builder/package.json', { paths: [__dirname] });
     const lib = require.resolve('app-builder-lib/package.json', { paths: [path.dirname(builder)] });
-    asar = require(require.resolve('@electron/asar', { paths: [path.dirname(lib)] }));
+    asarLib = require(require.resolve('@electron/asar', { paths: [path.dirname(lib)] }));
   } catch {
-    return null;
+    asarLib = null;
   }
+  return asarLib;
+}
 
-  try {
-    const names = new Set();
-    for (const entry of asar.listPackage(archive)) {
-      const normalised = String(entry).replace(/\\/g, '/').replace(/^\//, '');
-      // Match a package at ANY depth, not just top level. A transitive dep of a
-      // workspace package is packed NESTED — e.g. node-gyp-build lands at
-      // node_modules/@sigmalink/voice-whisper/node_modules/node-gyp-build, which
-      // is exactly where Node's resolver finds it when voice-whisper/index.js
-      // calls require('node-gyp-build'). Anchoring to ^node_modules/ reported
-      // that as missing and would have failed every release build on a false
-      // alarm.
-      // ALL matches, not just the first: in
-      // node_modules/@sigmalink/voice-whisper/node_modules/node-gyp-build/...
-      // the leading match is the parent, and a first-match-only scan would
-      // shadow the nested package we are actually looking for.
-      // The terminator MUST be a lookahead. A consuming `(?:\/|$)` eats the
-      // separator that the next iteration's `(?:^|\/)` needs, so matchAll
-      // yields only the outermost package and the nested one stays shadowed —
-      // the exact bug this loop exists to avoid. Verified by execution:
-      //   consuming  → ['@sigmalink/voice-whisper']
-      //   lookahead  → ['@sigmalink/voice-whisper', 'node-gyp-build']
-      for (const match of normalised.matchAll(
-        /(?:^|\/)node_modules\/((?:@[^/]+\/)?[^/]+)(?=\/|$)/g,
-      )) {
-        // listPackage enumerates directories too, so a scope root arrives on
-        // its own as `node_modules/@scope`. That is not a package — skip it.
-        if (match[1].startsWith('@') && !match[1].includes('/')) {
-          continue;
-        }
-        names.add(match[1]);
-      }
+/**
+ * Every package RESOLUTION PATH contained in one archive entry path.
+ *
+ * `node_modules/@sigmalink/voice-whisper/node_modules/node-gyp-build/index.js`
+ * yields both `node_modules/@sigmalink/voice-whisper` and the full nested
+ * `…/node_modules/node-gyp-build` — the position matters, because Node resolves
+ * upward only and a nested copy is reachable from its owner alone (C-064).
+ *
+ * The terminator MUST be a lookahead. A consuming `(?:\/|$)` eats the separator
+ * that the next iteration's `(?:^|\/)` needs, so matchAll yields only the
+ * outermost package and the nested one stays shadowed.
+ *
+ * @param {string} entryPath forward-slashed, un-rooted archive entry path
+ * @returns {string[]} package paths, outermost first
+ */
+function packagePathsIn(entryPath) {
+  const found = [];
+  for (const match of entryPath.matchAll(/(?:^|\/)node_modules\/((?:@[^/]+\/)?[^/]+)(?=\/|$)/g)) {
+    // listPackage enumerates directories too, so a scope root arrives on its
+    // own as `node_modules/@scope`. That is not a package — skip it.
+    if (match[1].startsWith('@') && !match[1].includes('/')) {
       continue;
     }
-    return names;
+    found.push(entryPath.slice(0, match.index + match[0].length).replace(/^\//, ''));
+  }
+  return found;
+}
+
+/**
+ * Split a package path into its owning package (null at top level) and name.
+ *
+ * @param {string} packagePath e.g. `node_modules/@a/b/node_modules/c`
+ * @returns {{ ownerPath: string | null, name: string }}
+ */
+function splitPackagePath(packagePath) {
+  const marker = '/node_modules/';
+  const idx = packagePath.lastIndexOf(marker);
+  if (idx < 0) {
+    return { ownerPath: null, name: packagePath.slice('node_modules/'.length) };
+  }
+  return {
+    ownerPath: packagePath.slice(0, idx),
+    name: packagePath.slice(idx + marker.length),
+  };
+}
+
+/**
+ * Read every package resolution path out of an asar archive.
+ *
+ * Prefers `@electron/asar` (authoritative); falls back to reading the archive's
+ * header directly — an asar is an 8-byte size prologue followed by a JSON
+ * directory, so this stays dependency-free and cannot silently degrade into a
+ * blind pass.
+ *
+ * @param {string} archive absolute path to app.asar
+ * @returns {Set<string>} package paths (empty when the archive is absent — an
+ *   unpacked `asar: false` build)
+ */
+function listAsarNodeModulePaths(archive) {
+  if (!fs.existsSync(archive)) {
+    return new Set();
+  }
+  const viaLibrary = listAsarNodeModulePathsViaLibrary(archive);
+  if (viaLibrary) {
+    return viaLibrary;
+  }
+  return listAsarNodeModulePathsViaHeader(archive);
+}
+
+function listAsarNodeModulePathsViaLibrary(archive) {
+  const asar = resolveAsarLib();
+  if (!asar) return null;
+  try {
+    const paths = new Set();
+    for (const entry of asar.listPackage(archive)) {
+      const normalised = String(entry).replace(/\\/g, '/').replace(/^\//, '');
+      for (const packagePath of packagePathsIn(normalised)) {
+        paths.add(packagePath);
+      }
+    }
+    return paths;
   } catch {
     return null;
   }
 }
 
-function listAsarNodeModulesViaHeader(archive) {
+function listAsarNodeModulePathsViaHeader(archive) {
   const fd = fs.openSync(archive, 'r');
   try {
     // asar wraps its header in two Chromium "pickle" frames. Each frame is
@@ -169,94 +201,294 @@ function listAsarNodeModulesViaHeader(archive) {
     const jsonLength = header.readUInt32LE(4);
     const parsed = JSON.parse(header.toString('utf8', 8, 8 + jsonLength));
 
-    const names = new Set();
+    const paths = new Set();
     // Recurse: a transitive dep of a workspace package is packed NESTED, at
     // node_modules/<owner>/node_modules/<pkg>, which is precisely where Node's
     // resolver finds it. A top-level-only walk reports it missing and would
     // fail every release build on a false alarm.
-    const collect = (dirEntry) => {
+    const collect = (dirEntry, prefix) => {
       const nodeModules = dirEntry?.files?.node_modules?.files;
       for (const name of Object.keys(nodeModules ?? {})) {
         const child = nodeModules[name];
         if (name.startsWith('@')) {
           for (const scoped of Object.keys(child?.files ?? {})) {
-            names.add(`${name}/${scoped}`);
-            collect(child.files[scoped]);
+            const packagePath = `${prefix}node_modules/${name}/${scoped}`;
+            paths.add(packagePath);
+            collect(child.files[scoped], `${packagePath}/`);
           }
         } else {
-          names.add(name);
-          collect(child);
+          const packagePath = `${prefix}node_modules/${name}`;
+          paths.add(packagePath);
+          collect(child, `${packagePath}/`);
         }
       }
     };
-    collect(parsed);
-    return names;
+    collect(parsed, '');
+    return paths;
   } finally {
     fs.closeSync(fd);
   }
 }
 
+/** Package NAMES at any depth. Kept for the existing public surface. */
+function namesFromPackagePaths(paths) {
+  const names = new Set();
+  for (const packagePath of paths) {
+    names.add(splitPackagePath(packagePath).name);
+  }
+  return names;
+}
+
+function listAsarNodeModules(archive) {
+  return namesFromPackagePaths(listAsarNodeModulePaths(archive));
+}
+
+function listAsarNodeModulesViaHeader(archive) {
+  return namesFromPackagePaths(listAsarNodeModulePathsViaHeader(archive));
+}
+
 /**
- * Return the keep-list modules that did NOT make it into the packed output.
+ * True when `manifest` declares `name` in any dependency bucket.
+ *
+ * All four buckets count. The threat this guards against (C-064) is a NESTED
+ * directory that merely SHARES a keep-list name — a vendored test fixture,
+ * a leftover — and such a directory is declared nowhere. Being generous about
+ * which bucket counts therefore costs nothing and keeps the guard away from
+ * false-failing a release on an unusual-but-real layout.
+ */
+function declaresDependency(manifest, name) {
+  if (!manifest || typeof manifest !== 'object') return false;
+  for (const bucket of [
+    'dependencies',
+    'optionalDependencies',
+    'peerDependencies',
+    'devDependencies',
+  ]) {
+    const deps = manifest[bucket];
+    if (deps && typeof deps === 'object' && Object.prototype.hasOwnProperty.call(deps, name)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Would the package described by this manifest require `name`, and so put a
+ * copy on its own resolution path?
+ *
+ * Asked of a nested copy's owner AND of its siblings — both walk up into the
+ * same directory (see `declaredByOwnerOrSiblingOnDisk`).
+ *
+ * A manifest we could not read (`null`) returns TRUE. This hook runs as
+ * `afterPack` on every release build, so a false-FAIL aborts a release — when
+ * we cannot prove the nested copy is unreachable, we must not claim it is.
+ */
+function ownerCanResolve(manifest, name) {
+  return manifest === null ? true : declaresDependency(manifest, name);
+}
+
+function readDiskManifest(packageDir) {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(packageDir, 'package.json'), 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function readAsarManifest(archive, packagePath) {
+  const asar = resolveAsarLib();
+  if (!asar || typeof asar.extractFile !== 'function') return null;
+  try {
+    return JSON.parse(String(asar.extractFile(archive, `${packagePath}/package.json`)));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Does this dirent lead to a directory — INCLUDING through a symlink?
+ *
+ * `Dirent.isDirectory()` is false for a symlink, and package directories are
+ * routinely symlinks: a workspace `link:` dep, a pnpm store link, an
+ * `app.asar.unpacked` copy where electron-builder preserved the link. Skipping
+ * them made everything under a symlinked owner read as unreachable and aborted
+ * the release — a false-FAIL, which this hook must never produce.
+ *
+ * A link we cannot stat (broken, or a permission wall) is treated as a
+ * directory: every consumer then does an `existsSync`/guarded `readdirSync`
+ * that simply finds nothing, so the generous answer costs nothing and cannot
+ * throw out of the walk.
+ */
+function isDirectoryLike(root, entry) {
+  if (entry.isDirectory()) return true;
+  if (!entry.isSymbolicLink()) return false;
+  try {
+    return fs.statSync(path.join(root, entry.name)).isDirectory();
+  } catch {
+    return true;
+  }
+}
+
+/** Package directory names directly under a node_modules root, scopes expanded. */
+function packageDirNamesIn(root) {
+  let entries;
+  try {
+    entries = fs.readdirSync(root, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const names = [];
+  for (const entry of entries) {
+    if (entry.name.startsWith('.') || !isDirectoryLike(root, entry)) continue;
+    if (entry.name.startsWith('@')) {
+      const scopeDir = path.join(root, entry.name);
+      let scoped;
+      try {
+        scoped = fs.readdirSync(scopeDir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const pkg of scoped) {
+        // Same symlink rule one level down: pnpm and workspace layouts link the
+        // LEAF inside the scope directory, not the scope directory itself.
+        if (isDirectoryLike(scopeDir, pkg)) names.push(`${entry.name}/${pkg.name}`);
+      }
+      continue;
+    }
+    names.push(entry.name);
+  }
+  return names;
+}
+
+/**
+ * Does anything in `nestedRoot` put `name` on its resolution path?
+ *
+ * Node's rule is POSITIONAL, not ownership-based. `<owner>/node_modules/` sits
+ * on the resolution path of `<owner>` AND of every other package in that same
+ * directory — each of those walks up exactly one level and lands there. So
+ * `better-sqlite3/node_modules/file-uri-to-path` is genuinely loadable when its
+ * neighbour `bindings` declares it, even though `better-sqlite3` does not.
+ * Judging by the owner alone reports that layout unresolvable and aborts the
+ * release; installs run `--no-frozen-lockfile`, so a version conflict producing
+ * exactly this nesting is a live scenario.
+ *
+ * Two deliberate asymmetries, both pointing away from a false-FAIL:
+ *   - an unreadable manifest counts as a declarer (see `ownerCanResolve`);
+ *   - `name` is NOT its own declarer, so the true positive still fires — a
+ *     vendored namesake directory is declared by NOBODY in its node_modules.
+ *
+ * @param {string} ownerDir absolute path of the package owning `nestedRoot`
+ * @param {string} nestedRoot absolute path of `<ownerDir>/node_modules`
+ * @param {string} name keep-list package name
+ */
+function declaredByOwnerOrSiblingOnDisk(ownerDir, nestedRoot, name) {
+  if (ownerCanResolve(readDiskManifest(ownerDir), name)) return true;
+  for (const sibling of packageDirNamesIn(nestedRoot)) {
+    if (sibling === name) continue;
+    if (ownerCanResolve(readDiskManifest(path.join(nestedRoot, sibling)), name)) return true;
+  }
+  return false;
+}
+
+/**
+ * Is `name` reachable from somewhere BELOW `root` — i.e. nested inside another
+ * package's own `node_modules`?
+ *
+ * Node resolves UPWARD only, so `node_modules/A` requiring `foo` never sees
+ * `node_modules/B/node_modules/foo`. A nested copy therefore counts only for
+ * the packages that walk up INTO its directory — its owner and its siblings
+ * (see `declaredByOwnerOrSiblingOnDisk`). Recurses, applying the same rule at
+ * every level, so a legitimately deep transitive chain still passes.
+ */
+function resolvableUnderOwners(root, name) {
+  for (const owner of packageDirNamesIn(root)) {
+    const ownerDir = path.join(root, owner);
+    const nested = path.join(ownerDir, 'node_modules');
+    if (!fs.existsSync(nested)) continue;
+    if (
+      fs.existsSync(path.join(nested, name)) &&
+      declaredByOwnerOrSiblingOnDisk(ownerDir, nested, name)
+    ) {
+      return true;
+    }
+    if (resolvableUnderOwners(nested, name)) return true;
+  }
+  return false;
+}
+
+/**
+ * Return the keep-list modules that are not RESOLVABLE in the packed output.
+ *
+ * C-064 — this used to accept a hit at any depth by name alone, which could
+ * false-PASS: a top-level copy vanishing while an unrelated nested one remained,
+ * or a shipped package carrying a fixture directory named after a keep-list
+ * entry, both read as present. Presence is now judged the way Node's resolver
+ * judges it: top level anywhere, or nested in a `node_modules` directory that
+ * some package resolving through it declares the dep from — its owner or one of
+ * its siblings, since both walk up into exactly that directory.
  *
  * @param {string} resourcesDir the packed app's Resources dir
  * @param {string[]} modules keep-list package names
- * @returns {string[]} missing package names (empty when all present)
+ * @returns {string[]} unresolvable package names (empty when all present)
  */
 function findMissingModules(resourcesDir, modules) {
   const diskRoots = [
     path.join(resourcesDir, 'app.asar.unpacked', 'node_modules'),
     path.join(resourcesDir, 'app', 'node_modules'),
   ];
-  const inAsar = listAsarNodeModules(path.join(resourcesDir, 'app.asar'));
+  const archive = path.join(resourcesDir, 'app.asar');
 
-  /** True when `name` exists under `root` at ANY depth — top level, or nested
-   *  inside another package's own node_modules (where Node resolves a
-   *  workspace package's transitive deps from). */
-  const onDiskAnyDepth = (root, name) => {
-    if (fs.existsSync(path.join(root, name))) {
-      return true;
+  const asarTopLevel = new Set();
+  /** @type {Map<string, Set<string>>} package name → owning package paths */
+  const asarNestedOwners = new Map();
+  /** @type {Map<string, Set<string>>} owning package path → names directly under its node_modules */
+  const asarNestedSiblings = new Map();
+  for (const packagePath of listAsarNodeModulePaths(archive)) {
+    const { ownerPath, name } = splitPackagePath(packagePath);
+    if (ownerPath === null) {
+      asarTopLevel.add(name);
+      continue;
     }
-    let owners;
-    try {
-      owners = fs.readdirSync(root, { withFileTypes: true });
-    } catch {
-      return false;
+    let owners = asarNestedOwners.get(name);
+    if (!owners) {
+      owners = new Set();
+      asarNestedOwners.set(name, owners);
     }
-    for (const owner of owners) {
-      if (!owner.isDirectory()) continue;
-      const nested = owner.name.startsWith('@')
-        ? path.join(root, owner.name)
-        : path.join(root, owner.name, 'node_modules');
-      if (owner.name.startsWith('@')) {
-        // Scope dir: descend one more level to each scoped package.
-        let scoped;
-        try {
-          scoped = fs.readdirSync(nested, { withFileTypes: true });
-        } catch {
-          continue;
-        }
-        for (const pkg of scoped) {
-          if (!pkg.isDirectory()) continue;
-          if (onDiskAnyDepth(path.join(nested, pkg.name, 'node_modules'), name)) {
-            return true;
-          }
-        }
-        continue;
-      }
-      if (fs.existsSync(nested) && onDiskAnyDepth(nested, name)) {
-        return true;
-      }
+    owners.add(ownerPath);
+
+    let siblings = asarNestedSiblings.get(ownerPath);
+    if (!siblings) {
+      siblings = new Set();
+      asarNestedSiblings.set(ownerPath, siblings);
+    }
+    siblings.add(name);
+  }
+
+  // Mirror of `declaredByOwnerOrSiblingOnDisk` for the archive: `name` is
+  // reachable when its owner OR any package sharing its node_modules directory
+  // declares it, since every one of them resolves upward into that directory.
+  // Archive paths are always forward-slashed, so they are joined as strings —
+  // `path.join` would emit backslashes on Windows and miss every lookup.
+  const asarDeclaresNested = (ownerPath, name) => {
+    if (ownerCanResolve(readAsarManifest(archive, ownerPath), name)) return true;
+    for (const sibling of asarNestedSiblings.get(ownerPath) ?? []) {
+      if (sibling === name) continue;
+      const siblingPath = `${ownerPath}/node_modules/${sibling}`;
+      if (ownerCanResolve(readAsarManifest(archive, siblingPath), name)) return true;
     }
     return false;
   };
 
-  return modules.filter((name) => {
-    if (inAsar.has(name)) {
-      return false;
+  const resolvable = (name) => {
+    if (asarTopLevel.has(name)) return true;
+    if (diskRoots.some((root) => fs.existsSync(path.join(root, name)))) return true;
+    for (const ownerPath of asarNestedOwners.get(name) ?? []) {
+      if (asarDeclaresNested(ownerPath, name)) return true;
     }
-    return !diskRoots.some((root) => onDiskAnyDepth(root, name));
-  });
+    return diskRoots.some((root) => resolvableUnderOwners(root, name));
+  };
+
+  return modules.filter((name) => !resolvable(name));
 }
 
 /** Resolve the packed Resources dir, tolerating a packager without the helper. */
@@ -289,11 +521,27 @@ async function verifyPackagedDeps(context) {
 
   const missing = findMissingModules(resourcesDir, modules);
   if (missing.length > 0) {
+    // Name exactly what was missing AND every location searched: this aborts a
+    // release build, so the operator must be able to tell a genuine drift from
+    // a guard that looked in the wrong place.
+    const nestedRule = `(only when <owner> or a package beside <pkg> in that same node_modules declares it)`;
+    const searched = [
+      `  app.asar                        node_modules/<pkg>  (top level)`,
+      `  app.asar                        <owner>/node_modules/<pkg>  ${nestedRule}`,
+      `  app.asar.unpacked/node_modules  <pkg>  (top level)`,
+      `  app.asar.unpacked/node_modules  <owner>/node_modules/<pkg>  ${nestedRule}`,
+      `  app/node_modules                <pkg>  (top level, legacy unpacked tree)`,
+      `  app/node_modules                <owner>/node_modules/<pkg>  ${nestedRule}`,
+    ].join('\n');
     throw new Error(
-      `[verify-packaged-deps] ${missing.length} keep-list module(s) are missing ` +
-        `from the packed app at ${resourcesDir}:\n` +
+      `[verify-packaged-deps] ${missing.length} keep-list module(s) are not resolvable ` +
+        `in the packed app at ${resourcesDir}:\n` +
         missing.map((name) => `  - node_modules/${name}`).join('\n') +
-        `\nThe electron-builder \`files\` keep-list and the resolved dependency ` +
+        `\nSearched, relative to ${resourcesDir}:\n${searched}\n` +
+        `A copy nested in a node_modules directory where NOTHING declares it does ` +
+        `not count — Node resolves upward only, so it would be unreachable at ` +
+        `runtime.\n` +
+        `The electron-builder \`files\` keep-list and the resolved dependency ` +
         `tree have drifted (installs run with --no-frozen-lockfile). The app ` +
         `would throw "Cannot find module" at runtime. Update the keep-list in ` +
         `electron-builder.yml to match the current tree.`,
@@ -314,3 +562,8 @@ module.exports.findMissingModules = findMissingModules;
 // Exported so the dependency-free fallback is covered too — an untested
 // fallback is how a gate quietly becomes a blind pass.
 module.exports.listAsarNodeModulesViaHeader = listAsarNodeModulesViaHeader;
+// C-064 — the position-aware surface. `listAsarNodeModules` flattens to names
+// and so cannot express "top level vs nested under owner X"; the resolvability
+// rule needs the paths.
+module.exports.listAsarNodeModulePaths = listAsarNodeModulePaths;
+module.exports.splitPackagePath = splitPackagePath;

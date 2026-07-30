@@ -47,7 +47,7 @@ import {
   profileIsMcpHeavy,
 } from '../../../shared/runtime-profiles';
 import { checkRamBrakeAdmission } from '../ram-brake/admission';
-import { checkObservedProcessBudget, type ObservedProcessBudgetCaps } from '../ram-brake/process-budget';
+import { runObservedProcessPreflight } from '../ram-brake/observed-preflight';
 import { buildClaudeMcpLaunchArgs } from '../ram-brake/mcp-launch-mode';
 
 /**
@@ -80,50 +80,6 @@ function readSpawnMode(): 'direct' | 'shell-first' {
   } catch {
     return 'direct';
   }
-}
-
-/**
- * RAM-brake observed-process budget caps (Task 5). Read from KV with generous
- * defaults — one healthy ruflo stdio server per session is fine; only ≥2 chains
- * in one session or RSS over the per-workspace / total cap trips a violation.
- */
-function observedBudgetCaps(): ObservedProcessBudgetCaps {
-  return {
-    maxWorkspaceRssBytes: readPositiveBytesKv('ramBrake.maxObservedWorkspaceRssMb', 4096),
-    maxTotalRssBytes: readPositiveBytesKv('ramBrake.maxObservedTotalRssMb', 12_288),
-    maxClaudeFlowStdioPerSession: readPositiveIntKv('ramBrake.maxClaudeFlowStdioPerSession', 1),
-  };
-}
-/**
- * Kill switch for the OBSERVED-process brake (`ramBrake.observedEnabled`).
- * Default ON — absent/unparseable key keeps the brake exactly as it shipped.
- * Set to '0' / 'false' to bypass the preflight ENTIRELY (no snapshots taken),
- * which is the only escape when the observed heuristic misfires: the caps are
- * read through `readPositiveIntKv`, which rejects 0, so a 0 cap silently falls
- * back to the default instead of disabling anything.
- */
-function observedBrakeEnabled(): boolean {
-  try {
-    const row = getRawDb()
-      .prepare('SELECT value FROM kv WHERE key = ?')
-      .get('ramBrake.observedEnabled') as { value?: string } | undefined;
-    const value = row?.value;
-    if (typeof value !== 'string') return true;
-    const normalized = value.trim().toLowerCase();
-    return !(normalized === '0' || normalized === 'false' || normalized === 'off');
-  } catch {
-    return true;
-  }
-}
-function readPositiveIntKv(key: string, fallback: number): number {
-  try {
-    const row = getRawDb().prepare('SELECT value FROM kv WHERE key = ?').get(key) as { value?: string } | undefined;
-    const parsed = Number(row?.value);
-    return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
-  } catch { return fallback; }
-}
-function readPositiveBytesKv(key: string, fallbackMb: number): number {
-  return readPositiveIntKv(key, fallbackMb) * 1024 * 1024;
 }
 
 interface LauncherDeps {
@@ -214,41 +170,6 @@ function writeProviderEffective(sessionId: string, providerEffective: string): v
   }
 }
 
-/**
- * Enumerate live panes, snapshot each, and run the observed-process budget.
- * Throws `ObservedProcessBudgetError` when over budget (unless the plan forces).
- * Extracted so the `ramBrake.observedEnabled` kill switch can skip the whole
- * thing — snapshots included — rather than only the verdict.
- */
-async function runObservedProcessPreflight(
-  workspaceId: string,
-  plan: LaunchPlan,
-  deps: LauncherDeps,
-): Promise<void> {
-  const liveSessions = await Promise.all(
-    deps.pty.list().map(async (session) => ({
-      sessionId: session.id,
-      // Pass the session's real workspace (or undefined). Sessions without one
-      // (legacy panes, scratch shells, swarm panes spawned via factory-spawn,
-      // which does not thread it) must NOT be attributed to the launching
-      // workspace — otherwise an unrelated session inflates this workspace's RSS
-      // and could falsely block the launch. Such sessions still count toward the
-      // total-RSS cap.
-      workspaceId: session.workspaceId,
-      // Local fail-open: a snapshot hiccup must never crash a launch, regardless
-      // of processSnapshotCached's own error contract. A null snapshot already
-      // contributes 0 RSS and 0 MCP chains, so this stays fail-open.
-      snapshot: await deps.pty.processSnapshotCached(session.id).catch(() => null),
-    })),
-  );
-  checkObservedProcessBudget({
-    workspaceId,
-    sessions: liveSessions,
-    caps: observedBudgetCaps(),
-    force: plan.forceRamBrake === true,
-  });
-}
-
 export async function executeLaunchPlan(
   plan: LaunchPlan,
   deps: LauncherDeps,
@@ -275,14 +196,17 @@ export async function executeLaunchPlan(
   // number of distinct claude-flow stdio MCP server chains each has leaked).
   // Runs AFTER admission but BEFORE any worktree/PTY side effect, so an
   // over-budget machine is blocked before the launch mutates anything.
-  // Fail-open: unsupported snapshots contribute zero RSS / zero MCP chains.
   //
-  // `ramBrake.observedEnabled = 0` bypasses the whole preflight — checked BEFORE
-  // enumerating live sessions so "disabled" means no process snapshots are taken
-  // at all, not "snapshotted and then forgiven".
-  if (observedBrakeEnabled()) {
-    await runObservedProcessPreflight(wsRow.id, plan, deps);
-  }
+  // C-061 — the body lives in `ram-brake/observed-preflight` because the
+  // `+ Pane` path (swarms/factory-add-agent) runs the SAME preflight and cannot
+  // import this module (import cycle). Fail-open + the `ramBrake.observedEnabled`
+  // kill switch are both enforced inside the shared helper.
+  await runObservedProcessPreflight({
+    db: getRawDb(),
+    pty: deps.pty,
+    workspaceId: wsRow.id,
+    force: plan.forceRamBrake === true,
+  });
 
   const sessions: AgentSession[] = [];
   for (const pane of plan.panes) {
