@@ -67,6 +67,33 @@ function makeNestedPackedModule(
   fs.writeFileSync(path.join(nested, 'package.json'), JSON.stringify({ name: pkg }));
 }
 
+/** Materialise `<root>/<pkg>/package.json` with an explicit manifest. */
+function writePackage(root: string, pkg: string, manifest: unknown): void {
+  const dir = path.join(root, pkg);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify(manifest));
+}
+
+/**
+ * Can this platform create a directory symlink without elevation?
+ *
+ * Unit tests run on macos-14 and ubuntu-latest, where the answer is always yes.
+ * Probing rather than assuming keeps the symlinked-owner cases from turning into
+ * a bogus red on an unprivileged Windows checkout.
+ */
+const symlinkSupported = ((): boolean => {
+  const probe = fs.mkdtempSync(path.join(os.tmpdir(), 'verify-packaged-deps-probe-'));
+  try {
+    fs.mkdirSync(path.join(probe, 'target'));
+    fs.symlinkSync(path.join(probe, 'target'), path.join(probe, 'link'), 'junction');
+    return true;
+  } catch {
+    return false;
+  } finally {
+    fs.rmSync(probe, { recursive: true, force: true });
+  }
+})();
+
 afterEach(() => {
   while (tempRoots.length > 0) {
     const root = tempRoots.pop();
@@ -253,6 +280,135 @@ describe('findMissingModules — resolvability, not presence-by-name (C-064)', (
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// C-064 follow-up — Node's resolution is POSITIONAL, not ownership-based.
+//
+// The first C-064 pass judged a nested copy by its owner alone. But Node puts
+// `<owner>/node_modules/` on the resolution path of every package in that
+// directory, not just `<owner>`: each of them walks up one level and lands
+// there. Judging by the owner alone therefore false-FAILS a real, resolvable
+// layout — and this hook aborts release builds on all three platforms.
+//
+// Second false-FAIL in the same family: `Dirent.isDirectory()` is FALSE for a
+// symlink, so a symlinked owner package was skipped from the nested walk
+// entirely and everything under it read as unreachable.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('findMissingModules — positional resolution, not owner-only (C-064 follow-up)', () => {
+  it('PASSES a nested copy declared by a SIBLING under the same node_modules', () => {
+    const resources = makeTempDir();
+    // The live `--no-frozen-lockfile` shape: a version conflict pushes both
+    // `bindings` and `file-uri-to-path` under better-sqlite3. better-sqlite3
+    // declares `bindings` only; `bindings` declares `file-uri-to-path` and
+    // resolves it by walking up ONE level into the very same directory.
+    const root = path.join(resources, 'app.asar.unpacked', 'node_modules');
+    writePackage(root, 'better-sqlite3', {
+      name: 'better-sqlite3',
+      dependencies: { bindings: '^1.5.0' },
+    });
+    const nested = path.join(root, 'better-sqlite3', 'node_modules');
+    writePackage(nested, 'bindings', {
+      name: 'bindings',
+      dependencies: { 'file-uri-to-path': '1.0.0' },
+    });
+    writePackage(nested, 'file-uri-to-path', { name: 'file-uri-to-path' });
+
+    expect(
+      verify.findMissingModules(resources, ['better-sqlite3', 'bindings', 'file-uri-to-path']),
+    ).toEqual([]);
+  });
+
+  it('accepts a nested copy when a SIBLING manifest is unreadable — never false-FAIL', () => {
+    const resources = makeTempDir();
+    const root = path.join(resources, 'app.asar.unpacked', 'node_modules');
+    writePackage(root, 'some-owner', { name: 'some-owner' });
+    const nested = path.join(root, 'some-owner', 'node_modules');
+    // `mystery` has no manifest, so we cannot prove it does not require
+    // node-gyp-build out of this directory. Unprovable is not a release blocker.
+    fs.mkdirSync(path.join(nested, 'mystery'), { recursive: true });
+    writePackage(nested, 'node-gyp-build', { name: 'node-gyp-build' });
+
+    expect(verify.findMissingModules(resources, ['node-gyp-build'])).toEqual([]);
+  });
+
+  it('still reports MISSING when neither the owner NOR any sibling declares it', () => {
+    const resources = makeTempDir();
+    // The true positive the guard exists for, hardened: a real sibling is
+    // present and readable, and still nobody in this node_modules dir declares
+    // the namesake. The package itself does not count as its own declarer.
+    const root = path.join(resources, 'app.asar.unpacked', 'node_modules');
+    writePackage(root, 'some-vendor', {
+      name: 'some-vendor',
+      dependencies: { unrelated: '^1.0.0' },
+    });
+    const nested = path.join(root, 'some-vendor', 'node_modules');
+    writePackage(nested, 'unrelated', { name: 'unrelated' });
+    writePackage(nested, 'node-gyp-build', { name: 'node-gyp-build' });
+
+    expect(verify.findMissingModules(resources, ['node-gyp-build'])).toEqual(['node-gyp-build']);
+  });
+
+  it.skipIf(!symlinkSupported)('PASSES a nested copy under a SYMLINKED owner', () => {
+    const resources = makeTempDir();
+    // A workspace `link:` dep, or a link electron-builder preserved into
+    // app.asar.unpacked: node_modules/<owner> is a symlink to the real body.
+    const realOwner = path.join(resources, 'workspace', 'linked-owner');
+    fs.mkdirSync(realOwner, { recursive: true });
+    fs.writeFileSync(
+      path.join(realOwner, 'package.json'),
+      JSON.stringify({ name: 'linked-owner', dependencies: { 'node-gyp-build': '^4.8.0' } }),
+    );
+    writePackage(path.join(realOwner, 'node_modules'), 'node-gyp-build', {
+      name: 'node-gyp-build',
+    });
+
+    const root = path.join(resources, 'app.asar.unpacked', 'node_modules');
+    fs.mkdirSync(root, { recursive: true });
+    fs.symlinkSync(realOwner, path.join(root, 'linked-owner'), 'junction');
+
+    expect(verify.findMissingModules(resources, ['node-gyp-build'])).toEqual([]);
+  });
+
+  it.skipIf(!symlinkSupported)('PASSES a nested copy under a SYMLINKED scoped owner', () => {
+    const resources = makeTempDir();
+    // pnpm/workspace layouts symlink the leaf INSIDE the scope directory, so
+    // the scope walk needs the same relaxation as the top-level one.
+    const realOwner = path.join(resources, 'workspace', 'voice-whisper');
+    fs.mkdirSync(realOwner, { recursive: true });
+    fs.writeFileSync(
+      path.join(realOwner, 'package.json'),
+      JSON.stringify({
+        name: '@sigmalink/voice-whisper',
+        dependencies: { 'node-gyp-build': '^4.8.0' },
+      }),
+    );
+    writePackage(path.join(realOwner, 'node_modules'), 'node-gyp-build', {
+      name: 'node-gyp-build',
+    });
+
+    const scope = path.join(resources, 'app.asar.unpacked', 'node_modules', '@sigmalink');
+    fs.mkdirSync(scope, { recursive: true });
+    fs.symlinkSync(realOwner, path.join(scope, 'voice-whisper'), 'junction');
+
+    expect(
+      verify.findMissingModules(resources, ['@sigmalink/voice-whisper', 'node-gyp-build']),
+    ).toEqual([]);
+  });
+
+  it.skipIf(!symlinkSupported)('survives a BROKEN symlink in node_modules', () => {
+    const resources = makeTempDir();
+    const root = path.join(resources, 'app.asar.unpacked', 'node_modules');
+    fs.mkdirSync(root, { recursive: true });
+    fs.symlinkSync(path.join(resources, 'gone'), path.join(root, 'dangling'), 'junction');
+    writePackage(root, 'node-pty', { name: 'node-pty' });
+
+    // A dangling link must neither throw nor mask a genuine miss.
+    expect(verify.findMissingModules(resources, ['node-pty', 'node-gyp-build'])).toEqual([
+      'node-gyp-build',
+    ]);
+  });
+});
+
 describe('asar inspection', () => {
   /**
    * Build a real app.asar with @electron/asar, resolved via electron-builder.
@@ -403,6 +559,52 @@ describe('asar inspection', () => {
       resources,
       ['some-vendor', 'some-vendor/node_modules/node-gyp-build'],
       { 'some-vendor': { name: 'some-vendor' } },
+    );
+
+    expect(verify.findMissingModules(resources, ['node-gyp-build'])).toEqual(['node-gyp-build']);
+  });
+
+  it('PASSES an asar-nested copy declared by a SIBLING under the same node_modules', async () => {
+    const resources = makeTempDir();
+    // Same shape as the on-disk sibling case, inside the archive — the asar
+    // branch is a separate code path and needs the same relaxation or a release
+    // still aborts when the tree lands inside app.asar instead of unpacked.
+    await buildAsar(
+      resources,
+      [
+        'better-sqlite3',
+        'better-sqlite3/node_modules/bindings',
+        'better-sqlite3/node_modules/file-uri-to-path',
+      ],
+      {
+        'better-sqlite3': { name: 'better-sqlite3', dependencies: { bindings: '^1.5.0' } },
+        'better-sqlite3/node_modules/bindings': {
+          name: 'bindings',
+          dependencies: { 'file-uri-to-path': '1.0.0' },
+        },
+        'better-sqlite3/node_modules/file-uri-to-path': { name: 'file-uri-to-path' },
+      },
+    );
+
+    expect(
+      verify.findMissingModules(resources, ['better-sqlite3', 'bindings', 'file-uri-to-path']),
+    ).toEqual([]);
+  });
+
+  it('still reports an asar-nested copy no owner OR sibling declares', async () => {
+    const resources = makeTempDir();
+    await buildAsar(
+      resources,
+      [
+        'some-vendor',
+        'some-vendor/node_modules/unrelated',
+        'some-vendor/node_modules/node-gyp-build',
+      ],
+      {
+        'some-vendor': { name: 'some-vendor', dependencies: { unrelated: '^1.0.0' } },
+        'some-vendor/node_modules/unrelated': { name: 'unrelated' },
+        'some-vendor/node_modules/node-gyp-build': { name: 'node-gyp-build' },
+      },
     );
 
     expect(verify.findMissingModules(resources, ['node-gyp-build'])).toEqual(['node-gyp-build']);

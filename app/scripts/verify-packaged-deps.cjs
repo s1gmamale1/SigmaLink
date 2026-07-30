@@ -273,7 +273,11 @@ function declaresDependency(manifest, name) {
 }
 
 /**
- * Does a nested copy owned by this manifest actually satisfy `name`?
+ * Would the package described by this manifest require `name`, and so put a
+ * copy on its own resolution path?
+ *
+ * Asked of a nested copy's owner AND of its siblings — both walk up into the
+ * same directory (see `declaredByOwnerOrSiblingOnDisk`).
  *
  * A manifest we could not read (`null`) returns TRUE. This hook runs as
  * `afterPack` on every release build, so a false-FAIL aborts a release — when
@@ -301,6 +305,30 @@ function readAsarManifest(archive, packagePath) {
   }
 }
 
+/**
+ * Does this dirent lead to a directory — INCLUDING through a symlink?
+ *
+ * `Dirent.isDirectory()` is false for a symlink, and package directories are
+ * routinely symlinks: a workspace `link:` dep, a pnpm store link, an
+ * `app.asar.unpacked` copy where electron-builder preserved the link. Skipping
+ * them made everything under a symlinked owner read as unreachable and aborted
+ * the release — a false-FAIL, which this hook must never produce.
+ *
+ * A link we cannot stat (broken, or a permission wall) is treated as a
+ * directory: every consumer then does an `existsSync`/guarded `readdirSync`
+ * that simply finds nothing, so the generous answer costs nothing and cannot
+ * throw out of the walk.
+ */
+function isDirectoryLike(root, entry) {
+  if (entry.isDirectory()) return true;
+  if (!entry.isSymbolicLink()) return false;
+  try {
+    return fs.statSync(path.join(root, entry.name)).isDirectory();
+  } catch {
+    return true;
+  }
+}
+
 /** Package directory names directly under a node_modules root, scopes expanded. */
 function packageDirNamesIn(root) {
   let entries;
@@ -311,16 +339,19 @@ function packageDirNamesIn(root) {
   }
   const names = [];
   for (const entry of entries) {
-    if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+    if (entry.name.startsWith('.') || !isDirectoryLike(root, entry)) continue;
     if (entry.name.startsWith('@')) {
+      const scopeDir = path.join(root, entry.name);
       let scoped;
       try {
-        scoped = fs.readdirSync(path.join(root, entry.name), { withFileTypes: true });
+        scoped = fs.readdirSync(scopeDir, { withFileTypes: true });
       } catch {
         continue;
       }
       for (const pkg of scoped) {
-        if (pkg.isDirectory()) names.push(`${entry.name}/${pkg.name}`);
+        // Same symlink rule one level down: pnpm and workspace layouts link the
+        // LEAF inside the scope directory, not the scope directory itself.
+        if (isDirectoryLike(scopeDir, pkg)) names.push(`${entry.name}/${pkg.name}`);
       }
       continue;
     }
@@ -330,14 +361,44 @@ function packageDirNamesIn(root) {
 }
 
 /**
+ * Does anything in `nestedRoot` put `name` on its resolution path?
+ *
+ * Node's rule is POSITIONAL, not ownership-based. `<owner>/node_modules/` sits
+ * on the resolution path of `<owner>` AND of every other package in that same
+ * directory — each of those walks up exactly one level and lands there. So
+ * `better-sqlite3/node_modules/file-uri-to-path` is genuinely loadable when its
+ * neighbour `bindings` declares it, even though `better-sqlite3` does not.
+ * Judging by the owner alone reports that layout unresolvable and aborts the
+ * release; installs run `--no-frozen-lockfile`, so a version conflict producing
+ * exactly this nesting is a live scenario.
+ *
+ * Two deliberate asymmetries, both pointing away from a false-FAIL:
+ *   - an unreadable manifest counts as a declarer (see `ownerCanResolve`);
+ *   - `name` is NOT its own declarer, so the true positive still fires — a
+ *     vendored namesake directory is declared by NOBODY in its node_modules.
+ *
+ * @param {string} ownerDir absolute path of the package owning `nestedRoot`
+ * @param {string} nestedRoot absolute path of `<ownerDir>/node_modules`
+ * @param {string} name keep-list package name
+ */
+function declaredByOwnerOrSiblingOnDisk(ownerDir, nestedRoot, name) {
+  if (ownerCanResolve(readDiskManifest(ownerDir), name)) return true;
+  for (const sibling of packageDirNamesIn(nestedRoot)) {
+    if (sibling === name) continue;
+    if (ownerCanResolve(readDiskManifest(path.join(nestedRoot, sibling)), name)) return true;
+  }
+  return false;
+}
+
+/**
  * Is `name` reachable from somewhere BELOW `root` — i.e. nested inside another
  * package's own `node_modules`?
  *
  * Node resolves UPWARD only, so `node_modules/A` requiring `foo` never sees
  * `node_modules/B/node_modules/foo`. A nested copy therefore counts only for
- * its own owner, and only when that owner declares the dep. Recurses, applying
- * the same rule at every level, so a legitimately deep transitive chain still
- * passes.
+ * the packages that walk up INTO its directory — its owner and its siblings
+ * (see `declaredByOwnerOrSiblingOnDisk`). Recurses, applying the same rule at
+ * every level, so a legitimately deep transitive chain still passes.
  */
 function resolvableUnderOwners(root, name) {
   for (const owner of packageDirNamesIn(root)) {
@@ -346,7 +407,7 @@ function resolvableUnderOwners(root, name) {
     if (!fs.existsSync(nested)) continue;
     if (
       fs.existsSync(path.join(nested, name)) &&
-      ownerCanResolve(readDiskManifest(ownerDir), name)
+      declaredByOwnerOrSiblingOnDisk(ownerDir, nested, name)
     ) {
       return true;
     }
@@ -362,7 +423,9 @@ function resolvableUnderOwners(root, name) {
  * false-PASS: a top-level copy vanishing while an unrelated nested one remained,
  * or a shipped package carrying a fixture directory named after a keep-list
  * entry, both read as present. Presence is now judged the way Node's resolver
- * judges it: top level anywhere, or nested under an owner that declares the dep.
+ * judges it: top level anywhere, or nested in a `node_modules` directory that
+ * some package resolving through it declares the dep from — its owner or one of
+ * its siblings, since both walk up into exactly that directory.
  *
  * @param {string} resourcesDir the packed app's Resources dir
  * @param {string[]} modules keep-list package names
@@ -378,6 +441,8 @@ function findMissingModules(resourcesDir, modules) {
   const asarTopLevel = new Set();
   /** @type {Map<string, Set<string>>} package name → owning package paths */
   const asarNestedOwners = new Map();
+  /** @type {Map<string, Set<string>>} owning package path → names directly under its node_modules */
+  const asarNestedSiblings = new Map();
   for (const packagePath of listAsarNodeModulePaths(archive)) {
     const { ownerPath, name } = splitPackagePath(packagePath);
     if (ownerPath === null) {
@@ -390,13 +455,35 @@ function findMissingModules(resourcesDir, modules) {
       asarNestedOwners.set(name, owners);
     }
     owners.add(ownerPath);
+
+    let siblings = asarNestedSiblings.get(ownerPath);
+    if (!siblings) {
+      siblings = new Set();
+      asarNestedSiblings.set(ownerPath, siblings);
+    }
+    siblings.add(name);
   }
+
+  // Mirror of `declaredByOwnerOrSiblingOnDisk` for the archive: `name` is
+  // reachable when its owner OR any package sharing its node_modules directory
+  // declares it, since every one of them resolves upward into that directory.
+  // Archive paths are always forward-slashed, so they are joined as strings —
+  // `path.join` would emit backslashes on Windows and miss every lookup.
+  const asarDeclaresNested = (ownerPath, name) => {
+    if (ownerCanResolve(readAsarManifest(archive, ownerPath), name)) return true;
+    for (const sibling of asarNestedSiblings.get(ownerPath) ?? []) {
+      if (sibling === name) continue;
+      const siblingPath = `${ownerPath}/node_modules/${sibling}`;
+      if (ownerCanResolve(readAsarManifest(archive, siblingPath), name)) return true;
+    }
+    return false;
+  };
 
   const resolvable = (name) => {
     if (asarTopLevel.has(name)) return true;
     if (diskRoots.some((root) => fs.existsSync(path.join(root, name)))) return true;
     for (const ownerPath of asarNestedOwners.get(name) ?? []) {
-      if (ownerCanResolve(readAsarManifest(archive, ownerPath), name)) return true;
+      if (asarDeclaresNested(ownerPath, name)) return true;
     }
     return diskRoots.some((root) => resolvableUnderOwners(root, name));
   };
@@ -437,21 +524,23 @@ async function verifyPackagedDeps(context) {
     // Name exactly what was missing AND every location searched: this aborts a
     // release build, so the operator must be able to tell a genuine drift from
     // a guard that looked in the wrong place.
+    const nestedRule = `(only when <owner> or a package beside <pkg> in that same node_modules declares it)`;
     const searched = [
       `  app.asar                        node_modules/<pkg>  (top level)`,
-      `  app.asar                        <owner>/node_modules/<pkg>  (only when <owner>'s package.json declares it)`,
+      `  app.asar                        <owner>/node_modules/<pkg>  ${nestedRule}`,
       `  app.asar.unpacked/node_modules  <pkg>  (top level)`,
-      `  app.asar.unpacked/node_modules  <owner>/node_modules/<pkg>  (only when <owner>'s package.json declares it)`,
+      `  app.asar.unpacked/node_modules  <owner>/node_modules/<pkg>  ${nestedRule}`,
       `  app/node_modules                <pkg>  (top level, legacy unpacked tree)`,
-      `  app/node_modules                <owner>/node_modules/<pkg>  (only when <owner>'s package.json declares it)`,
+      `  app/node_modules                <owner>/node_modules/<pkg>  ${nestedRule}`,
     ].join('\n');
     throw new Error(
       `[verify-packaged-deps] ${missing.length} keep-list module(s) are not resolvable ` +
         `in the packed app at ${resourcesDir}:\n` +
         missing.map((name) => `  - node_modules/${name}`).join('\n') +
         `\nSearched, relative to ${resourcesDir}:\n${searched}\n` +
-        `A copy nested inside a package that does NOT declare it does not count — ` +
-        `Node resolves upward only, so it would be unreachable at runtime.\n` +
+        `A copy nested in a node_modules directory where NOTHING declares it does ` +
+        `not count — Node resolves upward only, so it would be unreachable at ` +
+        `runtime.\n` +
         `The electron-builder \`files\` keep-list and the resolved dependency ` +
         `tree have drifted (installs run with --no-frozen-lockfile). The app ` +
         `would throw "Cannot find module" at runtime. Update the keep-list in ` +
