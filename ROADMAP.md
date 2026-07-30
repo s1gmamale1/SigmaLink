@@ -415,7 +415,9 @@ WKWebView equivalent.
 | Renderer scrollback + LRU tuning | 5 | M | **High** | ✅ MERGED — #247 `5d33351`; saving unmeasured |
 | Pre-release audit (packaging · win32 · RAM leak) | 6 | L | **High** | ✅ MERGED — #250 `33e83d49`, #251 `71eacd3b` |
 | Release blockers (win32 quoting, doc drift, clamp) | — | S | Medium | ✅ MERGED — #248 `2ebd928` |
-| One shared shell quoter (C-058/059/060) | — | M | Medium | 📋 parked in [WISHLIST.md](WISHLIST.md) |
+| One shared shell quoter (C-058/059/060) | 7 | M | Medium | ✅ MERGED — #253 `5e997963` |
+| Audit follow-ups (C-061/062/064/065) | 7 | M | Medium | ✅ MERGED — #254 `9d92376f` |
+| `forget()` sync process listing (C-063) | — | M | Low | 🟡 **open by design** — the specified fix would SIGKILL stale PIDs |
 
 ## Phase 6 — Pre-release audit (#250 · #251) — ✅ MERGED
 
@@ -440,6 +442,42 @@ WKWebView equivalent.
 >
 > Retired as superseded: PR #209 (rebased into #251) and PR #216 (fixes landed in
 > #250; its `voice-win` stub fix salvaged into #251).
+
+---
+
+## Phase 7 — Close the audit follow-ups (#253 · #254) — ✅ MERGED
+
+> Clears **C-058…C-062, C-064, C-065**. **C-063 stays open by design.**
+> `5e997963` (#253) · `9d92376f` (#254).
+>
+> **#253 — one shared shell quoter.** Three sites formatted operator-copyable
+> commands with different (or no) quoting. `shared/shell-quote.ts` is now the
+> single source: posix `'\''` escaping, real `CommandLineToArgvW`
+> backslash-doubling on win32. The reachable bug: cursor-agent's install
+> rendered as `bash -c curl … | bash`, which runs `bash -c curl` with `$0` = the
+> URL — curl writes usage to stderr, so the pipe got an empty stream and the
+> operator saw a silent no-op. Review proved safety by executing 11 hostile
+> specs with canary files: none fired.
+>
+> **#254 — ram-brake and pty minors.** The observed RAM brake now also guards
+> `+ Pane` (it previously had one call site, so a blocked workspace could still
+> add leaky panes); `forget()` honours `stop({tree:false})`; the keep-list
+> verifier checks resolvability rather than presence-by-name.
+>
+> **C-063 — deliberately NOT fixed.** Routing `forget()` through the TTL-cached
+> inspector would feed `stopProcessTrees` a ≤2.5 s stale process table and
+> **SIGKILL stale PIDs** — killing an unrelated process is a worse bug class
+> than the UI stall it fixes. Two independent reviewers reached that conclusion
+> separately. The correct fix (`stopProcessTreesAsync`, noting win32 needs no
+> listing at all since `taskkill /T` walks the tree itself) is recorded in
+> [WISHLIST.md](WISHLIST.md).
+>
+> ⚠️ **The C-064 fix itself shipped two release-aborting defects**, both caught
+> by review, both invisible to a green suite *and* to a real `--mac --dir` pack:
+> a nested dep resolvable via a **sibling** was reported missing, and symlinked
+> owner dirs were skipped entirely. Either would abort every release build on a
+> healthy tree. The packed tree is flat, so no real pack exercises that code —
+> synthetic nested trees are the only evidence that counts there.
 
 ---
 
