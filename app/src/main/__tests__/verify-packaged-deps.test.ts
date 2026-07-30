@@ -16,6 +16,8 @@ type VerifyModule = {
   keepListModules: (files: unknown) => string[];
   listAsarNodeModules: (archive: string) => Set<string>;
   listAsarNodeModulesViaHeader: (archive: string) => Set<string>;
+  listAsarNodeModulePaths: (archive: string) => Set<string>;
+  splitPackagePath: (packagePath: string) => { ownerPath: string | null; name: string };
   findMissingModules: (resourcesDir: string, modules: string[]) => string[];
 };
 
@@ -37,6 +39,32 @@ function makePackedModule(resourcesDir: string, child: string, pkg: string): voi
   const dir = path.join(resourcesDir, child, 'node_modules', pkg);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: pkg }));
+}
+
+/**
+ * Materialise `<resources>/<child>/node_modules/<owner>/node_modules/<pkg>`,
+ * with `<owner>`'s manifest either declaring `<pkg>` (a genuine transitive dep —
+ * the real `@sigmalink/voice-whisper` → `node-gyp-build` shape) or not (a
+ * vendored fixture that merely shares the name and is unreachable from anywhere).
+ */
+function makeNestedPackedModule(
+  resourcesDir: string,
+  child: string,
+  owner: string,
+  pkg: string,
+  opts: { declared: boolean },
+): void {
+  const ownerDir = path.join(resourcesDir, child, 'node_modules', owner);
+  const nested = path.join(ownerDir, 'node_modules', pkg);
+  fs.mkdirSync(nested, { recursive: true });
+  fs.writeFileSync(
+    path.join(ownerDir, 'package.json'),
+    JSON.stringify({
+      name: owner,
+      ...(opts.declared ? { dependencies: { [pkg]: '^4.0.0' } } : {}),
+    }),
+  );
+  fs.writeFileSync(path.join(nested, 'package.json'), JSON.stringify({ name: pkg }));
 }
 
 afterEach(() => {
@@ -142,9 +170,102 @@ describe('findMissingModules', () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// C-064 — presence-by-name is not resolvability.
+//
+// Node resolves UPWARD only, so `node_modules/A` requiring `foo` never finds
+// `node_modules/B/node_modules/foo`. The old guard accepted a hit at ANY depth,
+// so a top-level copy vanishing while an unrelated nested one remained — or a
+// shipped package carrying a test fixture directory named after a keep-list
+// entry — read as present, and the app threw "Cannot find module" at the user's
+// first call. That is a false-PASS: the guard could mask a genuinely missing
+// module.
+//
+// The counterweight is that this hook aborts release builds, so it must never
+// false-FAIL: a legitimately nested transitive dep of a workspace package (the
+// real `@sigmalink/voice-whisper` → `node-gyp-build` shape) has to keep passing.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('findMissingModules — resolvability, not presence-by-name (C-064)', () => {
+  it('reports MISSING when only a nested copy exists and its owner does not declare it', () => {
+    const resources = makeTempDir();
+    // `some-vendor` ships a fixture directory that happens to be called
+    // `node_modules/node-gyp-build`. Nothing can require it. The genuine
+    // top-level copy is gone.
+    makeNestedPackedModule(resources, 'app.asar.unpacked', 'some-vendor', 'node-gyp-build', {
+      declared: false,
+    });
+
+    expect(verify.findMissingModules(resources, ['node-gyp-build'])).toEqual(['node-gyp-build']);
+  });
+
+  it('PASSES a genuine nested transitive dep of a workspace package', () => {
+    const resources = makeTempDir();
+    // The real shape: voice-whisper declares node-gyp-build, and pnpm packed it
+    // nested — precisely where voice-whisper/index.js resolves it from.
+    makeNestedPackedModule(
+      resources,
+      'app.asar.unpacked',
+      '@sigmalink/voice-whisper',
+      'node-gyp-build',
+      { declared: true },
+    );
+
+    expect(
+      verify.findMissingModules(resources, ['@sigmalink/voice-whisper', 'node-gyp-build']),
+    ).toEqual([]);
+  });
+
+  it('PASSES a top-level copy even when an undeclared nested namesake also exists', () => {
+    const resources = makeTempDir();
+    makePackedModule(resources, 'app.asar.unpacked', 'node-gyp-build');
+    makeNestedPackedModule(resources, 'app.asar.unpacked', 'some-vendor', 'node-gyp-build', {
+      declared: false,
+    });
+
+    expect(verify.findMissingModules(resources, ['node-gyp-build'])).toEqual([]);
+  });
+
+  it('PASSES a declared dep nested two owners deep', () => {
+    const resources = makeTempDir();
+    // node_modules/a/node_modules/b/node_modules/c, with b declaring c.
+    const root = path.join(resources, 'app.asar.unpacked', 'node_modules');
+    const bDir = path.join(root, 'a', 'node_modules', 'b');
+    fs.mkdirSync(path.join(bDir, 'node_modules', 'c'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'a', 'package.json'), JSON.stringify({ name: 'a' }));
+    fs.writeFileSync(
+      path.join(bDir, 'package.json'),
+      JSON.stringify({ name: 'b', dependencies: { c: '^1.0.0' } }),
+    );
+    fs.writeFileSync(path.join(bDir, 'node_modules', 'c', 'package.json'), JSON.stringify({ name: 'c' }));
+
+    expect(verify.findMissingModules(resources, ['c'])).toEqual([]);
+  });
+
+  it('accepts a nested copy whose owner manifest is unreadable — the guard must never false-FAIL', () => {
+    const resources = makeTempDir();
+    const ownerDir = path.join(resources, 'app.asar.unpacked', 'node_modules', 'weird-owner');
+    fs.mkdirSync(path.join(ownerDir, 'node_modules', 'node-gyp-build'), { recursive: true });
+    // No owner package.json at all: we cannot prove the nested copy is
+    // unreachable, so we must not abort a release over it.
+
+    expect(verify.findMissingModules(resources, ['node-gyp-build'])).toEqual([]);
+  });
+});
+
 describe('asar inspection', () => {
-  /** Build a real app.asar with @electron/asar, resolved via electron-builder. */
-  async function buildAsar(resourcesDir: string, packages: string[]): Promise<string> {
+  /**
+   * Build a real app.asar with @electron/asar, resolved via electron-builder.
+   *
+   * `packages` entries may be nested paths (`@scope/owner/node_modules/dep`).
+   * `manifests` optionally supplies each package's package.json, keyed by the
+   * same string — needed by the C-064 owner-declaration checks.
+   */
+  async function buildAsar(
+    resourcesDir: string,
+    packages: string[],
+    manifests: Record<string, unknown> = {},
+  ): Promise<string> {
     const builder = requireCJS.resolve('electron-builder/package.json');
     const lib = requireCJS.resolve('app-builder-lib/package.json', {
       paths: [path.dirname(builder)],
@@ -158,6 +279,10 @@ describe('asar inspection', () => {
       const dir = path.join(src, 'node_modules', pkg);
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(path.join(dir, 'index.js'), 'module.exports = {};');
+      const manifest = manifests[pkg];
+      if (manifest) {
+        fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify(manifest));
+      }
     }
     fs.mkdirSync(path.join(src, 'dist'), { recursive: true });
     fs.writeFileSync(path.join(src, 'dist', 'index.html'), '<html></html>');
@@ -243,5 +368,61 @@ describe('asar inspection', () => {
     const resources = makeTempDir();
 
     expect(verify.listAsarNodeModules(path.join(resources, 'app.asar')).size).toBe(0);
+  });
+
+  // C-064 — the flat name Set cannot say WHERE a package sits, and position is
+  // the whole question. The path surface keeps that information.
+  it('reports package PATHS, so top level and nested are distinguishable', async () => {
+    const resources = makeTempDir();
+    const archive = await buildAsar(resources, [
+      'bindings',
+      '@sigmalink/voice-whisper',
+      '@sigmalink/voice-whisper/node_modules/node-gyp-build',
+    ]);
+
+    expect([...verify.listAsarNodeModulePaths(archive)].sort()).toEqual([
+      'node_modules/@sigmalink/voice-whisper',
+      'node_modules/@sigmalink/voice-whisper/node_modules/node-gyp-build',
+      'node_modules/bindings',
+    ]);
+    expect(verify.splitPackagePath('node_modules/bindings')).toEqual({
+      ownerPath: null,
+      name: 'bindings',
+    });
+    expect(
+      verify.splitPackagePath('node_modules/@sigmalink/voice-whisper/node_modules/node-gyp-build'),
+    ).toEqual({
+      ownerPath: 'node_modules/@sigmalink/voice-whisper',
+      name: 'node-gyp-build',
+    });
+  });
+
+  it('reports MISSING an asar-nested copy whose owner does not declare it', async () => {
+    const resources = makeTempDir();
+    await buildAsar(
+      resources,
+      ['some-vendor', 'some-vendor/node_modules/node-gyp-build'],
+      { 'some-vendor': { name: 'some-vendor' } },
+    );
+
+    expect(verify.findMissingModules(resources, ['node-gyp-build'])).toEqual(['node-gyp-build']);
+  });
+
+  it('PASSES an asar-nested copy whose owner declares it', async () => {
+    const resources = makeTempDir();
+    await buildAsar(
+      resources,
+      ['@sigmalink/voice-whisper', '@sigmalink/voice-whisper/node_modules/node-gyp-build'],
+      {
+        '@sigmalink/voice-whisper': {
+          name: '@sigmalink/voice-whisper',
+          dependencies: { 'node-gyp-build': '^4.8.0' },
+        },
+      },
+    );
+
+    expect(
+      verify.findMissingModules(resources, ['@sigmalink/voice-whisper', 'node-gyp-build']),
+    ).toEqual([]);
   });
 });
