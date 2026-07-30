@@ -5,6 +5,7 @@
 // and the escalation response path. All effect via injected deps (no electron
 // import) -> unit-testable.
 
+import { quoteShellArg } from '../../../shared/shell-quote';
 import {
   isControlEnabled,
   isControlFrozen,
@@ -51,7 +52,9 @@ export interface ControlStatus {
 
 /**
  * Quote ONE argument of the connect command for the shell it will be pasted
- * into. Exported for testing.
+ * into. Exported for testing; a thin alias for the shared quoter, which is
+ * the single implementation every operator-copyable command now uses
+ * (WISHLIST C-058).
  *
  * cmd.exe does not treat `'` as a quoting character — it passes the byte
  * through literally and still splits argv on whitespace. The NSIS installer
@@ -60,9 +63,14 @@ export interface ControlStatus {
  * handed cmd.exe the literal token `'C:\Program` and registered an MCP server
  * that could never spawn. The win32 socketPath (a `\\.\pipe\...` named pipe)
  * carried the same stray quotes into its value.
+ *
+ * The shared quoter additionally ESCAPES, which the local version did not:
+ * an app installed at `/Users/x/Leo's Apps/SigmaLink.app/...` used to close
+ * the single quote at `Leo` and leave the shell at a `quote>` continuation
+ * prompt (C-060).
  */
 export function quoteArg(value: string, platform: NodeJS.Platform): string {
-  return platform === 'win32' ? `"${value}"` : `'${value}'`;
+  return quoteShellArg(value, platform);
 }
 
 /**

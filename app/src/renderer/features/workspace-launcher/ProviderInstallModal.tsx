@@ -22,6 +22,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { AGENT_PROVIDERS, installCommandFor } from '@/shared/providers';
+import { joinShellCommand } from '@/shared/shell-quote';
 import { rpc, onEvent } from '@/renderer/lib/rpc';
 
 interface Props {
@@ -86,6 +87,13 @@ async function getUserHome(platform: NodeJS.Platform): Promise<string> {
 export function ProviderInstallModal({ providerId, onClose }: Props) {
   const def = AGENT_PROVIDERS.find((p) => p.id === providerId);
   const [platform, setPlatform] = useState<'darwin' | 'linux' | 'win32'>('darwin');
+  // `platform` starts at a GUESS ('darwin') and is corrected once
+  // `rpc.app.getPlatform()` resolves. Until then the command shown is for the
+  // wrong OS: a Windows operator who hit Copy inside that IPC window got the
+  // darwin line (`bash -c '…'`) and pasted something cmd.exe answers with
+  // "bash is not recognized". Gate the command block on this flag so nothing
+  // copyable renders until the real platform is known.
+  const [platformReady, setPlatformReady] = useState(false);
   const [runtimeMissing, setRuntimeMissing] = useState(false);
   const [copied, setCopied] = useState(false);
   const [dontAskAgain, setDontAskAgain] = useState(false);
@@ -104,6 +112,7 @@ export function ProviderInstallModal({ providerId, onClose }: Props) {
         const pl = await rpc.app.getPlatform();
         if (cancelled) return;
         setPlatform((pl === 'win32' ? 'win32' : pl === 'linux' ? 'linux' : 'darwin'));
+        setPlatformReady(true);
         // Prereq check — only run for providers whose installCommand uses npm/pip.
         const cmd = def ? installCommandFor(def, pl) : null;
         if (cmd && cmd.length > 0) {
@@ -115,6 +124,14 @@ export function ProviderInstallModal({ providerId, onClose }: Props) {
         }
       } catch {
         /* non-fatal */
+      } finally {
+        // Never strand the UI. If getPlatform() rejects (preload not ready, a
+        // throwing handler), leaving platformReady false would show
+        // "Detecting platform…" with Copy disabled for the modal's whole
+        // lifetime — no error, no retry, strictly worse than the pre-gate
+        // behaviour, which at least showed the darwin-guessed command. Fall
+        // back to the guess instead of a dead panel.
+        if (!cancelled) setPlatformReady(true);
       }
     })();
     return () => { cancelled = true; };
@@ -181,18 +198,25 @@ export function ProviderInstallModal({ providerId, onClose }: Props) {
   }, [providerId]);
 
   const handleCopy = useCallback(() => {
-    if (!def) return;
+    // Refuse to copy a guessed-platform command — see `platformReady`.
+    if (!def || !platformReady) return;
     const cmd = installCommandFor(def, platform) ?? [];
-    void navigator.clipboard.writeText(cmd.join(' ')).then(() => {
+    void navigator.clipboard.writeText(joinShellCommand(cmd, platform)).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
-  }, [def, platform]);
+  }, [def, platform, platformReady]);
 
   if (!def) return null;
 
   const cmd = installCommandFor(def, platform) ?? [];
-  const cmdStr = cmd.join(' ');
+  // Shell-quoted, NOT a raw argv join: cursor-agent's
+  // `['bash','-c','curl … | bash']` rendered unquoted as `bash -c curl … |
+  // bash`, which runs `bash -c curl` with $0 = the URL and pipes curl's
+  // (empty, usage-goes-to-stderr) stdout into bash — a silent no-op install
+  // for anyone who copied it (C-059). The in-app spawn path is unaffected:
+  // it hands the argv array straight to the PTY.
+  const cmdStr = joinShellCommand(cmd, platform);
   const docsUrl = def.installDocsUrl;
 
   const showLog = installing || installDone || installError;
@@ -249,11 +273,14 @@ export function ProviderInstallModal({ providerId, onClose }: Props) {
                 ) : null}
               </div>
               <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
-                <code className="flex-1 truncate font-mono text-sm">{cmdStr}</code>
+                <code className="flex-1 truncate font-mono text-sm">
+                  {platformReady ? cmdStr : 'Detecting platform…'}
+                </code>
                 <button
                   type="button"
                   onClick={handleCopy}
-                  className="shrink-0 rounded p-1 text-muted-foreground transition hover:text-foreground"
+                  disabled={!platformReady}
+                  className="shrink-0 rounded p-1 text-muted-foreground transition hover:text-foreground disabled:opacity-40"
                   aria-label="Copy install command"
                 >
                   {copied ? (
@@ -278,7 +305,12 @@ export function ProviderInstallModal({ providerId, onClose }: Props) {
                 className="h-40 overflow-y-auto rounded-md border border-border bg-black/40 p-2 font-mono text-[11px] leading-relaxed text-green-300"
               >
                 {installing && !installLog ? (
-                  <span className="text-muted-foreground">Running {cmdStr}…</span>
+                  // Same gate as the command block above — don't echo a
+                  // guessed-platform command line while the real one is
+                  // still resolving.
+                  <span className="text-muted-foreground">
+                    {platformReady ? `Running ${cmdStr}…` : 'Starting install…'}
+                  </span>
                 ) : (
                   installLog || ''
                 )}
