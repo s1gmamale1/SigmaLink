@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
 // Phase 4 Lane A — PaneHeader unit coverage. Validates the BridgeSpace-faithful
-// pane header: title pill (drag handle, status glyph, alias·effort) + icon
+// pane header: title pill (drag handle, status glyph, pane name) + icon
 // cluster (gear, fullscreen, split, minimise, close). All metadata is relocated
 // to the gear popover (PaneGearPopoverBody).
 //
@@ -59,6 +59,7 @@ vi.mock('./useRufloDaemonHealth', () => ({
 }));
 
 import { PaneHeader } from './PaneHeader';
+import { derivePaneIdentity } from './pane-identity';
 import type { AgentSession } from '@/shared/types';
 import type { RufloDaemonHealth } from './useRufloDaemonHealth';
 import { useRufloDaemonHealth } from './useRufloDaemonHealth';
@@ -616,6 +617,27 @@ describe('PaneHeader — BSP-O4 inline rename', () => {
     // alias is not "My custom pane" and is non-empty
     expect(pillFallback.textContent ?? '').not.toContain('My custom pane');
     expect(pillFallback.textContent?.trim().length ?? 0).toBeGreaterThan(0);
+  });
+
+  // The effort tier used to render inline as `<name> · high`. It is near-static
+  // chrome and ate width from the only part of the pill that changes, so the
+  // navbar now shows the name alone. `derivePaneIdentity` still resolves the
+  // tier — the gear popover, context sidebar and pill tooltip all read it — so
+  // this asserts the label is gone from the HEADER, not gone from the app.
+  it('does not render the effort tier in the title pill', () => {
+    const session = makeSession({ name: 'Lyra' });
+    const effort = derivePaneIdentity(session).effortLabel;
+    // Guard the guard: a placeholder effort would make this test vacuous.
+    expect(effort).toBe('high');
+
+    render(<PaneHeader {...baseProps()} session={session} />);
+    const nameSpan = screen.getByTestId('pane-display-name');
+    expect(nameSpan.textContent?.trim()).toBe('Lyra');
+    expect(nameSpan.textContent ?? '').not.toContain(effort);
+    // The native tooltip carried the same `· high` suffix.
+    expect(nameSpan.getAttribute('title') ?? '').not.toContain(effort);
+    // …and nothing else in the strip reintroduced it.
+    expect(screen.getByTestId('pane-title-pill').textContent ?? '').not.toContain(effort);
   });
 
   it('entering edit mode on double-click shows the rename input', async () => {

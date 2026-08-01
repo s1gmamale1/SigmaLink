@@ -2,7 +2,7 @@
 //
 // Single h-7 strip:
 //   [2px provider colour stripe at top]
-//   [ pane-title-pill: ●status  alias · effort ]  …spacer…
+//   [ pane-title-pill: ●status  alias ]  …spacer…
 //   [opacity-0 reveal: ⚙ gear][⤢ fullscreen][opacity-0: ⊞ split][opacity-0: – minimise][✕ close]
 //
 // All metadata (branch, model, cwd, Ruflo health, usage, relabel, rewind, brief)
@@ -259,7 +259,7 @@ export function PaneHeader({
           disabled={!canReorder || paneCount <= 1 || isFullscreen}
         />
 
-        {/* ── Title pill (context drag, status glyph, alias·effort) ─────── */}
+        {/* ── Title pill (context drag, status glyph, pane name) ────────── */}
         <TooltipProvider delayDuration={coachmark.loaded && !coachmark.seen ? 300 : 200}>
           <Tooltip defaultOpen={coachmark.loaded && !coachmark.seen}>
             <TooltipTrigger asChild>
@@ -285,7 +285,13 @@ export function PaneHeader({
                   aria-hidden="false"
                 />
                 {/* Pane NAME (stable identity / rename target) — alias or the
-                    operator's rename, NOT the task. Double-click edits it. */}
+                    operator's rename, NOT the task. Double-click edits it.
+                    The effort tier ("high" / "xhigh") deliberately does NOT
+                    render here: it is near-static chrome that ate width from
+                    the name on every pane. It stays one hover away in the
+                    pill tooltip below, and in the gear popover + context
+                    sidebar, which are where the rest of the pane metadata
+                    already lives. */}
                 {editing ? (
                   <input
                     ref={inputRef}
@@ -310,9 +316,9 @@ export function PaneHeader({
                     className="min-w-0 truncate cursor-text text-muted-foreground"
                     onDoubleClick={(e) => { e.stopPropagation(); startEditing(); }}
                     data-testid="pane-display-name"
-                    title={`${paneName} · ${id.effortLabel} — double-click to rename`}
+                    title={`${paneName} — double-click to rename`}
                   >
-                    {paneName} <span className="opacity-70">· {id.effortLabel}</span>
+                    {paneName}
                   </span>
                 )}
                 {!editing && (
