@@ -49,12 +49,22 @@ SigmaLink's own footprint, plus a large CPU/battery tax (renderer observed at
 
 ---
 
-## Phase 2 — Establish the arm64 baseline — ⏳ OPERATOR-BLOCKED
+## Phase 2 — Establish the arm64 baseline — ✅ MEASURED (2026-08-01)
 
-> `app/docs/perf/2026-07-28-arm64-baseline.md` does not exist. This is the only
-> phase no agent can execute. Until it lands, every RAM figure in Phases 3–5 is
-> **modeled, not measured** — the Phase 5 tuning constants were chosen against
-> the x64-under-Rosetta workload.
+> `app/docs/perf/2026-07-28-arm64-baseline.md` now exists. Measured on the
+> operator's native-arm64 v3.0.0 install: **zero Rosetta regions on all six
+> processes**, total footprint 3338 MB → **1761 MB**.
+>
+> ⚠️ **Two caveats that change how the numbers may be quoted.**
+> 1. **The A/B is not controlled.** The x64 run was 17 live panes; the arm64 run
+>    was 14. The −47% total is *indicative only* — do not quote it as the
+>    Rosetta saving. The clean result is the translation arenas: **468 MB → 0**,
+>    which is pane-count independent.
+> 2. **The heavy renderer's addressable working set is ~336 MB dirty, not the
+>    715 MB footprint** (795.7 MB resident, of which `__TEXT` is 337.5 MB
+>    resident / 0 dirty — shared, file-backed library code). The reclaimable
+>    part is ~261 MB of V8/Blink heap. **Phase 5's constants were chosen against
+>    "1684 MB", which is ~5× the addressable set** — see the follow-up below.
 
 **Goal.** Every later optimization is measured against a native-arm64 build
 rather than a Rosetta-translated one, so no effort is spent chasing translation
@@ -99,6 +109,17 @@ the x64 run or the A/B is meaningless; record the count explicitly.
 **Definition of done.** `app/docs/perf/2026-07-28-arm64-baseline.md` exists and
 contains both columns at a stated identical pane count, and `vmmap` confirms
 zero Rosetta regions on the native build.
+
+**Status — met, with one clause partially met.** ✅ The doc exists with both
+columns; ✅ `vmmap` confirms zero Rosetta regions on all six processes.
+⚠️ *"at a stated identical pane count"* is **stated but NOT identical** —
+17 (x64) vs 14 (arm64). The x64 install is gone, so it cannot be re-run; the
+gap is recorded in the doc rather than papered over. This is why the total is
+labelled indicative and the Rosetta-arena delta is the load-bearing result.
+
+**Follow-up this opened.** `ROADMAP.md`'s Phase 5 renderer decomposition was
+inferred from the x64 run. It should be re-derived from the measured region
+table before any further renderer tuning — tracked in `WISHLIST.md`.
 
 ---
 
@@ -251,6 +272,31 @@ size recorded before/after in the audit doc. ❌ *Windows + Linux:* the same
 packaged-launch checklist is **still unmet** — green `e2e-matrix.yml` does not
 satisfy it, because that workflow launches the unpacked `electron-dist/` tree,
 never a packaged artifact.
+
+**Re-verified at `51d3a0d8` (2026-08-01), macOS arm64.** The earlier macOS smoke
+was taken at an older SHA; this one is a fresh `electron-builder --mac dmg
+--arm64` off `origin/main`:
+
+- both hooks ran — `[verify-packaged-deps] 6 keep-list module(s) present`, and
+  `[adhoc-sign] chmod 0755 … spawn-helper` ×2 → `restored +x on 2
+  spawn-helper(s)`. **The chmod fired, i.e. the helpers really did arrive
+  non-executable** — that net is load-bearing, not defensive decoration;
+- on disk: both `spawn-helper`s `-rwxr-xr-x`; `app.asar` carries all six
+  keep-list modules (`@sigmalink`, `better-sqlite3`, `bindings`,
+  `file-uri-to-path`, `node-gyp-build`, `node-pty`); `lipo -archs` → `arm64`;
+- packaged app launched against an isolated `--user-data-dir`: renderer up,
+  `sigmalink.db` + WAL created (migrations ran → `better-sqlite3` loaded from
+  `app.asar.unpacked`), no `MODULE_NOT_FOUND`;
+- a real PTY spawned **through the packaged layout** — node-pty required via
+  `app.asar` (the path that triggers its `app.asar` → `app.asar.unpacked`
+  helper-path rewrite), returning `PTY_OK_arm64`, exit 0.
+
+⚠️ Requiring node-pty *directly* from `app.asar.unpacked` fails with
+`posix_spawnp failed` — node-pty's `helperPath.replace('app.asar',
+'app.asar.unpacked')` (`lib/unixTerminal.js:31`) rewrites the already-unpacked
+path to `app.asar.unpacked.unpacked`. That is a **probe artifact, not an app
+bug** (the app loads through the archive), but it will bite anyone smoking the
+packaged tree by hand. Load through `app.asar`.
 
 ---
 
@@ -482,17 +528,24 @@ WKWebView equivalent.
 ---
 
 **Release checklist (owed before any tag):**
-1. **Phase 2 arm64 baseline** — otherwise no RAM saving may be claimed. Operator-only.
+1. ✅ **Phase 2 arm64 baseline** — done 2026-08-01,
+   `app/docs/perf/2026-07-28-arm64-baseline.md`. Note the two caveats in Phase 2:
+   the pane counts differ (17 vs 14), so **the −47% total may not be quoted as a
+   saving**; only the 468 MB → 0 Rosetta-arena delta is clean.
 2. **Packaged launch on Windows + Linux.** Still verified by *nothing*:
    `e2e-matrix.yml` launches the unpacked `electron-dist/` tree and never invokes
-   electron-builder, which runs only on a `v*` tag push. macOS is proven by one
-   manual pack; the other two platforms are not.
+   electron-builder, which runs only on a `v*` tag push. macOS is now proven
+   twice — at merge, and re-verified at `51d3a0d8` on 2026-08-01 (pack + launch +
+   DB open + real PTY spawn through `app.asar`) — the other two platforms are
+   not, and mac proves nothing about either.
 3. Packaged smoke of **all three** MCP entries (External Control is proven;
    jorvis-host and memory-server run from inside an asar for the first time).
 4. **Windows RAM-brake live verification.** Every receipt in #251 is source-trace
    and unit-test. Nobody has yet proven the brake contains the leak on a real
    Windows box.
-5. Version bump — `package.json` is still `3.0.0` and that tag is taken.
+5. ✅ Version bump — `app/package.json` is now `3.1.0` (minor: arch-aware
+   updater, package prune, RAM brake, shell quoting, win32 spawn-mode default).
+   **Bumped, not tagged** — tagging stays an explicit operator action.
 6. Release notes must tell Apple Silicon users on the x64 build that they need
    **one manual arm64 install**; their updater cannot rescue them.
 

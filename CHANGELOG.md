@@ -2,6 +2,32 @@
 
 All notable changes to SigmaLink are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once tagged releases begin.
 
+## [Unreleased] — 3.1.0
+
+Version bumped to `3.1.0`; **not tagged**. Rolls up the hardware-load
+optimization arc (#247–#256): arch-aware macOS auto-update, a pruned + asar'd
+package, the renderer RAM brake, shell quoting, and the win32 spawn-mode
+default. See `ROADMAP.md` for the pre-tag checklist — **Windows and Linux
+packaged launch are still unverified**.
+
+### Changed
+
+- **Pane header drops the effort tier.** The title pill rendered `<name> · high`
+  on every pane. The tier is near-static and was taking width from the one part
+  of the pill that actually changes; the header now shows the name alone. The
+  value is unchanged and still one hover away in the pill tooltip, plus the gear
+  popover and context sidebar.
+
+### Verified (no code change)
+
+- **arm64 baseline established** — `app/docs/perf/2026-07-28-arm64-baseline.md`.
+  Zero Rosetta regions across all six processes; translation arenas 468 MB → 0.
+  The overall 3338 → 1761 MB figure is **indicative only** (17 vs 14 panes) and
+  must not be quoted as a saving.
+- **macOS packaged artifact re-verified at `51d3a0d8`** — pack, launch, DB open,
+  and a real PTY spawn through `app.asar`. The `adhoc-sign` chmod net fired,
+  confirming the `spawn-helper`s do arrive non-executable.
+
 ## [3.0.0] — 2026-07-14
 
 **v3.0.0 ships Jorvis as a persistent operator — a resident agent with a mission board, its own worktree pane fleet, a budget-capped autonomy loop that survives restarts and quiet hours, durable memory and identity, and two remote command channels (Telegram cockpit + external mission plane) — the whole arc live-verified end-to-end from a single external `submit_task`. Autonomy ships default-OFF behind a quadruple gate. Plus: stable macOS local signing so TCC grants survive updates, pane click-to-focus, composer wrap, and a pre-tag review round that hardened the loop's liveness.**
