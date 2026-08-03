@@ -91,8 +91,17 @@ function configureUpdater(): void {
       });
       const dmgFile = pickMacDmg(info.files, arch);
       if (!dmgFile) {
+        // v3.1.0 retired the Intel (x64) mac artefact, so this is now the
+        // EXPECTED path on a genuine Intel Mac rather than a manifest defect.
+        // `pickMacDmg` refuses to hand an x64 host the arm64 DMG (it cannot
+        // execute it), so say why instead of reporting a missing file — an
+        // Intel user seeing "No x64 DMG found" would reasonably read it as a
+        // broken release and retry forever.
         broadcast('app:update-error', {
-          error: `No ${arch} DMG found in release manifest`,
+          error:
+            arch === 'x64'
+              ? 'SigmaLink no longer ships an Intel (x64) macOS build — 3.0.0 was the last one. This Mac cannot run the Apple Silicon build.'
+              : `No ${arch} DMG found in release manifest`,
         });
         return;
       }

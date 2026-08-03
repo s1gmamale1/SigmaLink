@@ -75,7 +75,8 @@ jobs:
         # bundled Node ABI (20.9 in Electron 30), not the host Node ABI (20.16).
         # Modules built against the wrong ABI fail to dlopen in Electron's renderer,
         # causing a React boot crash that makes e2e tests false-green or all-fail.
-        # -o (EXCLUSIVE) builds ONLY these three — matching release-linux.yml. The
+        # -o (EXCLUSIVE) builds ONLY these three. (This matched release-linux.yml
+        # before that workflow was retired in v3.1.0.) The
         # prior -w flag does NOT restrict and rebuilt voice-whisper too, whose
         # from-source whisper.cpp build fails on MSVC (ggml-cpu.c/.cpp collide on
         # ggml-cpu.obj → LNK4042 → 40 unresolved ggml_* symbols). whisper is built

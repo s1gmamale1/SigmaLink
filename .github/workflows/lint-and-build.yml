@@ -116,5 +116,5 @@ jobs:
 
       - name: Shellcheck installer
         run: |
+          # install-linux.sh retired in v3.1.0 with the Linux artefacts.
           shellcheck app/scripts/install-macos.sh
-          shellcheck app/scripts/install-linux.sh

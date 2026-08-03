@@ -19,10 +19,12 @@ Local-first desktop workspace for orchestrating grids of CLI coding agents in re
 |---|---|---|---|---|
 | macOS 13+ (Apple Silicon arm64) | DMG | `curl … install-macos.sh` | None via curl-bash (Gatekeeper bypass) | SigmaVoice native Speech.framework |
 | Windows 10/11 (x64) | NSIS EXE | `iex (irm … install-windows.ps1)` | SmartScreen warning on first run (workarounds documented) | Web Speech API (Chromium, requires internet) |
-| Ubuntu 22.04/24.04 (x64) | AppImage + `.deb` | `curl … install-linux.sh \| bash` | AppImage may need the executable bit; `.deb` prompts for sudo | Web Speech / cloud STT fallback; local Whisper best-effort |
 
-> Linux support targets Ubuntu 22.04/24.04 x64 (AppImage + `.deb`), built and smoke-tested under Xvfb in CI and released by [`.github/workflows/release-linux.yml`](.github/workflows/release-linux.yml). Other distributions may run the AppImage but are not release-gated. See [ROADMAP Phase 17](ROADMAP.md).
-> Windows x86 (ia32) was dropped in v1.2.0; the installer is x64-only.
+> **Two platforms as of v3.1.0: Apple Silicon macOS and Windows x64.**
+>
+> - **Intel (x64) macOS — retired.** `v3.0.0` was the last Intel DMG. Every Mac Apple has shipped since 2020 is Apple Silicon, and the x64 build was the one the pre-`v3.1.0` updater mistakenly served to *ARM* machines, costing 468 MB of Rosetta translation arenas ([baseline](app/docs/perf/2026-07-28-arm64-baseline.md)). An Intel Mac on `≤ v3.0.0` will not receive further updates and cannot run the Apple Silicon build.
+> - **Linux (AppImage + `.deb`) — retired.** Last shipped in `v3.0.0`. This retires *artefacts*, not code: the ubuntu CI jobs still run on every PR, and a self-built Linux tree still works.
+> - **Windows x86 (ia32)** was dropped in v1.2.0; the installer is x64-only.
 
 ## Install in one line (macOS, Apple Silicon)
 

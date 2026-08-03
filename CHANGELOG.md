@@ -10,6 +10,20 @@ package, the renderer RAM brake, shell quoting, and the win32 spawn-mode
 default. See `ROADMAP.md` for the pre-tag checklist — **Windows and Linux
 packaged launch are still unverified**.
 
+### Removed — platform matrix cut to two targets
+
+SigmaLink now ships **Apple Silicon macOS (arm64)** and **Windows x64** only.
+
+- **Intel (x64) macOS retired.** `v3.0.0` was the last Intel DMG. Every Mac Apple has shipped since 2020 is Apple Silicon, and the x64 build was the artefact the pre-#247 updater wrongly served to *ARM* machines — 468 MB of Rosetta translation arenas plus a CPU/battery tax (`app/docs/perf/2026-07-28-arm64-baseline.md`).
+- **Linux (AppImage + `.deb`) retired.** Last shipped in `v3.0.0`. `release-linux.yml` and `scripts/install-linux.sh` are deleted.
+
+**This retires artefacts, not code.** The ubuntu jobs in `e2e-matrix.yml` and `lint-and-build.yml` still run on every PR — cheap, fast, and they catch real portability bugs — and `pickLinuxAppImage()` plus the `linux` updater branch stay for self-built trees.
+
+⚠️ **Migration hazard, stated plainly.** A client on `≤ v3.0.0` predates `pickMacDmg()` and takes the *first* `.dmg` in the manifest with no arch check. With only an arm64 DMG published:
+
+- an Apple Silicon Mac trapped on the x64 build is **rescued** by accident — it finally lands on arm64;
+- a **genuine Intel Mac would be handed an artefact it cannot execute**. Clients on `≥ v3.1.0` handle this correctly: `pickMacDmg` returns `null` for an x64 host rather than a wrong-arch asset, and the updater now says the Intel build is retired instead of reporting a missing file.
+
 ### Changed
 
 - **Pane header drops the effort tier.** The title pill rendered `<name> · high`

@@ -208,10 +208,10 @@ with an arm64-only manifest → `null`. `pnpm tsc -b` and `pnpm eslint .` green.
 > `process.execPath` + `ELECTRON_RUN_AS_NODE=1`; win32 quoting followed in #248.
 >
 > ⚠️ **Owed before release, two separate debts:**
-> 1. **Packaged launch on Windows + Linux.** Never verified by anything. The
+> 1. **Packaged launch on Windows.** Never verified by anything. The
 >    v1.0.1 `lazy-val` incident above is the failure mode: a module absent from
->    the package crashes at first launch and fails no test. Build the artifacts
->    on each platform and launch them.
+>    the package crashes at first launch and fails no test. Build the artifact
+>    and launch it. *(Linux left this list in v3.1.0 — artefacts retired.)*
 > 2. **Packaged smoke of all three MCP entries**, not just External Control.
 >    `mcp-jorvis-host-server.cjs` and the memory server now run from inside an
 >    asar for the first time ever (asar was off since v1.0.1).
@@ -268,10 +268,11 @@ cover this: `e2e-matrix.yml` never packages (see the header block above).
 
 **Definition of done.** ✅ *macOS:* the packaged app launches from `release/`; a
 pane spawns; the DB opens; `Check for updates` returns without error; packaged
-size recorded before/after in the audit doc. ❌ *Windows + Linux:* the same
+size recorded before/after in the audit doc. ❌ *Windows:* the same
 packaged-launch checklist is **still unmet** — green `e2e-matrix.yml` does not
 satisfy it, because that workflow launches the unpacked `electron-dist/` tree,
-never a packaged artifact.
+never a packaged artifact. *(Linux was on this line until v3.1.0 retired its
+artefacts; it is now moot rather than met.)*
 
 **Re-verified at `51d3a0d8` (2026-08-01), macOS arm64.** The earlier macOS smoke
 was taken at an older SHA; this one is a fresh `electron-builder --mac dmg
@@ -532,12 +533,15 @@ WKWebView equivalent.
    `app/docs/perf/2026-07-28-arm64-baseline.md`. Note the two caveats in Phase 2:
    the pane counts differ (17 vs 14), so **the −47% total may not be quoted as a
    saving**; only the 468 MB → 0 Rosetta-arena delta is clean.
-2. **Packaged launch on Windows + Linux.** Still verified by *nothing*:
+2. **Packaged launch on Windows.** Still verified by *nothing*:
    `e2e-matrix.yml` launches the unpacked `electron-dist/` tree and never invokes
    electron-builder, which runs only on a `v*` tag push. macOS is now proven
    twice — at merge, and re-verified at `51d3a0d8` on 2026-08-01 (pack + launch +
-   DB open + real PTY spawn through `app.asar`) — the other two platforms are
-   not, and mac proves nothing about either.
+   DB open + real PTY spawn through `app.asar`) — Windows is not, and mac proves
+   nothing about it.
+   *Linux dropped out of this item in v3.1.0*: the Linux artefacts are retired,
+   so there is no packaged Linux build left to smoke. This is the one release
+   blocker the platform cut actually shrank — it did not fix Windows.
 3. Packaged smoke of **all three** MCP entries (External Control is proven;
    jorvis-host and memory-server run from inside an asar for the first time).
 4. **Windows RAM-brake live verification.** Every receipt in #251 is source-trace
