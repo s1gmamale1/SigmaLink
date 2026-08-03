@@ -104,11 +104,26 @@ mac:
   extendInfo:
     NSMicrophoneUsageDescription: "SigmaLink uses your microphone for voice commands."
     NSSpeechRecognitionUsageDescription: "SigmaLink uses speech recognition to dispatch commands to AI agents."
+  # v3.1.0 — Apple Silicon ONLY. The x64 (Intel) mac target is retired.
+  #
+  # Every Mac Apple has shipped since 2020 is arm64, the whole team is on
+  # Apple Silicon, and the x64 build was actively harmful here: it is what the
+  # pre-#247 updater handed to every ARM user, costing 468 MB of Rosetta
+  # translation arenas plus a CPU/battery tax (receipts:
+  # `app/docs/perf/2026-07-28-arm64-baseline.md`).
+  #
+  # ⚠️ Migration hazard for clients on <= v3.0.0. Their updater predates
+  # `pickMacDmg()` and takes the FIRST `.dmg` in the manifest with no arch
+  # check. With only an arm64 DMG published that is a rescue for a trapped
+  # Apple Silicon user, but it would hand a genuine Intel Mac an artefact it
+  # cannot execute. Clients on >= v3.1.0 resolve this correctly — `pickMacDmg`
+  # returns null for an x64 host rather than a wrong-arch asset, and
+  # `auto-update.ts` surfaces it as an unsupported-platform message.
   target:
     - target: dmg
-      arch: [x64, arm64]
+      arch: [arm64]
     - target: zip
-      arch: [x64, arm64]
+      arch: [arm64]
 win:
   target:
     - target: nsis
@@ -132,28 +147,28 @@ nsis:
   uninstallerIcon: build/icon.ico
   installerHeaderIcon: build/icon.ico
   include: build/installer.nsh
-# Linux is a supported x64 platform. CI builds and smokes AppImage + deb on
-# ubuntu-latest before release upload. Runtime support targets Ubuntu 22.04 LTS
-# and Ubuntu 24.04 LTS.
-linux:
-  target:
-    - target: AppImage
-      arch: [x64]
-    - target: deb
-      arch: [x64]
-  category: Development
-# Pin the .deb artifactName so the uploaded asset matches what
-# scripts/install-linux.sh downloads (SigmaLink_<version>_amd64.deb).
-# electron-builder's deb default template uses the raw package.json "name"
-# (sigmalink-agent-orchestrator_<version>_amd64.deb), which would 404 the
-# one-line installer — same dashed/underscore 404 class the nsis block above
-# already guards against. AppImage keeps its productName-based default
-# (SigmaLink-<version>.AppImage).
-deb:
-  artifactName: ${productName}_${version}_${arch}.${ext}
+# v3.1.0 — Linux artefacts retired. No `linux:`/`deb:` target block.
+#
+# AppImage + deb were published for Ubuntu 22.04/24.04 x64 through v3.0.0 and
+# are no longer built or uploaded: SigmaLink is an internal tool and the team
+# runs Apple Silicon macOS and Windows x64 only, so the Linux artefacts were
+# release surface nobody installed.
+#
+# This retires ARTEFACTS, not Linux support in the code. The ubuntu jobs in
+# `e2e-matrix.yml` and `lint-and-build.yml` stay — they are cheap, fast, and
+# catch real portability bugs on every PR, which is signal worth keeping
+# whether or not a `.AppImage` is ever uploaded again. `pickLinuxAppImage()`
+# and the `process.platform === 'linux'` updater branch also stay: they are
+# tested, harmless, and make a self-built Linux tree work.
+#
+# To bring Linux back: restore a `linux:` target block, re-add
+# `release-linux.yml`, and restore `app/scripts/install-linux.sh` (which
+# depended on the `deb:` artifactName pin below, removed with it —
+# electron-builder's deb default uses the raw package.json "name" and would
+# 404 the one-line installer).
 # V3-W14-008 — auto-update channel. Targets the public GitHub Releases of the
-# SigmaLink repository so `electron-updater` can resolve `latest-mac.yml`,
-# `latest.yml`, and `latest-linux.yml` from a single source. macOS code-signing
+# SigmaLink repository so `electron-updater` can resolve `latest-mac.yml` and
+# `latest.yml` from a single source. macOS code-signing
 # is intentionally out-of-scope for v1 — users get an unsigned dmg until a
 # Developer ID is attached. The renderer gates the actual update check behind
 # `kv['updates.optIn']='1'` (default OFF).
