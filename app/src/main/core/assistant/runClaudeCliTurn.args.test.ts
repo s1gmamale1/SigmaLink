@@ -144,3 +144,85 @@ describe('resolveSystemPrompt — build override untouched (back-compat)', () =>
     expect(prompt).toBe('OVERRIDE-TEXT');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Fresh-install MCP permission grant.
+//
+// The CLI is spawned headless (`-p`) with no TTY, so a permission prompt
+// cannot be answered — an un-approved tool call is DENIED. Before this,
+// nothing pre-approved the jorvis-host tools, so Jorvis worked only where
+// `~/.claude/settings.json` happened to carry a permissive `defaultMode` or a
+// matching `permissions.allow`. On a clean install that file does not exist
+// and every Jorvis tool call was refused.
+// ---------------------------------------------------------------------------
+
+import { applyMcpHostConfig, buildJorvisAllowedTools } from './runClaudeCliTurn.args';
+import { JORVIS_TOOL_CATALOGUE } from './tool-catalogue';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+function realMcpHost() {
+  // writeJorvisHostMcpConfig bails unless serverEntry exists on disk.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jorvis-args-'));
+  const serverEntry = path.join(dir, 'mcp-jorvis-host-server.cjs');
+  fs.writeFileSync(serverEntry, '// probe\n');
+  return { serverEntry, socketPath: path.join(dir, 'host.sock'), workspaceRoot: dir };
+}
+
+describe('jorvis MCP tool permissions (fresh install)', () => {
+  it('grants every catalogue tool explicitly — a new tool cannot ship denied-by-omission', () => {
+    const allowed = buildJorvisAllowedTools();
+    expect(allowed).toHaveLength(JORVIS_TOOL_CATALOGUE.length);
+    expect(allowed.length).toBeGreaterThan(0);
+    // Exact 1:1 with the catalogue, which tool-catalogue.test.ts already pins
+    // to tools.ts ids in both directions.
+    expect([...allowed].sort()).toEqual(
+      JORVIS_TOOL_CATALOGUE.map((t) => `mcp__jorvis-host__${t.name}`).sort(),
+    );
+  });
+
+  it('uses exact tool ids — never a wildcard or a blanket permission bypass', () => {
+    const args: string[] = [];
+    applyMcpHostConfig(args, realMcpHost(), 'conv-1', 'ws-1');
+    const joined = args.join(' ');
+    expect(joined).not.toContain('*');
+    expect(joined).not.toContain('--dangerously-skip-permissions');
+    expect(joined).not.toContain('bypassPermissions');
+    expect(joined).not.toContain('--permission-mode');
+  });
+
+  it('passes the allowlist as ONE argv element so the variadic flag cannot swallow later flags', () => {
+    const args: string[] = [];
+    applyMcpHostConfig(args, realMcpHost(), 'conv-1', 'ws-1');
+    const i = args.indexOf('--allowedTools');
+    expect(i).toBeGreaterThan(-1);
+    const value = args[i + 1];
+    expect(value).toBeTypeOf('string');
+    expect(value.split(',')).toHaveLength(JORVIS_TOOL_CATALOGUE.length);
+    // Nothing after the value may be a stray tool id.
+    expect(args.slice(i + 2).every((a) => !a.startsWith('mcp__'))).toBe(true);
+  });
+
+  it('emits the grant alongside the mcp config, and NOT when the config is skipped', () => {
+    const withHost: string[] = [];
+    applyMcpHostConfig(withHost, realMcpHost(), 'conv-1', 'ws-1');
+    expect(withHost).toContain('--mcp-config');
+    expect(withHost).toContain('--allowedTools');
+
+    // No host bridge → no config, so no grant either.
+    const withoutHost: string[] = [];
+    applyMcpHostConfig(withoutHost, undefined, 'conv-1', 'ws-1');
+    expect(withoutHost).toEqual([]);
+
+    // Bridge wired but the bundled server entry is missing on disk.
+    const missingEntry: string[] = [];
+    applyMcpHostConfig(
+      missingEntry,
+      { serverEntry: '/nope/does-not-exist.cjs', socketPath: '/tmp/x.sock' },
+      'conv-1',
+      'ws-1',
+    );
+    expect(missingEntry).toEqual([]);
+  });
+});
