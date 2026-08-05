@@ -26,6 +26,7 @@ import { workspaces as workspacesTable } from '../db/schema';
 import { isClaudeSessionId } from '../pty/claude-resume-sigma';
 import { buildJorvisSystemPrompt } from './system-prompt';
 import { writeJorvisHostMcpConfig } from './mcp-host-sigma';
+import { JORVIS_TOOL_CATALOGUE } from './tool-catalogue';
 import * as conversationsDao from './conversations';
 import { loadJorvisCharter } from '../operator/charter';
 import { listAmendments } from '../operator/amendments';
@@ -146,6 +147,38 @@ export function buildCliArgs(
   return args;
 }
 
+/** MCP server name declared in `writeJorvisHostMcpConfig`. Tool ids the CLI
+ *  exposes are `mcp__<server>__<tool>`; the hyphen is preserved verbatim. */
+const JORVIS_MCP_SERVER = 'jorvis-host';
+
+/**
+ * The exact `--allowedTools` list for a Jorvis turn.
+ *
+ * WHY THIS EXISTS — fresh-install permission failure.
+ * We spawn the CLI headless (`-p`), which has no TTY, so a permission prompt
+ * cannot be answered: an un-approved tool call is simply DENIED. Nothing in
+ * SigmaLink was pre-approving the jorvis-host tools, so Jorvis worked only on
+ * machines whose `~/.claude/settings.json` happened to carry a permissive
+ * `defaultMode` (e.g. `"auto"`) or a matching `permissions.allow` entry. On a
+ * clean install that file does not exist, so every Jorvis tool call was
+ * refused — "Jorvis can't get permission for MCP tool calling". It reproduced
+ * on other people's machines and never on the author's, which is exactly the
+ * signature of depending on ambient local config.
+ *
+ * Derived from `JORVIS_TOOL_CATALOGUE` rather than hand-listed, so a new tool
+ * cannot ship allow-listed-by-omission. `tool-catalogue.test.ts` already pins
+ * the catalogue to `tools.ts` ids in both directions, which makes the
+ * catalogue a safe single source for this too.
+ *
+ * Deliberately the NARROWEST grant that works, matching `mcp-trust.ts`:
+ * exact tool ids, **no wildcard**, no `--permission-mode bypassPermissions`,
+ * no `--dangerously-skip-permissions`. It widens nothing beyond the tools
+ * this server already declares, and it does not touch built-in tools.
+ */
+export function buildJorvisAllowedTools(): string[] {
+  return JORVIS_TOOL_CATALOGUE.map((t) => `mcp__${JORVIS_MCP_SERVER}__${t.name}`);
+}
+
 // BUG-V1.1.2-01 — Write a temp `.mcp.json` and load it when the host bridge
 // is wired AND the bundled stdio server exists on disk. Non-fatal: the
 // turn still streams text, just without Sigma tools.
@@ -158,7 +191,12 @@ export function applyMcpHostConfig(
   if (!mcpHost?.serverEntry || !mcpHost?.socketPath) return;
   try {
     const path = writeJorvisHostMcpConfig(mcpHost, conversationId, workspaceId ?? undefined);
-    if (path) args.push('--mcp-config', path, '--strict-mcp-config');
+    if (!path) return;
+    args.push('--mcp-config', path, '--strict-mcp-config');
+    // Passed as ONE comma-separated argv element on purpose: `--allowedTools`
+    // is variadic (`<tools...>`), so pushing 53 bare elements would let it
+    // swallow any flag appended after it.
+    args.push('--allowedTools', buildJorvisAllowedTools().join(','));
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn('[runClaudeCliTurn] failed to write jorvis-host mcp config:', msg);
