@@ -533,25 +533,44 @@ WKWebView equivalent.
    `app/docs/perf/2026-07-28-arm64-baseline.md`. Note the two caveats in Phase 2:
    the pane counts differ (17 vs 14), so **the −47% total may not be quoted as a
    saving**; only the 468 MB → 0 Rosetta-arena delta is clean.
-2. **Packaged launch on Windows.** Still verified by *nothing*:
-   `e2e-matrix.yml` launches the unpacked `electron-dist/` tree and never invokes
-   electron-builder, which runs only on a `v*` tag push. macOS is now proven
-   twice — at merge, and re-verified at `51d3a0d8` on 2026-08-01 (pack + launch +
-   DB open + real PTY spawn through `app.asar`) — Windows is not, and mac proves
-   nothing about it.
+2. **Packaged launch on Windows — HALF closed, still the blocker.**
+   ✅ *The package now exists and is verified.* `release-windows.yml` was
+   dispatched off `main` at `c134489c` (run `31022114616`, 4m32s, success) —
+   the first packaged Windows build ever produced outside a tag:
+   `packaging platform=win32 arch=x64 electron=30.5.1` ·
+   `[verify-packaged-deps] 6 keep-list module(s) present in
+   …\release\win-unpacked\resources` · `SigmaLink-Setup-3.1.0.exe` (174 MB
+   artefact, expires 2026-09-04). That closes the `lazy-val` failure class —
+   a module missing from the win32 package would have failed the guard.
+   ❌ *Nobody has launched it.* CI builds the installer and never runs it, so
+   first-launch, pane spawn and the RAM brake are still unproven on Windows.
+   **This is what a tag is still waiting on.** Steps: install the EXE, confirm
+   it boots, spawn a pane, watch memory (item 4 is the same sitting).
    *Linux dropped out of this item in v3.1.0*: the Linux artefacts are retired,
-   so there is no packaged Linux build left to smoke. This is the one release
-   blocker the platform cut actually shrank — it did not fix Windows.
-3. Packaged smoke of **all three** MCP entries (External Control is proven;
-   jorvis-host and memory-server run from inside an asar for the first time).
+   so there is no packaged Linux build left to smoke.
+3. ✅ **Packaged smoke of all three MCP entries** — done 2026-08-05 against a
+   real `--mac dmg --arm64` pack of `c134489c`. All three resolve their module
+   graph from **inside `app.asar`** (`/electron-dist/mcp-sigma-control-server.cjs`,
+   `mcp-jorvis-host-server.cjs`, `mcp-memory-server.cjs`) — **no
+   `MODULE_NOT_FOUND` on any of them**, which was the whole concern. Each then
+   fails only on missing runtime config, and does so cleanly: sigma-control and
+   memory-server return well-formed JSON-RPC errors, jorvis-host exits 1 with
+   `JORVIS_HOST_SOCKET env var is required`. Given real env, memory-server
+   completes a **full handshake** — `initialize` → `sigmamemory@1.0.0`, then
+   `tools/list` → the real tool catalogue.
+   ⚠️ Not proven: jorvis-host and sigma-control against a **live** app socket;
+   they were driven to the handshake boundary, not through a session.
 4. **Windows RAM-brake live verification.** Every receipt in #251 is source-trace
    and unit-test. Nobody has yet proven the brake contains the leak on a real
    Windows box.
 5. ✅ Version bump — `app/package.json` is now `3.1.0` (minor: arch-aware
    updater, package prune, RAM brake, shell quoting, win32 spawn-mode default).
    **Bumped, not tagged** — tagging stays an explicit operator action.
-6. Release notes must tell Apple Silicon users on the x64 build that they need
-   **one manual arm64 install**; their updater cannot rescue them.
+6. ✅ **Release notes drafted** — `docs/releases/v3.1.0.md`, ready to paste as
+   the GitHub Release body. Leads with the manual-arm64 warning (their updater
+   cannot rescue them), states the Intel-mac + Linux retirement, and carries the
+   measured numbers **with** the caveat that the −47% total is uncontrolled and
+   only the 468 MB → 0 Rosetta delta may be quoted.
 
 **Rejected:** Electron → Tauri/Rust migration. ~630 dev-days (10–15 months
 operator-led) for 40–55 %, versus days for 30–40 % via Phases 2–5, and it would
